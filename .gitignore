@@ -1,0 +1,153 @@
+# ============================================================
+# Secrets / env
+# ============================================================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+.Python
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+backend/venv/
+backend/.venv/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+nosetests.xml
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ============================================================
+# Node / Next.js (frontend)
+# ============================================================
+frontend/node_modules/
+node_modules/
+frontend/.next/
+.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+
+# Next.js TS build info
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Yarn / pnpm
+.yarn/
+.pnp.*
+.yarn-integrity
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ============================================================
+# IDE / editor
+# ============================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# OS
+# ============================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Trashes
+ehthumbs.db
+
+# ============================================================
+# Agent / tool artifacts
+# ============================================================
+GEMINI.md
+CLAUDE.md
+graphify-out/
+.graphify_chunk_*.txt
+.claude/
+plans/
+
+# ============================================================
+# Project-specific runtime artifacts
+# ============================================================
+
+# Uploaded resumes — runtime, never commit user files
+backend/uploads/
+!backend/uploads/.gitkeep
+
+# Score log + calibration outputs (regenerated per env)
+backend/data/score_log.jsonl
+backend/data/labels.jsonl
+backend/data/calibration_results.json
+
+# Calibration corpus — personal/sensitive resumes + JDs, never commit
+backend/data/calibration_corpus/resumes/*
+backend/data/calibration_corpus/jds/*
+!backend/data/calibration_corpus/resumes/.gitkeep
+!backend/data/calibration_corpus/jds/.gitkeep
+!backend/data/calibration_corpus/README.md
+
+# Qdrant / DB local state
+qdrant_storage/
+backend/qdrant_storage/
+postgres_data/
+backend_uploads/
+
+# Spacy model artifacts (if downloaded locally)
+*.spacy

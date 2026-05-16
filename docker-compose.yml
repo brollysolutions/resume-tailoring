@@ -1,0 +1,76 @@
+services:
+  db:
+    image: postgres:15
+    container_name: resume_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-resumedb}
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - resume_network
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: resume_qdrant
+    restart: always
+    ports:
+      - "6334:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - resume_network
+
+  backend:
+    build: ./backend
+    container_name: resume_backend
+    restart: always
+    ports:
+      - "8004:8000"
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-resumedb}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - LLM_PROVIDER=${LLM_PROVIDER:-groq}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - db
+      - qdrant
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      - backend_uploads:/app/uploads
+    networks:
+      - resume_network
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8004}
+    container_name: resume_frontend
+    restart: always
+    ports:
+      - "3004:3004"
+    depends_on:
+      - backend
+    networks:
+      - resume_network
+
+networks:
+  resume_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  hf_cache:
+  backend_uploads:

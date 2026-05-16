@@ -1,0 +1,508 @@
+"use client";
+
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Minus, Plus, Maximize, FileText, Download, ChevronDown, AlertTriangle, Info } from "lucide-react";
+import type { ResumeData, Suggestion, GeneratedProject } from "@/types/resume";
+
+type NewProject = Pick<GeneratedProject, "name" | "tech" | "bullets">;
+
+interface ResumePreviewProps {
+  resumeId: string | null;
+  templateId?: string;
+  approvedSuggestions: Suggestion[];
+  newProjects?: NewProject[];
+  /** Tailored resume after accepted suggestions — used to attribute overflow to sections. */
+  resume?: ResumeData | null;
+  onDownload?: (format: "pdf" | "docx") => void;
+  isDownloading?: "pdf" | "docx" | null;
+}
+
+const BASE_WIDTH = 816;   // 8.5in @ 96dpi
+const BASE_HEIGHT = 1056; // 11in @ 96dpi
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 3;
+// Rough rendered line height in the iframe (matches the templates' body line-height).
+// Used only for advisory math ("you're ~K lines over") — not for layout.
+const LINE_HEIGHT_PX = 22;
+// Characters per visual line at typical body width — used to estimate how many
+// visual lines a long bullet wraps to in the rendered template.
+const CHARS_PER_LINE = 95;
+
+/**
+ * Canvas-style resume preview. The iframe renders at native letter size
+ * (816×1056); a transform stage handles zoom + pan. Mouse-wheel + Ctrl/⌘
+ * zooms; drag pans. Toolbar exposes fit-width / fit-page / 100%.
+ */
+export function ResumePreview({ resumeId, templateId = "modern", approvedSuggestions, newProjects, resume, onDownload, isDownloading }: ResumePreviewProps) {
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const [html, setHtml] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [pageHeight, setPageHeight] = useState(BASE_HEIGHT);
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+
+  const fitWidth = useCallback(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (el.clientWidth - 24) / BASE_WIDTH));
+    setZoom(z);
+    setPan({ x: (el.clientWidth - BASE_WIDTH * z) / 2, y: 12 });
+  }, []);
+
+  const fitPage = useCallback(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const zw = (el.clientWidth - 24) / BASE_WIDTH;
+    const zh = (el.clientHeight - 24) / BASE_HEIGHT;
+    const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(zw, zh)));
+    setZoom(z);
+    setPan({
+      x: (el.clientWidth - BASE_WIDTH * z) / 2,
+      y: (el.clientHeight - BASE_HEIGHT * z) / 2,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const maxFit = (el.clientWidth - 24) / BASE_WIDTH;
+    const z = Math.max(MIN_ZOOM, Math.min(0.76, maxFit));
+    setZoom(z);
+    setPan({ x: (el.clientWidth - BASE_WIDTH * z) / 2, y: 12 });
+  }, []);
+
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => fitPage());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fitPage]);
+
+  useEffect(() => {
+    if (!resumeId) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+        const res = await fetch(`${apiUrl}/api/tailor/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            resume_id: resumeId,
+            template_id: templateId,
+            suggestions: approvedSuggestions.map((s) => ({
+              id: s.id,
+              section: s.section,
+              mode: s.mode,
+              original: s.original,
+              suggested: s.suggested,
+              category: s.category,
+              skill: s.skill,
+              target_category: s.target_category,
+              is_new_category: s.is_new_category,
+            })),
+            ...(newProjects && newProjects.length > 0 ? { new_projects: newProjects } : {}),
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || "Preview failed.");
+        }
+        const data = await res.json();
+        setHtml(data.html || "");
+      } catch (err: any) {
+        setError(err.message || "Could not load preview.");
+      } finally {
+        setIsLoading(false);
+      }
+    }, 250);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [resumeId, templateId, approvedSuggestions, newProjects]);
+
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const el = canvasRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      setZoom((prevZoom) => {
+        const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prevZoom * factor));
+        // Anchor zoom at cursor.
+        setPan((prevPan) => {
+          const ratio = next / prevZoom;
+          return {
+            x: mouseX - (mouseX - prevPan.x) * ratio,
+            y: mouseY - (mouseY - prevPan.y) * ratio,
+          };
+        });
+        return next;
+      });
+    } else {
+      // Plain scroll → pan vertically.
+      setPan((prev) => ({ x: prev.x, y: prev.y - e.deltaY }));
+    }
+  }, []);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Pan from anywhere — iframe has pointer-events:none so it never captures clicks.
+    isDragging.current = true;
+    dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging.current) return;
+    setPan({
+      x: dragStart.current.panX + (e.clientX - dragStart.current.x),
+      y: dragStart.current.panY + (e.clientY - dragStart.current.y),
+    });
+  };
+
+  const handleMouseUp = () => {
+    isDragging.current = false;
+  };
+
+  const setZoomClamped = useCallback((nextZoom: number) => {
+    const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
+    const el = canvasRef.current;
+    if (el) {
+      const cw = el.clientWidth;
+      const ch = el.clientHeight;
+      const scaledW = BASE_WIDTH * z;
+      const scaledH = pageHeight * z;
+      setPan({
+        x: Math.max(12, (cw - scaledW) / 2),
+        y: scaledH < ch ? Math.max(12, (ch - scaledH) / 2) : 12,
+      });
+    }
+    setZoom(z);
+  }, [pageHeight]);
+
+  // Per-section line-count estimate. Wrapping is approximated as
+  // ceil(chars / CHARS_PER_LINE) — good enough for advisory math.
+  const sectionBreakdown = useMemo(() => {
+    if (!resume) return [] as Array<{ name: string; lines: number; px: number }>;
+    const estimateLines = (text: string) =>
+      Math.max(1, Math.ceil((text || "").length / CHARS_PER_LINE));
+
+    const sections: Array<{ name: string; lines: number }> = [];
+
+    if (resume.summary && resume.summary.trim()) {
+      sections.push({ name: "Summary", lines: estimateLines(resume.summary) });
+    }
+    if (resume.experience && resume.experience.length > 0) {
+      let lines = 0;
+      for (const e of resume.experience) {
+        lines += 1; // header
+        for (const b of e.bullets || []) lines += estimateLines(b);
+      }
+      sections.push({ name: "Experience", lines });
+    }
+    if (resume.projects && resume.projects.length > 0) {
+      let lines = 0;
+      for (const p of resume.projects) {
+        lines += 1; // header
+        for (const b of p.bullets || []) lines += estimateLines(b);
+      }
+      sections.push({ name: "Projects", lines });
+    }
+    if (resume.education && resume.education.length > 0) {
+      let lines = 0;
+      for (const e of resume.education) {
+        lines += 1;
+        for (const d of e.details || []) lines += estimateLines(d);
+      }
+      sections.push({ name: "Education", lines });
+    }
+    if (resume.skills && resume.skills.length > 0) {
+      let lines = 0;
+      for (const c of resume.skills) {
+        lines += 1 + estimateLines((c.skills || []).join(", "));
+      }
+      sections.push({ name: "Skills", lines });
+    }
+    if (resume.certifications && resume.certifications.length > 0) {
+      let lines = 0;
+      for (const c of resume.certifications) lines += estimateLines(c);
+      sections.push({ name: "Certifications", lines });
+    }
+
+    return sections
+      .map((s) => ({ ...s, px: s.lines * LINE_HEIGHT_PX }))
+      .sort((a, b) => b.lines - a.lines);
+  }, [resume]);
+
+  const overflowPx = Math.max(0, pageHeight - BASE_HEIGHT);
+  const overflowLines = overflowPx > 0 ? Math.ceil(overflowPx / LINE_HEIGHT_PX) : 0;
+  const isOver = overflowPx > 0;
+  const isNearEdge = !isOver && pageHeight > BASE_HEIGHT * 0.92;
+  const headroomPx = Math.max(0, BASE_HEIGHT - pageHeight);
+
+  const onIframeLoad = () => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    try {
+      const doc = iframe.contentDocument;
+      if (!doc?.body) return;
+      // Belt-and-suspenders: kill any chance of the iframe body itself
+      // scrolling. The outer canvas pan/zoom is the only allowed scroll path.
+      if (!doc.getElementById("__no_iframe_scroll__")) {
+        const style = doc.createElement("style");
+        style.id = "__no_iframe_scroll__";
+        style.textContent = "html,body{margin:0;overflow:hidden;}";
+        doc.head?.appendChild(style);
+      }
+      const body = doc.body;
+      const measure = () => {
+        const h = Math.max(BASE_HEIGHT, body.scrollHeight);
+        setPageHeight((cur) => (h !== cur ? h : cur));
+      };
+      measure();
+      // Re-measure on layout changes inside the iframe (font swap, image
+      // load, late paint) so pageHeight always covers the real content.
+      const teardown = (iframe as unknown as { _cleanupRO?: () => void });
+      teardown._cleanupRO?.();
+      const ro = new ResizeObserver(measure);
+      ro.observe(body);
+      teardown._cleanupRO = () => ro.disconnect();
+    } catch {
+      // Cross-origin fallback ignored — srcDoc keeps us same-origin.
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-2 mb-2 px-1">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+          Preview
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setZoomClamped(zoom * 0.9)}
+            className="btn-ghost p-1.5"
+            title="Zoom out"
+          >
+            <Minus className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setZoomClamped(1)}
+            className="text-[11px] tabular-nums px-2 py-1 rounded hover:bg-subtle transition-colors min-w-[3.5rem]"
+            title="Reset to 100%"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <button
+            onClick={() => setZoomClamped(zoom * 1.1)}
+            className="btn-ghost p-1.5"
+            title="Zoom in"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+          <span className="w-px h-4 bg-border mx-1" />
+          <button
+            onClick={fitWidth}
+            className="btn-ghost p-1.5"
+            title="Fit to width"
+          >
+            <Maximize className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={fitPage}
+            className="btn-ghost p-1.5"
+            title="Fit whole page"
+          >
+            <FileText className="w-3.5 h-3.5" />
+          </button>
+          {onDownload && (
+            <div className="relative">
+              <button
+                onClick={() => setShowDownloadMenu((v) => !v)}
+                disabled={isDownloading != null}
+                className="btn-primary h-7 px-2 text-[11px] inline-flex items-center gap-1 disabled:opacity-60"
+                title="Download tailored resume"
+              >
+                {isDownloading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Download className="w-3.5 h-3.5" />
+                )}
+                Download
+                <ChevronDown className="w-3 h-3" />
+              </button>
+              {showDownloadMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowDownloadMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-20 w-32 card shadow-xl py-1">
+                    <button
+                      onClick={() => { setShowDownloadMenu(false); onDownload("pdf"); }}
+                      disabled={isDownloading != null}
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-subtle transition-colors flex items-center gap-2"
+                    >
+                      <Download className="w-3 h-3" /> PDF
+                    </button>
+                    <button
+                      onClick={() => { setShowDownloadMenu(false); onDownload("docx"); }}
+                      disabled={isDownloading != null}
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-subtle transition-colors flex items-center gap-2"
+                    >
+                      <Download className="w-3 h-3" /> DOCX
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Overflow advisory — appears above the canvas when content exceeds one page,
+          or as a soft hint when close to the limit. */}
+      {isOver && !isLoading && (
+        <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-snug">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-700 mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="font-semibold text-amber-900">
+                Resume runs ~{Math.round(overflowPx)}px over one page (~{overflowLines} extra line{overflowLines !== 1 ? "s" : ""}).
+              </p>
+              <p className="text-amber-800">
+                Tip: remove ~{overflowLines} bullet{overflowLines !== 1 ? "s" : ""} from your longest section{resume?.summary && resume.summary.trim() ? ", or tighten the summary" : ""}.
+              </p>
+              {sectionBreakdown.length > 0 && (
+                <p className="text-amber-700/90">
+                  Longest:{" "}
+                  {sectionBreakdown.slice(0, 3).map((s, i) => (
+                    <span key={s.name}>
+                      {i > 0 && " · "}
+                      <span className="font-medium">{s.name}</span>{" "}
+                      <span className="text-amber-700/70">({s.lines} lines · ~{Math.round(s.px)}px)</span>
+                    </span>
+                  ))}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {isNearEdge && !isLoading && (
+        <div className="mb-2 rounded-md border border-border bg-subtle/40 px-3 py-1.5 text-[11px] inline-flex items-center gap-1.5 text-muted">
+          <Info className="w-3 h-3" />
+          You&apos;re ~{Math.round(headroomPx)}px from spilling onto page 2.
+        </div>
+      )}
+
+      {/* Canvas */}
+      <div
+        ref={canvasRef}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        className="relative flex-1 rounded-lg bg-slate-100 border border-border overflow-hidden"
+        style={{
+          cursor: isDragging.current ? "grabbing" : "grab",
+          minHeight: "60vh",
+        }}
+      >
+        {isLoading && (
+          <div className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 text-[11px] text-muted bg-white/80 backdrop-blur px-2 py-1 rounded shadow-sm">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Updating preview…
+          </div>
+        )}
+
+        {error && !isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-danger">
+            {error}
+          </div>
+        )}
+
+        {!error && (
+          <div
+            ref={wrapperRef}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: BASE_WIDTH,
+              height: pageHeight,
+              transformOrigin: "0 0",
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              boxShadow: "0 4px 24px rgba(0,0,0,0.10)",
+              background: "white",
+            }}
+          >
+            <iframe
+              ref={iframeRef}
+              srcDoc={html}
+              title="Resume preview"
+              onLoad={onIframeLoad}
+              scrolling="no"
+              style={{
+                width: BASE_WIDTH,
+                height: pageHeight,
+                border: 0,
+                background: "white",
+                display: "block",
+                pointerEvents: "none",
+              }}
+            />
+            {/* Page boundary lines — one dashed red line per page break */}
+            {Array.from({ length: Math.floor(pageHeight / BASE_HEIGHT) }, (_, i) => i + 1).map((page) => (
+              <div
+                key={page}
+                style={{
+                  position: "absolute",
+                  top: page * BASE_HEIGHT,
+                  left: 0,
+                  width: "100%",
+                  height: 0,
+                  borderTop: "2px dashed rgba(239,68,68,0.55)",
+                  pointerEvents: "none",
+                  zIndex: 5,
+                }}
+              >
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    right: 4,
+                    fontSize: 9,
+                    fontFamily: "sans-serif",
+                    color: "rgba(239,68,68,0.8)",
+                    background: "white",
+                    padding: "0 3px",
+                    lineHeight: "14px",
+                  }}
+                >
+                  page {page + 1} starts
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="absolute bottom-2 left-2 text-[10px] text-muted/70 select-none pointer-events-none bg-white/60 backdrop-blur px-1.5 py-0.5 rounded">
+          drag to pan · Ctrl/⌘ + wheel to zoom
+        </div>
+      </div>
+    </div>
+  );
+}

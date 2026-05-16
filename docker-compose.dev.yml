@@ -1,0 +1,86 @@
+services:
+  db:
+    image: postgres:15
+    container_name: resume_db_dev
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-resumedb}
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    networks:
+      - resume_network_dev
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: resume_qdrant_dev
+    restart: always
+    ports:
+      - "6334:6333"
+    volumes:
+      - qdrant_data_dev:/qdrant/storage
+    networks:
+      - resume_network_dev
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: resume_backend_dev
+    restart: always
+    ports:
+      - "8004:8000"
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-resumedb}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - LLM_PROVIDER=${LLM_PROVIDER:-groq}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HF_HUB_OFFLINE=1
+      - PRELOAD_EMBEDDING_MODEL=false
+    depends_on:
+      - db
+      - qdrant
+    volumes:
+      - ./backend:/app                              # live code reload
+      - backend_uploads_dev:/app/uploads            # persisted uploads (overlays bind mount)
+      - ~/.cache/huggingface:/root/.cache/huggingface  # host model cache — never re-downloads
+    networks:
+      - resume_network_dev
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: resume_frontend_dev
+    restart: always
+    ports:
+      - "3004:3004"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8004}
+      - WATCHPACK_POLLING=true
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app                             # live code reload
+      - /app/node_modules                           # keep container's node_modules
+      - /app/.next                                  # keep container's build cache
+    networks:
+      - resume_network_dev
+
+networks:
+  resume_network_dev:
+    driver: bridge
+
+volumes:
+  postgres_data_dev:
+  qdrant_data_dev:
+  backend_uploads_dev:

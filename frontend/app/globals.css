@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #ffffff;
+  --color-foreground: #0a0a0a;
+  --color-muted: #6b7280;
+  --color-subtle: #f4f4f5;
+  --color-border: #e5e7eb;
+  --color-card: #ffffff;
+
+  --color-accent: #111827;
+  --color-accent-hover: #000000;
+
+  --color-success: #16a34a;
+  --color-danger: #dc2626;
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  :root {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer utilities {
+  .card {
+    @apply bg-card border border-border rounded-lg;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md
+           bg-accent text-white text-sm font-medium
+           hover:bg-accent-hover transition-colors
+           disabled:opacity-40 disabled:pointer-events-none;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md
+           border border-border bg-white text-foreground text-sm font-medium
+           hover:bg-subtle transition-colors
+           disabled:opacity-40 disabled:pointer-events-none;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md
+           text-muted text-sm font-medium
+           hover:bg-subtle hover:text-foreground transition-colors;
+  }
+
+  .input {
+    @apply w-full px-3 py-2.5 rounded-md border border-border bg-white text-sm
+           placeholder:text-muted/70
+           focus:outline-none focus:border-foreground transition-colors;
+  }
+
+  /* Thin, subtle scrollbar — visible only on hover for a clean look. */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 0.2s ease;
+  }
+  .scrollbar-thin:hover {
+    scrollbar-color: var(--color-border) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+    transition: background 0.2s ease;
+  }
+  .scrollbar-thin:hover::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: var(--color-muted);
+  }
+}
+
+/* Print styles for resume export */
+@media print {
+  body * { visibility: hidden; }
+  body { background: white !important; }
+  .resume-paper, .resume-paper * {
+    visibility: visible;
+    color: black !important;
+  }
+  .resume-paper {
+    position: absolute;
+    left: 0; top: 0;
+    width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  @page { margin: 0.5in; size: letter portrait; }
+}

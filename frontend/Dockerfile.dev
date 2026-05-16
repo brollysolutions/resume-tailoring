@@ -1,0 +1,13 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+# Source is volume-mounted at runtime — no build step.
+# node_modules stays inside the container via an anonymous volume in compose.
+
+EXPOSE 3004
+
+CMD ["npm", "run", "dev"]
