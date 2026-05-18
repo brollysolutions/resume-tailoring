@@ -126,8 +126,9 @@
 
   {%- set _default_order = ["summary","experience","projects","education","publications","awards","languages","volunteer","patents","talks","skills","certifications"] %}
   {%- set order = resume.section_order if resume.section_order else _default_order %}
+  {%- set hidden = resume.hidden_sections or [] %}
 
-  {%- for sec in order %}
+  {%- for sec in order if sec not in hidden %}
   {%- if sec == "summary" and resume.summary %}
   <h2>Summary</h2>
   <p class="summary">{{ resume.summary }}</p>

@@ -449,7 +449,10 @@ def _render_docx_modern(resume: Resume, density_key: str = "standard") -> bytes:
         r.font.size = Pt(base_size)
         return p
 
+    _hidden = set(resume.hidden_sections or [])
     for sec in (resume.section_order or _DEFAULT_ORDER):
+        if sec in _hidden:
+            continue
         if sec == "summary" and resume.summary:
             section_heading("Summary")
             p = doc.add_paragraph()
@@ -595,7 +598,10 @@ def _render_docx_classic(resume: Resume, density_key: str = "standard") -> bytes
         _set_section_heading_border(p)
         return p
 
+    _hidden = set(resume.hidden_sections or [])
     for sec in (resume.section_order or _DEFAULT_ORDER):
+        if sec in _hidden:
+            continue
         if sec == "summary" and resume.summary:
             section_heading("Summary")
             p = doc.add_paragraph()
@@ -742,7 +748,10 @@ def _render_docx_academic(resume: Resume, density_key: str = "standard") -> byte
         _set_section_heading_border(p, color="111111")
         return p
 
+    _hidden = set(resume.hidden_sections or [])
     for sec in (resume.section_order or _DEFAULT_ORDER):
+        if sec in _hidden:
+            continue
         if sec == "summary" and resume.summary:
             section_heading("Summary")
             p = doc.add_paragraph()
@@ -858,7 +867,10 @@ def resume_to_plaintext(resume: Resume) -> str:
     if parts:
         lines.append(" | ".join(parts))
 
+    _hidden = set(resume.hidden_sections or [])
     for sec in (resume.section_order or _DEFAULT_ORDER):
+        if sec in _hidden:
+            continue
         if sec == "summary" and resume.summary:
             lines += ["", "SUMMARY", resume.summary]
         elif sec == "experience" and resume.experience:

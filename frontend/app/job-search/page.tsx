@@ -432,27 +432,36 @@ function JobSearchContent() {
 
       {/* Template picker */}
       <section className="mb-12">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
             Template
           </h2>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wider text-muted">Density</span>
-            <div className="inline-flex rounded-md border border-border overflow-hidden">
-              {(["auto", "compact", "standard", "expanded"] as const).map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => handleDensityChange(d)}
-                  className={`px-2.5 py-1 text-[11px] capitalize transition-colors ${
-                    layoutDensity === d
-                      ? "bg-foreground text-background"
-                      : "bg-transparent text-muted hover:bg-subtle"
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => router.push("/sections")}
+              className="text-[11px] text-muted hover:text-foreground underline underline-offset-2"
+            >
+              Manage sections
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-wider text-muted">Density</span>
+              <div className="inline-flex rounded-md border border-border overflow-hidden">
+                {(["auto", "compact", "standard", "expanded"] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => handleDensityChange(d)}
+                    className={`px-2.5 py-1 text-[11px] capitalize transition-colors ${
+                      layoutDensity === d
+                        ? "bg-foreground text-background"
+                        : "bg-transparent text-muted hover:bg-subtle"
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>

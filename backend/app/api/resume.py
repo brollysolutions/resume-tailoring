@@ -186,3 +186,54 @@ async def get_resume_json(resume_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+from pydantic import BaseModel
+from typing import Optional, List
+
+
+class SectionsPatch(BaseModel):
+    section_order: Optional[List[str]] = None
+    hidden_sections: Optional[List[str]] = None
+
+
+@router.patch("/{resume_id}/sections")
+async def patch_resume_sections(resume_id: str, body: SectionsPatch):
+    """Update section_order and/or hidden_sections on a stored Resume."""
+    from app.models.resume_schema import Resume
+    try:
+        q_client = init_qdrant("resumes")
+        results = q_client.retrieve(collection_name="resumes", ids=[resume_id], with_payload=True)
+        if not results:
+            raise HTTPException(status_code=404, detail="Resume not found.")
+        point = results[0]
+        payload = dict(point.payload or {})
+        raw = payload.get("resume_json")
+        if not raw:
+            raise HTTPException(status_code=500, detail="Stored resume JSON missing.")
+        resume = Resume.model_validate(json.loads(raw))
+
+        update_data = {}
+        if body.section_order is not None:
+            update_data["section_order"] = body.section_order
+        if body.hidden_sections is not None:
+            update_data["hidden_sections"] = body.hidden_sections
+        if update_data:
+            resume = resume.model_copy(update=update_data)
+
+        payload["resume_json"] = resume.model_dump_json()
+        q_client.set_payload(
+            collection_name="resumes",
+            payload=payload,
+            points=[resume_id],
+        )
+        return {
+            "resume_id": resume_id,
+            "section_order": resume.section_order,
+            "hidden_sections": resume.hidden_sections,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("PATCH sections failed")
+        raise HTTPException(status_code=500, detail=str(e))

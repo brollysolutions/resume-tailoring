@@ -268,6 +268,7 @@ class Resume(BaseModel):
     talks: List[Talk] = Field(default_factory=list)
     extra_sections: List[ExtraSection] = Field(default_factory=list)
     section_order: List[str] = Field(default_factory=list)
+    hidden_sections: List[str] = Field(default_factory=list)
 
     @field_validator(
         "experience", "education", "projects", "skills",
@@ -282,7 +283,7 @@ class Resume(BaseModel):
     @classmethod
     def normalize_publications(cls, v): return _coerce_publication_list(v)
 
-    @field_validator("certifications", "section_order", mode="before")
+    @field_validator("certifications", "section_order", "hidden_sections", mode="before")
     @classmethod
     def normalize_str_lists(cls, v): return _coerce_str_list(v)
 
