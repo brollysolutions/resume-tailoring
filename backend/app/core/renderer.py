@@ -6,7 +6,7 @@ Single source of truth for visual output. The same Resume object renders to:
 HTML templates are loose files in backend/app/templates/ — drop in a new
 {template_id}.html to add a template (you'll also need a DOCX builder).
 
-Available templates: modern, classic.
+Available templates: modern, classic, academic.
 """
 import logging
 import os
@@ -44,6 +44,11 @@ TEMPLATES: List[Dict[str, str]] = [
         "id": "classic",
         "name": "Classic",
         "description": "Serif, traditional centered header. Best for formal industries.",
+    },
+    {
+        "id": "academic",
+        "name": "Academic",
+        "description": "LaTeX-inspired serif layout with hanging-indent publications. Best for research and academic roles.",
     },
 ]
 
@@ -88,7 +93,7 @@ def _doc_width(doc):
     return section.page_width - section.left_margin - section.right_margin
 
 
-def _set_section_heading_border(paragraph):
+def _set_section_heading_border(paragraph, color="000000"):
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
     pPr = paragraph._p.get_or_add_pPr()
@@ -97,7 +102,7 @@ def _set_section_heading_border(paragraph):
     bottom.set(qn("w:val"), "single")
     bottom.set(qn("w:sz"), "6")
     bottom.set(qn("w:space"), "2")
-    bottom.set(qn("w:color"), "000000")
+    bottom.set(qn("w:color"), color)
     pBdr.append(bottom)
     pPr.append(pBdr)
 
@@ -200,7 +205,7 @@ def _render_docx_modern(resume: Resume) -> bytes:
         cr = cp.add_run(contact)
         cr.font.size = Pt(9.5)
         cr.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
-        _set_section_heading_border(cp)
+        _set_section_heading_border(cp, color="d0d0d0")
 
     def section_heading(text: str):
         p = doc.add_paragraph()
@@ -232,7 +237,7 @@ def _render_docx_modern(resume: Resume) -> bytes:
         elif sec == "projects" and resume.projects:
             section_heading("Projects")
             for proj in resume.projects:
-                _two_col_row(doc, proj.name, proj.tech or "", bold_left=True, italic_right=True)
+                _two_col_row(doc, proj.name, proj.tech or "", bold_left=True)
                 for b in proj.bullets:
                     _bullet(doc, b)
         elif sec == "education" and resume.education:
@@ -290,14 +295,14 @@ def _render_docx_classic(resume: Resume) -> bytes:
 
     doc = Document()
     for section in doc.sections:
-        section.top_margin = Inches(0.6)
-        section.bottom_margin = Inches(0.6)
-        section.left_margin = Inches(0.7)
-        section.right_margin = Inches(0.7)
+        section.top_margin = Inches(0.5)
+        section.bottom_margin = Inches(0.5)
+        section.left_margin = Inches(0.6)
+        section.right_margin = Inches(0.6)
 
     style = doc.styles["Normal"]
     style.font.name = "Georgia"
-    style.font.size = Pt(11)
+    style.font.size = Pt(10.8)
 
     # Centered name in small caps
     name_p = doc.add_paragraph()
@@ -398,9 +403,136 @@ def _render_docx_classic(resume: Resume) -> bytes:
     return buf.getvalue()
 
 
+# --- Academic DOCX builder ---------------------------------------------------
+
+def _render_docx_academic(resume: Resume) -> bytes:
+    from docx import Document
+    from docx.shared import Pt, Inches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Inches(0.75)
+        section.bottom_margin = Inches(0.75)
+        section.left_margin = Inches(0.75)
+        section.right_margin = Inches(0.75)
+
+    style = doc.styles["Normal"]
+    style.font.name = "Georgia"
+    style.font.size = Pt(11)
+
+    # Centered name in small-caps style
+    name_p = doc.add_paragraph()
+    name_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    name_p.paragraph_format.space_after = Pt(5)
+    nr = name_p.add_run((resume.name or "").upper())
+    nr.font.size = Pt(26)
+    nr.font.name = "Georgia"
+
+    # Centered contact, bottom border
+    contact = _contact_line(resume)
+    if contact:
+        cp = doc.add_paragraph()
+        cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cp.paragraph_format.space_after = Pt(8)
+        cr = cp.add_run(contact)
+        cr.font.size = Pt(9.5)
+        _set_section_heading_border(cp, color="000000")
+
+    def section_heading(text: str):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(16)
+        p.paragraph_format.space_after = Pt(5)
+        r = p.add_run(text.upper())
+        r.bold = True
+        r.font.size = Pt(13)
+        r.font.name = "Georgia"
+        _set_section_heading_border(p, color="111111")
+        return p
+
+    for sec in (resume.section_order or _DEFAULT_ORDER):
+        if sec == "summary" and resume.summary:
+            section_heading("Summary")
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            p.paragraph_format.space_after = Pt(2)
+            p.add_run(resume.summary).font.size = Pt(11)
+        elif sec == "experience" and resume.experience:
+            section_heading("Work Experience")
+            for exp in resume.experience:
+                date = ""
+                if exp.start_date or exp.end_date:
+                    date = f"{exp.start_date or ''}{' – ' if (exp.start_date and exp.end_date) else ''}{exp.end_date or ''}"
+                _two_col_row(doc, exp.company or exp.title, date, bold_left=True, italic_right=True, size=11)
+                if exp.company:
+                    _two_col_row(doc, exp.title, exp.location or "", italic_left=True, size=10.5)
+                for b in exp.bullets:
+                    _bullet(doc, b, size=11)
+        elif sec == "projects" and resume.projects:
+            section_heading("Projects")
+            for proj in resume.projects:
+                _two_col_row(doc, proj.name, proj.tech or "", bold_left=True, italic_right=True, size=11)
+                for b in proj.bullets:
+                    _bullet(doc, b, size=11)
+        elif sec == "education" and resume.education:
+            section_heading("Education")
+            for ed in resume.education:
+                date = ""
+                if ed.start_date or ed.end_date:
+                    date = f"{ed.start_date or ''}{' – ' if (ed.start_date and ed.end_date) else ''}{ed.end_date or ''}"
+                _two_col_row(doc, ed.institution, date, bold_left=True, italic_right=True, size=11)
+                sub_left = ""
+                if ed.degree:
+                    sub_left = ed.degree
+                if ed.field:
+                    sub_left = (sub_left + " in " if sub_left else "") + ed.field
+                sub_right = ed.location or ""
+                if ed.gpa:
+                    sub_right = (sub_right + " · " if sub_right else "") + f"GPA: {ed.gpa}"
+                if sub_left or sub_right:
+                    _two_col_row(doc, sub_left, sub_right, italic_left=True, size=10.5)
+                for d in ed.details:
+                    _bullet(doc, d, size=11)
+        elif sec == "publications" and resume.publications:
+            section_heading("Publications")
+            for pub in resume.publications:
+                p = doc.add_paragraph()
+                p.paragraph_format.space_after = Pt(4)
+                p.paragraph_format.left_indent = Pt(16)
+                p.paragraph_format.first_line_indent = Pt(-16)
+                r = p.add_run(pub)
+                r.font.size = Pt(10.5)
+        elif sec == "skills" and resume.skills:
+            section_heading("Skills")
+            for sk in resume.skills:
+                p = doc.add_paragraph()
+                p.paragraph_format.space_after = Pt(1)
+                cat = p.add_run(f"{sk.category}: ")
+                cat.bold = True
+                cat.font.size = Pt(11)
+                val = p.add_run(", ".join(sk.skills))
+                val.font.size = Pt(11)
+        elif sec == "certifications" and resume.certifications:
+            section_heading("Certifications")
+            for c in resume.certifications:
+                _bullet(doc, c, size=11)
+        elif sec.startswith("extra:"):
+            extra_title = sec[6:]
+            for extra in resume.extra_sections:
+                if extra.title == extra_title:
+                    _render_extra_section_docx(doc, extra, section_heading, size=11)
+                    break
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 _DOCX_BUILDERS = {
     "modern": _render_docx_modern,
     "classic": _render_docx_classic,
+    "academic": _render_docx_academic,
 }
 
 

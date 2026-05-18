@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ resume.name }}</title>
+<style>
+  @page { size: Letter; margin: 0.75in; }
+  * { box-sizing: border-box; }
+  html, body { background: #fff; }
+  body {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-size: 11pt;
+    line-height: 1.4;
+    color: #000;
+    margin: 0;
+    padding: 0;
+  }
+  p, div, span, h1, h2, h3 { list-style: none; }
+  p, li { orphans: 2; widows: 2; }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 12pt;
+    padding-bottom: 8pt;
+    border-bottom: 0.5pt solid #000;
+  }
+  h1 {
+    font-size: 26pt;
+    font-weight: 400;
+    font-variant: small-caps;
+    letter-spacing: 0.06em;
+    text-align: center;
+    margin: 0 0 5pt 0;
+    line-height: 1.1;
+  }
+  .contact {
+    font-size: 9.5pt;
+    color: #222;
+    margin: 0;
+  }
+
+  /* Section headings — left-aligned small-caps with thick rule */
+  h2 {
+    font-size: 13pt;
+    font-weight: 700;
+    font-variant: small-caps;
+    letter-spacing: 0.05em;
+    text-align: left;
+    margin: 16pt 0 5pt 0;
+    padding-bottom: 2pt;
+    border-bottom: 1pt solid #111;
+  }
+
+  /* Entries */
+  .entry { margin-bottom: 8pt; page-break-inside: avoid; }
+  .entry-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11pt;
+    flex-wrap: nowrap;
+    gap: 6pt;
+  }
+  .entry-head .left { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entry-head .right { font-style: italic; white-space: nowrap; flex-shrink: 0; color: #333; }
+  .entry-sub {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5pt;
+    color: #333;
+    margin: 1pt 0 3pt 0;
+    font-style: italic;
+  }
+
+  ul { margin: 3pt 0 0 0; padding-left: 16pt; list-style: disc outside; }
+  li { margin-bottom: 2pt; }
+  p { margin: 0 0 4pt 0; }
+
+  .summary { text-align: justify; margin-bottom: 2pt; }
+
+  /* Skills: two-column label + value */
+  .skill-row { margin: 0 0 2pt 0; }
+  .skill-cat { font-weight: 700; }
+
+  /* Publications: hanging indent */
+  .pub-list { list-style: none; padding: 0; margin: 0; }
+  .pub-list li {
+    padding-left: 1.5em;
+    text-indent: -1.5em;
+    margin-bottom: 5pt;
+    font-size: 10.5pt;
+    line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>{{ resume.name or "" }}</h1>
+
+    {%- set parts = [] %}
+    {%- if resume.contact.phone %}{% set _ = parts.append(resume.contact.phone) %}{% endif %}
+    {%- if resume.contact.email %}{% set _ = parts.append(resume.contact.email) %}{% endif %}
+    {%- if resume.contact.location %}{% set _ = parts.append(resume.contact.location) %}{% endif %}
+    {%- if resume.contact.linkedin %}{% set _ = parts.append(resume.contact.linkedin) %}{% endif %}
+    {%- if resume.contact.github %}{% set _ = parts.append(resume.contact.github) %}{% endif %}
+    {%- if resume.contact.website %}{% set _ = parts.append(resume.contact.website) %}{% endif %}
+    {%- if parts %}
+    <p class="contact">{{ parts | join('  ·  ') }}</p>
+    {%- endif %}
+  </div>
+
+  {%- set _default_order = ["summary","experience","projects","education","publications","skills","certifications"] %}
+  {%- set order = resume.section_order if resume.section_order else _default_order %}
+
+  {%- for sec in order %}
+  {%- if sec == "summary" and resume.summary %}
+  <h2>Summary</h2>
+  <p class="summary">{{ resume.summary }}</p>
+  {%- elif sec == "experience" and resume.experience %}
+  <h2>Work Experience</h2>
+  {%- for exp in resume.experience %}
+  <div class="entry">
+    <div class="entry-head">
+      <span class="left">{{ exp.company or exp.title }}</span>
+      <span class="right">
+        {%- if exp.start_date %}{{ exp.start_date }}{% endif -%}
+        {%- if exp.start_date and exp.end_date %} – {% endif -%}
+        {%- if exp.end_date %}{{ exp.end_date }}{% endif -%}
+      </span>
+    </div>
+    {%- if exp.company %}
+    <div class="entry-sub">
+      <span>{{ exp.title }}</span>
+      <span>{{ exp.location or '' }}</span>
+    </div>
+    {%- endif %}
+    {%- if exp.bullets %}
+    <ul>
+      {%- for b in exp.bullets %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+    {%- endif %}
+  </div>
+  {%- endfor %}
+  {%- elif sec == "projects" and resume.projects %}
+  <h2>Projects</h2>
+  {%- for p in resume.projects %}
+  <div class="entry">
+    <div class="entry-head">
+      <span class="left">{{ p.name }}</span>
+      {%- if p.tech %}<span class="right">{{ p.tech }}</span>{% endif %}
+    </div>
+    {%- if p.bullets %}
+    <ul>
+      {%- for b in p.bullets %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+    {%- endif %}
+  </div>
+  {%- endfor %}
+  {%- elif sec == "education" and resume.education %}
+  <h2>Education</h2>
+  {%- for ed in resume.education %}
+  <div class="entry">
+    <div class="entry-head">
+      <span class="left">{{ ed.institution }}</span>
+      <span class="right">
+        {%- if ed.start_date %}{{ ed.start_date }}{% endif -%}
+        {%- if ed.start_date and ed.end_date %} – {% endif -%}
+        {%- if ed.end_date %}{{ ed.end_date }}{% endif -%}
+      </span>
+    </div>
+    <div class="entry-sub">
+      <span>
+        {%- if ed.degree %}{{ ed.degree }}{% endif -%}
+        {%- if ed.field %}{% if ed.degree %} in {% endif %}{{ ed.field }}{% endif -%}
+      </span>
+      <span>
+        {%- if ed.location %}{{ ed.location }}{% endif -%}
+        {%- if ed.gpa %}{% if ed.location %} · {% endif %}GPA: {{ ed.gpa }}{% endif -%}
+      </span>
+    </div>
+    {%- if ed.details %}
+    <ul>
+      {%- for d in ed.details %}<li>{{ d }}</li>{% endfor %}
+    </ul>
+    {%- endif %}
+  </div>
+  {%- endfor %}
+  {%- elif sec == "publications" and resume.publications %}
+  <h2>Publications</h2>
+  <ul class="pub-list">
+    {%- for p in resume.publications %}<li>{{ p }}</li>{% endfor %}
+  </ul>
+  {%- elif sec == "skills" and resume.skills %}
+  <h2>Skills</h2>
+  {%- for sk in resume.skills %}
+  <p class="skill-row"><span class="skill-cat">{{ sk.category }}:</span> {{ sk.skills | join(', ') }}</p>
+  {%- endfor %}
+  {%- elif sec == "certifications" and resume.certifications %}
+  <h2>Certifications</h2>
+  <ul>
+    {%- for c in resume.certifications %}<li>{{ c }}</li>{% endfor %}
+  </ul>
+  {%- elif sec[:6] == "extra:" %}
+  {%- set extra_title = sec[6:] %}
+  {%- for extra in resume.extra_sections if extra.title == extra_title %}
+  <h2>{{ extra.title }}</h2>
+  {%- if extra.content_type == "entries" %}
+  {%- for item in extra.items %}
+  <div class="entry">
+    {%- if item.header %}<div class="entry-head"><span class="left">{{ item.header }}</span></div>{%- endif %}
+    {%- if item.subheader %}<div class="entry-sub">{{ item.subheader }}</div>{%- endif %}
+    {%- if item.text %}<p>{{ item.text }}</p>{%- endif %}
+    {%- if item.bullets %}
+    <ul>{%- for b in item.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+    {%- endif %}
+  </div>
+  {%- endfor %}
+  {%- elif extra.content_type == "list" %}
+  <ul>
+    {%- for item in extra.items %}<li>{{ item.text or item.header }}</li>{% endfor %}
+  </ul>
+  {%- elif extra.content_type == "text" %}
+  {%- for item in extra.items %}<p>{{ item.text }}</p>{% endfor %}
+  {%- endif %}
+  {%- endfor %}
+  {%- endif %}
+  {%- endfor %}
+</body>
+</html>
