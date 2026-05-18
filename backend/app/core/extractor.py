@@ -29,6 +29,9 @@ ABSOLUTE FIDELITY RULES (these override every other instruction):
 - If the resume has no Talks/Presentations section, "talks" MUST be [].
 - If the resume has no extra/non-standard sections (anything besides those listed above), "extra_sections" MUST be [].
 - Never invent dates, companies, titles, bullets, or skills that are not literally present in the source text.
+- NEVER fabricate contact fields. If the source does NOT show a phone number (digits in the contact area), "contact.phone" MUST be null. Same applies to email, location, linkedin, github, website — only populate them if literally present.
+- NEVER fabricate publication metadata. For each Publication entry, only populate authors / venue / year / doi / url if those values appear LITERALLY in the publication line. If you cannot see the field, set it to null. Do NOT infer publisher, venue, or year from book titles, topics, or world knowledge. If the source says only "Deep Learning on Web." then title="Deep Learning on Web" and ALL OTHER FIELDS = null.
+- NEVER fabricate award metadata. Only populate issuer / date / description if literally present. Same applies to talks (venue/date/type) and patents (number/date/status/authors) — fields not in the source MUST be null.
 
 Rules:
 - Use the candidate's exact wording — do not paraphrase, do not add information that isn't there.
@@ -36,9 +39,9 @@ Rules:
 - For dates, preserve original formatting (e.g., "Aug 2020", "Jun 2025 – Dec 2025", "Present", "May 2024 - Current").
 - Each bullet point becomes its own string. Strip leading bullet characters (•, -, –, *).
 - For skills: if the resume groups skills under category labels (e.g., "Backend:", "Programming:"), use those category names. Otherwise put everything under category "Skills". DO NOT lump spoken languages here — those go in "languages".
-- For publications: parse each entry into {title, authors, venue, year, doi, url}. If you can't split it, put the whole citation in "title" and leave others null.
+- For publications: parse each entry into {title, authors, venue, year, doi, url}. Only fill a field if it appears LITERALLY in that publication line. If the entry is just a bare title (e.g., "Deep Learning on Web."), title="Deep Learning on Web" and authors/venue/year/doi/url MUST all be null. Never invent publisher, year, technology stack, or co-authors.
 - For awards: parse each into {title, issuer, date, description}. Honors and accolades go here, NOT in certifications.
-- For languages: parse each into {name, proficiency}. Proficiency is one of: Native, Fluent, Conversational, Basic. If unknown, leave null.
+- For languages: parse each into {name, proficiency}. The "name" is the language itself (e.g., "English", "Spanish"). Proficiency is one of: Native, Fluent, Conversational, Basic — leave null if not stated. A bare language name like "English" is valid: {"name": "English", "proficiency": null}.
 - For volunteer: parse each into {role, organization, location, start_date, end_date, bullets}. Same shape as experience.
 - For patents: parse each into {title, number, date, status, authors}. Status is "Granted" or "Pending".
 - For talks: parse each into {title, venue, date, type}. Type is "Conference", "Workshop", or "Seminar".
@@ -273,6 +276,56 @@ def _normalize_order(raw_order: list, extra_titles: list[str]) -> list[str]:
     return result
 
 
+def _normalize_for_substring(s: str) -> str:
+    """Lowercase + collapse whitespace + strip punctuation tails for matching."""
+    if not s:
+        return ""
+    s = s.lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    # Strip trailing dots/colons that LLM often adds
+    s = s.rstrip(".,;: ")
+    return s
+
+
+def _appears_in(needle: str, haystack: str) -> bool:
+    """Case-insensitive substring check with whitespace normalization."""
+    n = _normalize_for_substring(needle)
+    if not n or len(n) < 3:
+        return False
+    return n in haystack
+
+
+def _filter_hallucinated_sections(resume: Resume, raw_text: str) -> None:
+    """Mutate resume in place — drop entries whose identifying field doesn't
+    appear in the raw source text. Catches LLM fabrications from world knowledge
+    (e.g., known author's publication metadata) that slip past the prompt rules."""
+    hay = _normalize_for_substring(raw_text)
+    if not hay:
+        return
+
+    resume.publications = [p for p in resume.publications if _appears_in(p.title, hay)]
+    resume.awards = [a for a in resume.awards if _appears_in(a.title, hay)]
+    resume.patents = [p for p in resume.patents if _appears_in(p.title, hay)]
+    resume.talks = [t for t in resume.talks if _appears_in(t.title, hay)]
+    resume.languages = [l for l in resume.languages if _appears_in(l.name, hay)]
+    resume.volunteer = [
+        v for v in resume.volunteer
+        if _appears_in(v.role, hay) or _appears_in(v.organization, hay)
+    ]
+
+    # Phone: must have at least 7 digits matching source
+    if resume.contact.phone:
+        phone_digits = re.sub(r"\D", "", resume.contact.phone)
+        if len(phone_digits) >= 7:
+            text_digits = re.sub(r"\D", "", raw_text)
+            if phone_digits not in text_digits:
+                resume.contact.phone = None
+        elif phone_digits:
+            # Has digits but very few — keep if appears as-is (e.g., placeholders)
+            if resume.contact.phone.lower() not in hay:
+                resume.contact.phone = None
+
+
 async def extract_resume(raw_text: str) -> Resume:
     user_prompt = f"Resume text:\n\n{raw_text[:8000]}"
     try:
@@ -312,6 +365,11 @@ async def extract_resume(raw_text: str) -> Resume:
         # re-upload if the parse was really that broken.
         name = (data.get("name") if isinstance(data, dict) else None) or "Unknown"
         return Resume(name=name)
+
+    # Hard fidelity guard: drop entries whose identifying field doesn't appear
+    # in source text. Catches LLM fabrications from world knowledge that slip
+    # past the prompt rules.
+    _filter_hallucinated_sections(resume, raw_text)
 
     if isinstance(data, dict):
         extra_titles = [e.title for e in resume.extra_sections]
