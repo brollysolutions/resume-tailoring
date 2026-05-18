@@ -22,7 +22,12 @@ ABSOLUTE FIDELITY RULES (these override every other instruction):
 - If the resume has no Projects section, "projects" MUST be [].
 - If the resume has no Certifications section, "certifications" MUST be [].
 - If the resume has no Publications section, "publications" MUST be [].
-- If the resume has no extra/non-standard sections, "extra_sections" MUST be [].
+- If the resume has no Awards/Honors section, "awards" MUST be [].
+- If the resume has no Languages section, "languages" MUST be [].
+- If the resume has no Volunteer Experience section, "volunteer" MUST be [].
+- If the resume has no Patents section, "patents" MUST be [].
+- If the resume has no Talks/Presentations section, "talks" MUST be [].
+- If the resume has no extra/non-standard sections (anything besides those listed above), "extra_sections" MUST be [].
 - Never invent dates, companies, titles, bullets, or skills that are not literally present in the source text.
 
 Rules:
@@ -30,9 +35,15 @@ Rules:
 - If a field is missing from the resume, use null (for strings) or an empty array (for lists).
 - For dates, preserve original formatting (e.g., "Aug 2020", "Jun 2025 – Dec 2025", "Present", "May 2024 - Current").
 - Each bullet point becomes its own string. Strip leading bullet characters (•, -, –, *).
-- For skills: if the resume groups skills under category labels (e.g., "Backend:", "Languages:"), use those category names. Otherwise put everything under category "Skills".
-- section_order: list ALL section headings top-to-bottom using their original title casing. Prefix extra (non-standard) sections with "extra:" (e.g. ["Summary", "Experience", "Publications", "Education", "Skills"]). Include every section present in the document.
-- extra_sections: any section NOT matching summary/experience/education/projects/skills/certifications/publications goes here. Do NOT drop it. Set content_type to "entries" if items have headers or bullets, "list" if short one-liners, "text" if a prose block.
+- For skills: if the resume groups skills under category labels (e.g., "Backend:", "Programming:"), use those category names. Otherwise put everything under category "Skills". DO NOT lump spoken languages here — those go in "languages".
+- For publications: parse each entry into {title, authors, venue, year, doi, url}. If you can't split it, put the whole citation in "title" and leave others null.
+- For awards: parse each into {title, issuer, date, description}. Honors and accolades go here, NOT in certifications.
+- For languages: parse each into {name, proficiency}. Proficiency is one of: Native, Fluent, Conversational, Basic. If unknown, leave null.
+- For volunteer: parse each into {role, organization, location, start_date, end_date, bullets}. Same shape as experience.
+- For patents: parse each into {title, number, date, status, authors}. Status is "Granted" or "Pending".
+- For talks: parse each into {title, venue, date, type}. Type is "Conference", "Workshop", or "Seminar".
+- section_order: list ALL section headings top-to-bottom using lowercase canonical keys: summary, experience, projects, education, skills, certifications, publications, awards, languages, volunteer, patents, talks. Prefix only truly unrecognized sections with "extra:" (e.g. "extra:Hobbies"). Include every section present.
+- extra_sections: ONLY for sections that don't match any of the standard types above. Do NOT put awards/languages/volunteer/patents/talks here — they have first-class fields. Set content_type to "entries" if items have headers or bullets, "list" if short one-liners, "text" if a prose block.
 - Return ONLY the JSON. No prose, no markdown fence, no commentary.
 
 SCHEMA:
@@ -83,7 +94,57 @@ SCHEMA:
     }
   ],
   "certifications": ["string"],
-  "publications": ["string"],
+  "publications": [
+    {
+      "title": "string",
+      "authors": "string|null",
+      "venue": "string|null",
+      "year": "string|null",
+      "doi": "string|null",
+      "url": "string|null"
+    }
+  ],
+  "awards": [
+    {
+      "title": "string",
+      "issuer": "string|null",
+      "date": "string|null",
+      "description": "string|null"
+    }
+  ],
+  "languages": [
+    {
+      "name": "string",
+      "proficiency": "Native|Fluent|Conversational|Basic|null"
+    }
+  ],
+  "volunteer": [
+    {
+      "role": "string",
+      "organization": "string",
+      "location": "string|null",
+      "start_date": "string|null",
+      "end_date": "string|null",
+      "bullets": ["string"]
+    }
+  ],
+  "patents": [
+    {
+      "title": "string",
+      "number": "string|null",
+      "date": "string|null",
+      "status": "Granted|Pending|null",
+      "authors": "string|null"
+    }
+  ],
+  "talks": [
+    {
+      "title": "string",
+      "venue": "string|null",
+      "date": "string|null",
+      "type": "Conference|Workshop|Seminar|null"
+    }
+  ],
   "section_order": ["string"],
   "extra_sections": [
     {
@@ -167,7 +228,25 @@ _SECTION_MAP = {
     "proficiencies": "skills",
     "certifications": "certifications",
     "certificates": "certifications",
-    "awards": "certifications",
+    "publications": "publications",
+    "selected publications": "publications",
+    "awards": "awards",
+    "honors": "awards",
+    "honors and awards": "awards",
+    "achievements": "awards",
+    "accomplishments": "awards",
+    "languages": "languages",
+    "language proficiency": "languages",
+    "volunteer": "volunteer",
+    "volunteer experience": "volunteer",
+    "volunteering": "volunteer",
+    "community service": "volunteer",
+    "patents": "patents",
+    "inventions": "patents",
+    "talks": "talks",
+    "presentations": "talks",
+    "talks and presentations": "talks",
+    "speaking engagements": "talks",
 }
 
 
@@ -240,8 +319,12 @@ async def extract_resume(raw_text: str) -> Resume:
 
         # Ensure all populated standard sections are in the order somewhere
         # (prevents them from being invisible if the LLM forgot them in section_order)
-        for key in ["summary", "experience", "education", "projects", "skills", "certifications"]:
-            val = getattr(resume, key)
+        for key in [
+            "summary", "experience", "education", "projects", "skills",
+            "certifications", "publications", "awards", "languages",
+            "volunteer", "patents", "talks",
+        ]:
+            val = getattr(resume, key, None)
             if val and key not in resume.section_order:
                 resume.section_order.append(key)
 

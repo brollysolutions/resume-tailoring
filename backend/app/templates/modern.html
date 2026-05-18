@@ -83,6 +83,18 @@
   .summary { margin: 0 0 4pt 0; }
   .skill-row { margin: 0 0 3pt 0; }
   .skill-cat { font-weight: 600; }
+
+  .lang-row { margin: 0 0 3pt 0; }
+  .pub-list, .patent-list { list-style: none; padding: 0; margin: 0; }
+  .pub-list li, .patent-list li {
+    padding-left: 1.5em;
+    text-indent: -1.5em;
+    margin-bottom: 4pt;
+    font-size: 10pt;
+    line-height: 1.35;
+  }
+  .pub-list li em, .patent-list li em { font-style: italic; }
+  .talk-venue { font-size: 10pt; color: #555; font-style: italic; }
 </style>
 </head>
 <body>
@@ -99,7 +111,7 @@
   <p class="contact">{{ parts | join('  ·  ') }}</p>
   {%- endif %}
 
-  {%- set _default_order = ["summary","experience","projects","education","skills","publications","certifications"] %}
+  {%- set _default_order = ["summary","experience","projects","education","skills","publications","awards","languages","volunteer","patents","talks","certifications"] %}
   {%- set order = resume.section_order if resume.section_order else _default_order %}
 
   {%- for sec in order %}
@@ -182,9 +194,91 @@
   {%- endfor %}
   {%- elif sec == "publications" and resume.publications %}
   <h2>Publications</h2>
-  <ul>
-    {%- for p in resume.publications %}<li>{{ p }}</li>{% endfor %}
+  <ul class="pub-list">
+    {%- for p in resume.publications %}
+    <li>
+      {%- if p.authors %}{{ p.authors }}. {% endif -%}
+      {%- if p.year %}({{ p.year }}). {% endif -%}
+      {{ p.title }}{% if p.title and not p.title.endswith('.') %}.{% endif %}
+      {%- if p.venue %} <em>{{ p.venue }}</em>.{% endif -%}
+      {%- if p.doi %} DOI: {{ p.doi }}.{% endif -%}
+      {%- if p.url %} {{ p.url }}{% endif -%}
+    </li>
+    {%- endfor %}
   </ul>
+  {%- elif sec == "awards" and resume.awards %}
+  <h2>Awards</h2>
+  {%- for a in resume.awards %}
+  <div class="entry">
+    <div class="entry-head">
+      <span>{{ a.title }}</span>
+      {%- if a.date %}<span>{{ a.date }}</span>{% endif %}
+    </div>
+    {%- if a.issuer %}<div class="entry-sub"><span class="role">{{ a.issuer }}</span></div>{% endif %}
+    {%- if a.description %}<p>{{ a.description }}</p>{% endif %}
+  </div>
+  {%- endfor %}
+  {%- elif sec == "languages" and resume.languages %}
+  <h2>Languages</h2>
+  <p class="lang-row">
+    {%- for l in resume.languages -%}
+    {{ l.name }}{% if l.proficiency %} ({{ l.proficiency }}){% endif %}{% if not loop.last %}, {% endif %}
+    {%- endfor -%}
+  </p>
+  {%- elif sec == "volunteer" and resume.volunteer %}
+  <h2>Volunteer Experience</h2>
+  {%- for v in resume.volunteer %}
+  <div class="entry">
+    <div class="entry-head">
+      <span>{{ v.organization }}</span>
+      <span>
+        {%- if v.start_date %}{{ v.start_date }}{% endif -%}
+        {%- if v.start_date and v.end_date %} – {% endif -%}
+        {%- if v.end_date %}{{ v.end_date }}{% endif -%}
+      </span>
+    </div>
+    {%- if v.role or v.location %}
+    <div class="entry-sub">
+      <span class="role">{{ v.role or '' }}</span>
+      <span>{{ v.location or '' }}</span>
+    </div>
+    {%- endif %}
+    {%- if v.bullets %}
+    <ul>
+      {%- for b in v.bullets %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+    {%- endif %}
+  </div>
+  {%- endfor %}
+  {%- elif sec == "patents" and resume.patents %}
+  <h2>Patents</h2>
+  <ul class="patent-list">
+    {%- for p in resume.patents %}
+    <li>
+      <strong>{{ p.title }}</strong>
+      {%- if p.number %} (Patent No. {{ p.number }}){% endif -%}
+      {%- if p.date %} — {{ p.date }}{% endif -%}
+      {%- if p.status %} [{{ p.status }}]{% endif -%}
+      {%- if p.authors %}. <em>{{ p.authors }}</em>{% endif -%}
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- elif sec == "talks" and resume.talks %}
+  <h2>Talks &amp; Presentations</h2>
+  {%- for t in resume.talks %}
+  <div class="entry">
+    <div class="entry-head">
+      <span><em>{{ t.title }}</em></span>
+      {%- if t.date %}<span>{{ t.date }}</span>{% endif %}
+    </div>
+    {%- if t.venue or t.type %}
+    <p class="talk-venue">
+      {%- if t.venue %}{{ t.venue }}{% endif -%}
+      {%- if t.type %}{% if t.venue %} · {% endif %}{{ t.type }}{% endif -%}
+    </p>
+    {%- endif %}
+  </div>
+  {%- endfor %}
   {%- elif sec == "certifications" and resume.certifications %}
   <h2>Certifications</h2>
   <ul>

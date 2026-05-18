@@ -133,6 +133,98 @@ class SkillCategory(BaseModel):
     def normalize_skills(cls, v): return _coerce_str_list(v)
 
 
+class Publication(BaseModel):
+    title: str = ""
+    authors: Optional[str] = None
+    venue: Optional[str] = None
+    year: Optional[str] = None
+    doi: Optional[str] = None
+    url: Optional[str] = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, v): return _coerce_optional_str(v) or ""
+
+
+class Award(BaseModel):
+    title: str = ""
+    issuer: Optional[str] = None
+    date: Optional[str] = None
+    description: Optional[str] = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, v): return _coerce_optional_str(v) or ""
+
+
+class Language(BaseModel):
+    name: str = ""
+    proficiency: Optional[str] = None  # Native | Fluent | Conversational | Basic
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v): return _coerce_optional_str(v) or ""
+
+
+class VolunteerEntry(BaseModel):
+    role: str = ""
+    organization: str = ""
+    location: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    bullets: List[str] = Field(default_factory=list)
+
+    @field_validator("role", "organization", mode="before")
+    @classmethod
+    def normalize_str_fields(cls, v): return _coerce_optional_str(v) or ""
+
+    @field_validator("bullets", mode="before")
+    @classmethod
+    def normalize_bullets(cls, v): return _coerce_str_list(v)
+
+
+class Patent(BaseModel):
+    title: str = ""
+    number: Optional[str] = None
+    date: Optional[str] = None
+    status: Optional[str] = None  # Pending | Granted
+    authors: Optional[str] = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, v): return _coerce_optional_str(v) or ""
+
+
+class Talk(BaseModel):
+    title: str = ""
+    venue: Optional[str] = None
+    date: Optional[str] = None
+    type: Optional[str] = None  # Conference | Workshop | Seminar
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, v): return _coerce_optional_str(v) or ""
+
+
+def _coerce_publication_list(v: Any) -> Any:
+    """Coerce publications: legacy List[str] → List[Publication(title=s)]."""
+    if v is None:
+        return []
+    if not isinstance(v, list):
+        return v
+    out = []
+    for item in v:
+        if item is None:
+            continue
+        if isinstance(item, str):
+            s = item.strip()
+            if s:
+                out.append({"title": s})
+        elif isinstance(item, dict):
+            out.append(item)
+    return out
+
+
 class SectionItem(BaseModel):
     header: Optional[str] = None
     subheader: Optional[str] = None
@@ -168,15 +260,29 @@ class Resume(BaseModel):
     projects: List[ProjectEntry] = Field(default_factory=list)
     skills: List[SkillCategory] = Field(default_factory=list)
     certifications: List[str] = Field(default_factory=list)
-    publications: List[str] = Field(default_factory=list)
+    publications: List[Publication] = Field(default_factory=list)
+    awards: List[Award] = Field(default_factory=list)
+    languages: List[Language] = Field(default_factory=list)
+    volunteer: List[VolunteerEntry] = Field(default_factory=list)
+    patents: List[Patent] = Field(default_factory=list)
+    talks: List[Talk] = Field(default_factory=list)
     extra_sections: List[ExtraSection] = Field(default_factory=list)
     section_order: List[str] = Field(default_factory=list)
 
-    @field_validator("experience", "education", "projects", "skills", "extra_sections", mode="before")
+    @field_validator(
+        "experience", "education", "projects", "skills",
+        "awards", "languages", "volunteer", "patents", "talks",
+        "extra_sections",
+        mode="before",
+    )
     @classmethod
     def normalize_obj_list(cls, v): return _coerce_obj_list(v)
 
-    @field_validator("certifications", "publications", "section_order", mode="before")
+    @field_validator("publications", mode="before")
+    @classmethod
+    def normalize_publications(cls, v): return _coerce_publication_list(v)
+
+    @field_validator("certifications", "section_order", mode="before")
     @classmethod
     def normalize_str_lists(cls, v): return _coerce_str_list(v)
 

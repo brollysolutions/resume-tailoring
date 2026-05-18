@@ -172,6 +172,113 @@ def _render_extra_section_docx(doc, extra, section_heading_fn, size=10.5):
                 _bullet(doc, text, size=size)
 
 
+# --- Generic DOCX renderers for new section types -------------------------
+
+def _render_publication_docx(doc, pub, *, size=10.5):
+    """Hanging-indent citation block."""
+    from docx.shared import Pt
+    p = doc.add_paragraph()
+    p.paragraph_format.space_after = Pt(3)
+    p.paragraph_format.left_indent = Pt(16)
+    p.paragraph_format.first_line_indent = Pt(-16)
+    parts = []
+    if pub.authors: parts.append(f"{pub.authors}.")
+    if pub.year: parts.append(f"({pub.year}).")
+    title = pub.title or ""
+    if title and not title.endswith("."): title += "."
+    if title: parts.append(title)
+    txt_pre = " ".join(parts)
+    if txt_pre:
+        p.add_run(txt_pre + (" " if pub.venue else "")).font.size = Pt(size)
+    if pub.venue:
+        ven = p.add_run(pub.venue + ".")
+        ven.italic = True
+        ven.font.size = Pt(size)
+    if pub.doi:
+        p.add_run(f" DOI: {pub.doi}.").font.size = Pt(size)
+    if pub.url:
+        p.add_run(f" {pub.url}").font.size = Pt(size)
+
+
+def _render_award_docx(doc, award, *, size=10.5):
+    from docx.shared import Pt
+    date = award.date or ""
+    _two_col_row(doc, award.title or "", date, bold_left=True, italic_right=True, size=size)
+    if award.issuer:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(1)
+        r = p.add_run(award.issuer)
+        r.italic = True
+        r.font.size = Pt(size - 0.5)
+    if award.description:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(3)
+        p.add_run(award.description).font.size = Pt(size)
+
+
+def _render_languages_docx(doc, languages, *, size=10.5):
+    from docx.shared import Pt
+    parts = []
+    for l in languages:
+        if not l.name:
+            continue
+        if l.proficiency:
+            parts.append(f"{l.name} ({l.proficiency})")
+        else:
+            parts.append(l.name)
+    if parts:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(2)
+        p.add_run(", ".join(parts)).font.size = Pt(size)
+
+
+def _render_volunteer_docx(doc, vol, *, size=10.5):
+    date = ""
+    if vol.start_date or vol.end_date:
+        date = f"{vol.start_date or ''}{' – ' if (vol.start_date and vol.end_date) else ''}{vol.end_date or ''}"
+    _two_col_row(doc, vol.organization or vol.role, date, bold_left=True, size=size)
+    if vol.role and vol.organization:
+        _two_col_row(doc, vol.role, vol.location or "", italic_left=True, size=size - 0.5)
+    for b in vol.bullets:
+        _bullet(doc, b, size=size)
+
+
+def _render_patent_docx(doc, patent, *, size=10.5):
+    from docx.shared import Pt
+    p = doc.add_paragraph()
+    p.paragraph_format.space_after = Pt(3)
+    p.paragraph_format.left_indent = Pt(16)
+    p.paragraph_format.first_line_indent = Pt(-16)
+    title_run = p.add_run(patent.title or "")
+    title_run.bold = True
+    title_run.font.size = Pt(size)
+    extras = []
+    if patent.number: extras.append(f"(Patent No. {patent.number})")
+    if patent.date: extras.append(f"— {patent.date}")
+    if patent.status: extras.append(f"[{patent.status}]")
+    if extras:
+        p.add_run(" " + " ".join(extras)).font.size = Pt(size)
+    if patent.authors:
+        auth = p.add_run(f". {patent.authors}")
+        auth.italic = True
+        auth.font.size = Pt(size)
+
+
+def _render_talk_docx(doc, talk, *, size=10.5):
+    from docx.shared import Pt
+    date = talk.date or ""
+    _two_col_row(doc, talk.title or "", date, italic_left=True, italic_right=True, size=size)
+    if talk.venue or talk.type:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(2)
+        venue_text = talk.venue or ""
+        if talk.type:
+            venue_text = (venue_text + " · " if venue_text else "") + talk.type
+        r = p.add_run(venue_text)
+        r.italic = True
+        r.font.size = Pt(size - 0.5)
+
+
 # --- Modern DOCX builder --------------------------------------------------
 
 def _render_docx_modern(resume: Resume) -> bytes:
@@ -273,6 +380,29 @@ def _render_docx_modern(resume: Resume) -> bytes:
             section_heading("Certifications")
             for c in resume.certifications:
                 _bullet(doc, c)
+        elif sec == "publications" and resume.publications:
+            section_heading("Publications")
+            for pub in resume.publications:
+                _render_publication_docx(doc, pub, size=10.5)
+        elif sec == "awards" and resume.awards:
+            section_heading("Awards")
+            for award in resume.awards:
+                _render_award_docx(doc, award, size=10.5)
+        elif sec == "languages" and resume.languages:
+            section_heading("Languages")
+            _render_languages_docx(doc, resume.languages, size=10.5)
+        elif sec == "volunteer" and resume.volunteer:
+            section_heading("Volunteer Experience")
+            for vol in resume.volunteer:
+                _render_volunteer_docx(doc, vol, size=10.5)
+        elif sec == "patents" and resume.patents:
+            section_heading("Patents")
+            for pat in resume.patents:
+                _render_patent_docx(doc, pat, size=10.5)
+        elif sec == "talks" and resume.talks:
+            section_heading("Talks & Presentations")
+            for talk in resume.talks:
+                _render_talk_docx(doc, talk, size=10.5)
         elif sec.startswith("extra:"):
             extra_title = sec[6:]
             for extra in resume.extra_sections:
@@ -390,6 +520,29 @@ def _render_docx_classic(resume: Resume) -> bytes:
             section_heading("Certifications")
             for c in resume.certifications:
                 _bullet(doc, c, size=11)
+        elif sec == "publications" and resume.publications:
+            section_heading("Publications")
+            for pub in resume.publications:
+                _render_publication_docx(doc, pub, size=11)
+        elif sec == "awards" and resume.awards:
+            section_heading("Awards")
+            for award in resume.awards:
+                _render_award_docx(doc, award, size=11)
+        elif sec == "languages" and resume.languages:
+            section_heading("Languages")
+            _render_languages_docx(doc, resume.languages, size=11)
+        elif sec == "volunteer" and resume.volunteer:
+            section_heading("Volunteer Experience")
+            for vol in resume.volunteer:
+                _render_volunteer_docx(doc, vol, size=11)
+        elif sec == "patents" and resume.patents:
+            section_heading("Patents")
+            for pat in resume.patents:
+                _render_patent_docx(doc, pat, size=11)
+        elif sec == "talks" and resume.talks:
+            section_heading("Talks & Presentations")
+            for talk in resume.talks:
+                _render_talk_docx(doc, talk, size=11)
         elif sec.startswith("extra:"):
             extra_title = sec[6:]
             for extra in resume.extra_sections:
@@ -493,15 +646,6 @@ def _render_docx_academic(resume: Resume) -> bytes:
                     _two_col_row(doc, sub_left, sub_right, italic_left=True, size=10.5)
                 for d in ed.details:
                     _bullet(doc, d, size=11)
-        elif sec == "publications" and resume.publications:
-            section_heading("Publications")
-            for pub in resume.publications:
-                p = doc.add_paragraph()
-                p.paragraph_format.space_after = Pt(4)
-                p.paragraph_format.left_indent = Pt(16)
-                p.paragraph_format.first_line_indent = Pt(-16)
-                r = p.add_run(pub)
-                r.font.size = Pt(10.5)
         elif sec == "skills" and resume.skills:
             section_heading("Skills")
             for sk in resume.skills:
@@ -516,6 +660,29 @@ def _render_docx_academic(resume: Resume) -> bytes:
             section_heading("Certifications")
             for c in resume.certifications:
                 _bullet(doc, c, size=11)
+        elif sec == "publications" and resume.publications:
+            section_heading("Publications")
+            for pub in resume.publications:
+                _render_publication_docx(doc, pub, size=11)
+        elif sec == "awards" and resume.awards:
+            section_heading("Awards & Honors")
+            for award in resume.awards:
+                _render_award_docx(doc, award, size=11)
+        elif sec == "languages" and resume.languages:
+            section_heading("Languages")
+            _render_languages_docx(doc, resume.languages, size=11)
+        elif sec == "volunteer" and resume.volunteer:
+            section_heading("Volunteer Experience")
+            for vol in resume.volunteer:
+                _render_volunteer_docx(doc, vol, size=11)
+        elif sec == "patents" and resume.patents:
+            section_heading("Patents")
+            for pat in resume.patents:
+                _render_patent_docx(doc, pat, size=11)
+        elif sec == "talks" and resume.talks:
+            section_heading("Talks & Presentations")
+            for talk in resume.talks:
+                _render_talk_docx(doc, talk, size=11)
         elif sec.startswith("extra:"):
             extra_title = sec[6:]
             for extra in resume.extra_sections:
