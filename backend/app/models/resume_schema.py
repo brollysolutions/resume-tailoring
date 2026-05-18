@@ -287,6 +287,33 @@ class Resume(BaseModel):
     @classmethod
     def normalize_str_lists(cls, v): return _coerce_str_list(v)
 
+    # Drop placeholder/empty entries the LLM sometimes emits when a section is
+    # absent (e.g., [{"name": "", "proficiency": null}] instead of []). Without
+    # these, templates render heading + blank content.
+    @field_validator("publications", mode="after")
+    @classmethod
+    def filter_empty_publications(cls, v): return [p for p in v if (p.title or "").strip()]
+
+    @field_validator("awards", mode="after")
+    @classmethod
+    def filter_empty_awards(cls, v): return [a for a in v if (a.title or "").strip()]
+
+    @field_validator("languages", mode="after")
+    @classmethod
+    def filter_empty_languages(cls, v): return [l for l in v if (l.name or "").strip()]
+
+    @field_validator("volunteer", mode="after")
+    @classmethod
+    def filter_empty_volunteer(cls, v): return [x for x in v if (x.role or "").strip() or (x.organization or "").strip()]
+
+    @field_validator("patents", mode="after")
+    @classmethod
+    def filter_empty_patents(cls, v): return [p for p in v if (p.title or "").strip()]
+
+    @field_validator("talks", mode="after")
+    @classmethod
+    def filter_empty_talks(cls, v): return [t for t in v if (t.title or "").strip()]
+
     @field_validator("name", mode="before")
     @classmethod
     def normalize_name(cls, v): return "" if v is None else v
