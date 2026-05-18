@@ -266,8 +266,9 @@ function JobSearchContent() {
   const [modalTemplate, setModalTemplate] = useState<TemplateMeta | null>(null);
   const [resultsTab, setResultsTab] = useState<ResultsTab>("overview");
   const [layoutDensity, setLayoutDensity] = useState<"auto" | "compact" | "standard" | "expanded">("auto");
+  const [targetPages, setTargetPages] = useState<"auto" | "1" | "2" | "3">("auto");
 
-  const loadTemplates = useCallback(async (resumeId: string | null, apiUrl: string, density: string) => {
+  const loadTemplates = useCallback(async (resumeId: string | null, apiUrl: string, density: string, pages: string) => {
     setIsTemplatesLoading(true);
     setTemplatesError(false);
     try {
@@ -289,6 +290,7 @@ function JobSearchContent() {
                 template_id: t.id,
                 suggestions: [],
                 layout_density: density === "auto" ? null : density,
+                target_pages: pages === "auto" ? null : parseInt(pages),
               }),
             });
             if (!res.ok) return;
@@ -322,9 +324,13 @@ function JobSearchContent() {
     const initialDensity = (storedDensity as "auto" | "compact" | "standard" | "expanded") || "auto";
     if (storedDensity) setLayoutDensity(initialDensity);
 
+    const storedPages = sessionStorage.getItem("target_pages");
+    const initialPages = (storedPages as "auto" | "1" | "2" | "3") || "auto";
+    if (storedPages) setTargetPages(initialPages);
+
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
     const resumeId = sessionStorage.getItem("current_resume_id");
-    loadTemplates(resumeId, apiUrl, initialDensity);
+    loadTemplates(resumeId, apiUrl, initialDensity, initialPages);
   }, [searchParams, router, loadTemplates]);
 
   const handleDensityChange = useCallback((d: "auto" | "compact" | "standard" | "expanded") => {
@@ -332,7 +338,17 @@ function JobSearchContent() {
     sessionStorage.setItem("layout_density", d);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
     const resumeId = sessionStorage.getItem("current_resume_id");
-    loadTemplates(resumeId, apiUrl, d);
+    const pages = sessionStorage.getItem("target_pages") || "auto";
+    loadTemplates(resumeId, apiUrl, d, pages);
+  }, [loadTemplates]);
+
+  const handlePagesChange = useCallback((p: "auto" | "1" | "2" | "3") => {
+    setTargetPages(p);
+    sessionStorage.setItem("target_pages", p);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+    const resumeId = sessionStorage.getItem("current_resume_id");
+    const density = sessionStorage.getItem("layout_density") || "auto";
+    loadTemplates(resumeId, apiUrl, density, p);
   }, [loadTemplates]);
 
   const handleSelectTemplate = useCallback((id: string) => {
@@ -406,6 +422,7 @@ function JobSearchContent() {
     sessionStorage.setItem("tailor_jd_text", jdText);
     sessionStorage.setItem("template_id", selectedTemplate);
     sessionStorage.setItem("layout_density", layoutDensity);
+    sessionStorage.setItem("target_pages", targetPages);
     router.push("/tailor");
   };
 
@@ -445,6 +462,25 @@ function JobSearchContent() {
               Manage sections
             </button>
             <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-wider text-muted">Pages</span>
+              <div className="inline-flex rounded-md border border-border overflow-hidden">
+                {(["auto", "1", "2", "3"] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => handlePagesChange(p)}
+                    className={`px-2.5 py-1 text-[11px] transition-colors ${
+                      targetPages === p
+                        ? "bg-foreground text-background"
+                        : "bg-transparent text-muted hover:bg-subtle"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
               <span className="text-[10px] uppercase tracking-wider text-muted">Density</span>
               <div className="inline-flex rounded-md border border-border overflow-hidden">
                 {(["auto", "compact", "standard", "expanded"] as const).map((d) => (
@@ -475,7 +511,7 @@ function JobSearchContent() {
             <p>Could not load templates.</p>
             <button
               className="btn-secondary text-xs"
-              onClick={() => loadTemplates(sessionStorage.getItem("current_resume_id"), process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004", layoutDensity)}
+              onClick={() => loadTemplates(sessionStorage.getItem("current_resume_id"), process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004", layoutDensity, targetPages)}
             >
               Retry
             </button>

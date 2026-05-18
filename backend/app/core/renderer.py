@@ -69,6 +69,14 @@ def _resolve_template_id(template_id: Optional[str]) -> str:
 # ---------------------------------------------------------------------------
 
 DENSITY_PRESETS: Dict[str, Dict] = {
+    "latex-tight": {
+        "margin": "0.5in",
+        "margin_inches": 0.5,
+        "font_size_pt": 9.5,
+        "line_height": 1.12,
+        "entry_gap_pt": 2,
+        "section_gap_pt": 6,
+    },
     "compact": {
         "margin": "0.4in",
         "margin_inches": 0.4,
@@ -94,6 +102,54 @@ DENSITY_PRESETS: Dict[str, Dict] = {
         "section_gap_pt": 14,
     },
 }
+
+# Approximate characters-per-page at each density (calibrated empirically).
+# Used by _density_for_target_pages to pick the densest preset that fits.
+_DENSITY_CAPACITY = {
+    "latex-tight": 5500,
+    "compact": 4800,
+    "standard": 3600,
+    "expanded": 2800,
+}
+
+
+def _density_for_target_pages(resume: Resume, target_pages: int) -> str:
+    """Pick the LEAST dense preset whose total capacity covers the resume.
+
+    target_pages=1 → squeeze hardest; 2 → moderate; 3+ → relaxed.
+    """
+    if target_pages < 1:
+        target_pages = 1
+    content_chars = _resume_char_count(resume)
+    # Try presets from loosest to tightest; pick first that fits target_pages
+    for preset in ("expanded", "standard", "compact", "latex-tight"):
+        if content_chars <= _DENSITY_CAPACITY[preset] * target_pages:
+            return preset
+    return "latex-tight"
+
+
+def _resume_char_count(resume: Resume) -> int:
+    count = 0
+    if resume.summary:
+        count += len(resume.summary)
+    for e in resume.experience:
+        count += len(e.title or "") + len(e.company or "")
+        count += sum(len(b) for b in (e.bullets or []))
+    for p in resume.projects:
+        count += len(p.name or "") + sum(len(b) for b in (p.bullets or []))
+    for ed in resume.education:
+        count += len(ed.institution or "") + len(ed.degree or "")
+        count += sum(len(d) for d in (ed.details or []))
+    for s in resume.skills:
+        count += sum(len(sk) for sk in (s.skills or []))
+    count += sum(len(c) for c in resume.certifications)
+    count += sum(len(p.title or "") + len(p.authors or "") + len(p.venue or "") for p in resume.publications)
+    count += sum(len(a.title or "") + len(a.description or "") for a in resume.awards)
+    count += sum(len(v.role or "") + len(v.organization or "") + sum(len(b) for b in (v.bullets or [])) for v in resume.volunteer)
+    count += sum(len(p.title or "") for p in resume.patents)
+    count += sum(len(t.title or "") for t in resume.talks)
+    count += sum(len(l.name or "") for l in resume.languages)
+    return count
 
 
 def _resolve_density(layout_density: Optional[str]) -> str:
@@ -155,23 +211,33 @@ def _estimate_density(resume: Resume) -> str:
 # HTML & PDF
 # ---------------------------------------------------------------------------
 
+def _pick_density(resume: Resume, layout_density: Optional[str], target_pages: Optional[int]) -> str:
+    if layout_density and layout_density in DENSITY_PRESETS:
+        return layout_density
+    if target_pages and target_pages >= 1:
+        return _density_for_target_pages(resume, target_pages)
+    return _estimate_density(resume)
+
+
 def render_html(
     resume: Resume,
     template_id: Optional[str] = "modern",
     highlight_edits: Optional[List[Dict]] = None,
     layout_density: Optional[str] = None,
+    target_pages: Optional[int] = None,
 ) -> str:
     tid = _resolve_template_id(template_id)
-    density_key = _resolve_density(layout_density) if layout_density else _estimate_density(resume)
+    density_key = _pick_density(resume, layout_density, target_pages)
     density = DENSITY_PRESETS[density_key]
     template = _env.get_template(f"{tid}.html")
     return template.render(resume=resume, density=density, density_name=density_key)
 
 
 def render_pdf(resume: Resume, template_id: Optional[str] = "modern",
-               layout_density: Optional[str] = None) -> bytes:
+               layout_density: Optional[str] = None,
+               target_pages: Optional[int] = None) -> bytes:
     from weasyprint import HTML
-    html = render_html(resume, template_id, layout_density=layout_density)
+    html = render_html(resume, template_id, layout_density=layout_density, target_pages=target_pages)
     return HTML(string=html).write_pdf()
 
 
@@ -852,9 +918,10 @@ _DOCX_BUILDERS = {
 
 
 def render_docx(resume: Resume, template_id: Optional[str] = "modern",
-                layout_density: Optional[str] = None) -> bytes:
+                layout_density: Optional[str] = None,
+                target_pages: Optional[int] = None) -> bytes:
     builder = _DOCX_BUILDERS.get(_resolve_template_id(template_id), _render_docx_modern)
-    density_key = _resolve_density(layout_density) if layout_density else _estimate_density(resume)
+    density_key = _pick_density(resume, layout_density, target_pages)
     return builder(resume, density_key)
 
 def resume_to_plaintext(resume: Resume) -> str:
