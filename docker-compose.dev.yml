@@ -44,6 +44,8 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-groq}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
       - HF_HUB_OFFLINE=1
       - PRELOAD_EMBEDDING_MODEL=false
     depends_on:
@@ -72,7 +74,6 @@ services:
     volumes:
       - ./frontend:/app                             # live code reload
       - /app/node_modules                           # keep container's node_modules
-      - /app/.next                                  # keep container's build cache
     networks:
       - resume_network_dev
 

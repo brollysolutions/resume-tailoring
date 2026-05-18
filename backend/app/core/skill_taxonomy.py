@@ -220,3 +220,33 @@ def existing_covering_category(new_name: str, existing_cats: list[str]) -> str |
         if CATEGORY_HINT.get(normalize_category(c), set()) & new_hints:
             return c
     return None
+
+
+def domain_alignment_score(resume_json: dict, jd_text: str) -> float:
+    """Fraction of JD skill domains covered by resume skills. [0, 1]
+
+    Returns 1.0 when JD has no recognisable tech skills (no penalty for
+    non-tech or skills-light JDs).
+    """
+    from app.api.match_logic.nlp_utils import extract_skills
+
+    jd_skills = extract_skills(jd_text)
+    jd_domains = {domain_of(s) for s in jd_skills if domain_of(s)}
+    if not jd_domains:
+        return 1.0
+
+    parts: list[str] = []
+    for sk in resume_json.get("skills", []) or []:
+        parts.extend(sk.get("skills", []) or [])
+    for exp in resume_json.get("experience", []) or []:
+        parts.extend(exp.get("bullets", []) or [])
+    for proj in resume_json.get("projects", []) or []:
+        parts.extend(proj.get("bullets", []) or [])
+        if proj.get("tech"):
+            parts.append(proj["tech"])
+
+    resume_skills = extract_skills(" ".join(parts))
+    resume_domains = {domain_of(s) for s in resume_skills if domain_of(s)}
+
+    matched = jd_domains & resume_domains
+    return len(matched) / len(jd_domains)

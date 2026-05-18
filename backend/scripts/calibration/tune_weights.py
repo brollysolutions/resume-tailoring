@@ -1,10 +1,10 @@
 """Grid-search hybrid scoring weights against labeled pairs.
 
 Joins backend/data/score_log.jsonl with backend/data/labels.jsonl on
-(resume_id, jd_hash). For each (w_kw, w_skill, w_cos) triple on the grid
-(constrained to sum=1.0), recomputes the final score and measures Spearman
-correlation against the manual labels (good=2, ok=1, bad=0). Prints the
-top-5 triples and writes the full grid to backend/data/calibration_results.json.
+(resume_id, jd_hash). For each 6-tuple (w_kw, w_skill, w_ngram, w_edu,
+w_sen, w_cos) on the grid (constrained to sum=1.0), recomputes the final
+score and measures Spearman correlation against labels (good=2, ok=1, bad=0).
+Prints top-5 and writes full grid to backend/data/calibration_results.json.
 
 Usage:
     python -m backend.scripts.calibration.tune_weights
@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import sys
 from collections import defaultdict
+from itertools import product
 from pathlib import Path
 
 _HERE = Path(__file__).resolve()
@@ -45,16 +46,14 @@ def _load_jsonl(path: Path) -> list[dict]:
 
 
 def _rank_avg(values: list[float]) -> list[float]:
-    """Average rank with tie correction. Smallest value -> rank 1."""
     indexed = sorted(range(len(values)), key=lambda i: values[i])
     ranks = [0.0] * len(values)
     i = 0
     while i < len(indexed):
         j = i
-        # Find end of tie group
         while j + 1 < len(indexed) and values[indexed[j + 1]] == values[indexed[i]]:
             j += 1
-        avg = (i + j) / 2.0 + 1.0  # ranks are 1-based
+        avg = (i + j) / 2.0 + 1.0
         for k in range(i, j + 1):
             ranks[indexed[k]] = avg
         i = j + 1
@@ -76,12 +75,10 @@ def _pearson(xs: list[float], ys: list[float]) -> float:
 
 
 def _spearman(xs: list[float], ys: list[float]) -> float:
-    """Spearman = Pearson on ranks."""
     return _pearson(_rank_avg(xs), _rank_avg(ys))
 
 
 def _kendall_tau(xs: list[float], ys: list[float]) -> float:
-    """Kendall tau-a (no tie correction). O(n^2) — fine for N < 1000."""
     n = len(xs)
     if n < 2:
         return 0.0
@@ -101,8 +98,7 @@ def _kendall_tau(xs: list[float], ys: list[float]) -> float:
 
 
 def _join(log: list[dict], labels: list[dict]) -> list[dict]:
-    """Join most-recent event per (resume_id, jd_hash) with its label."""
-    # newest event wins
+    """Join most-recent score event per (resume_id, jd_hash) with its label."""
     by_key: dict[tuple[str, str], dict] = {}
     for ev in log:
         rid = ev.get("resume_id") or ""
@@ -126,47 +122,76 @@ def _join(log: list[dict], labels: list[dict]) -> list[dict]:
             "jd_hash": jdh,
             "label": label,
             "label_value": _LABEL_VALUE[label],
-            "kw_raw": float(ev.get("kw_raw") or 0.0),
-            "skill_raw": float(ev.get("skill_raw") or 0.0),
-            "cosine_blended": float(ev.get("cosine_blended") or 0.0),
+            "kw_raw":        float(ev.get("kw_raw") or 0.0),
+            "skill_raw":     float(ev.get("skill_raw") or 0.0),
+            "ngram_raw":     float(ev.get("ngram_raw") or 1.0),   # 1.0 = no penalty for old events
+            "edu_raw":       float(ev.get("edu_raw") or 1.0),
+            "seniority_raw": float(ev.get("seniority_raw") or 1.0),
+            "cosine_blended":float(ev.get("cosine_blended") or 0.0),
         })
     return joined
 
 
 def _grid():
-    """Yields valid (w_kw, w_skill, w_cos) triples summing to 1.0."""
-    kw_range = [round(0.40 + 0.05 * i, 2) for i in range(7)]   # 0.40..0.70
-    sk_range = [round(0.10 + 0.05 * i, 2) for i in range(6)]   # 0.10..0.35
-    for w_kw in kw_range:
-        for w_sk in sk_range:
-            w_cos = round(1.0 - w_kw - w_sk, 4)
-            if w_cos < 0.05 or w_cos > 0.40:
-                continue
-            yield (w_kw, w_sk, w_cos)
+    """Yield 6-tuples (w_kw, w_skill, w_ngram, w_edu, w_sen, w_cos) summing to 1.0.
+
+    Grid ranges (step 0.05 each):
+        w_kw:   0.20 – 0.40  (5 values)
+        w_skill:0.10 – 0.25  (4 values)
+        w_ngram:0.05 – 0.20  (4 values)
+        w_edu:  0.00, 0.05, 0.10 (3 values)
+        w_sen:  0.05, 0.10, 0.15 (3 values)
+        w_cos:  remainder, accepted if 0.10 – 0.45
+    Total: 5×4×4×3×3 = 720 candidate points.
+    """
+    kw_vals    = [round(0.20 + 0.05 * i, 2) for i in range(5)]
+    skill_vals = [round(0.10 + 0.05 * i, 2) for i in range(4)]
+    ngram_vals = [round(0.05 + 0.05 * i, 2) for i in range(4)]
+    edu_vals   = [0.00, 0.05, 0.10]
+    sen_vals   = [0.05, 0.10, 0.15]
+
+    for w_kw, w_sk, w_ng, w_edu, w_sen in product(
+        kw_vals, skill_vals, ngram_vals, edu_vals, sen_vals
+    ):
+        w_cos = round(1.0 - w_kw - w_sk - w_ng - w_edu - w_sen, 4)
+        if 0.10 <= w_cos <= 0.45:
+            yield (w_kw, w_sk, w_ng, w_edu, w_sen, w_cos)
 
 
-def main() -> int:
-    log = _load_jsonl(_LOG)
-    labels = _load_jsonl(_LABELS)
+def run(log_path: Path = _LOG, labels_path: Path = _LABELS, write_results: bool = True) -> dict:
+    """Programmatic entrypoint used by auto_calibrator.
+
+    Returns dict with keys: status, n_log, n_labels, n_rows, best, top5, grid.
+    status: "ok" | "weak_signal" | "insufficient_data"
+    """
+    log = _load_jsonl(log_path)
+    labels = _load_jsonl(labels_path)
     rows = _join(log, labels)
 
-    print(f"score_log: {len(log)} events  |  labels: {len(labels)} pairs  |  joined: {len(rows)}")
-
     if len(rows) < _MIN_ROWS:
-        print(f"\nneed at least {_MIN_ROWS} joined rows to recommend weights. label more pairs first.")
-        return 1
+        return {
+            "status": "insufficient_data",
+            "n_log": len(log),
+            "n_labels": len(labels),
+            "n_rows": len(rows),
+            "min_rows": _MIN_ROWS,
+        }
 
     label_dist = defaultdict(int)
     for r in rows:
         label_dist[r["label"]] += 1
-    print(f"label distribution: {dict(label_dist)}")
 
     truth = [r["label_value"] for r in rows]
-
     results: list[dict] = []
-    for w_kw, w_sk, w_cos in _grid():
+
+    for w_kw, w_sk, w_ng, w_edu, w_sen, w_cos in _grid():
         predicted = [
-            w_kw * r["kw_raw"] + w_sk * r["skill_raw"] + w_cos * r["cosine_blended"]
+            w_kw * r["kw_raw"]
+            + w_sk  * r["skill_raw"]
+            + w_ng  * r["ngram_raw"]
+            + w_edu * r["edu_raw"]
+            + w_sen * r["seniority_raw"]
+            + w_cos * r["cosine_blended"]
             for r in rows
         ]
         rho = _spearman(predicted, truth)
@@ -174,33 +199,68 @@ def main() -> int:
         results.append({
             "w_kw": w_kw,
             "w_skill": w_sk,
+            "w_ngram": w_ng,
+            "w_edu": w_edu,
+            "w_sen": w_sen,
             "w_cos": w_cos,
             "spearman": round(rho, 4),
             "kendall_tau": round(tau, 4),
         })
 
     results.sort(key=lambda r: r["spearman"], reverse=True)
-
-    print(f"\ntop 5 by Spearman (N={len(rows)}):")
-    print(f"  {'w_kw':>6}  {'w_skill':>8}  {'w_cos':>6}  {'spearman':>9}  {'kendall':>8}")
-    for r in results[:5]:
-        print(f"  {r['w_kw']:>6}  {r['w_skill']:>8}  {r['w_cos']:>6}  {r['spearman']:>9}  {r['kendall_tau']:>8}")
-
     best = results[0]
-    print(f"\nbest: w_kw={best['w_kw']}, w_skill={best['w_skill']}, w_cos={best['w_cos']}  spearman={best['spearman']}")
 
-    if best["spearman"] < _WEAK_SIGNAL_THRESHOLD:
-        print(f"\nWARNING: best Spearman {best['spearman']} < {_WEAK_SIGNAL_THRESHOLD}. signal is weak — label more pairs before trusting this fit.")
+    if write_results:
+        _DATA.mkdir(parents=True, exist_ok=True)
+        _RESULTS.write_text(json.dumps({
+            "n_rows": len(rows),
+            "label_distribution": dict(label_dist),
+            "grid": results,
+        }, indent=2))
 
-    print("\nto apply, edit backend/app/api/match_logic/hybrid_scorer.py:")
-    print(f"    raw_score = (bm25_score * {best['w_kw']}) + (skill_score * {best['w_skill']}) + (semantic_score * {best['w_cos']})")
-
-    _DATA.mkdir(parents=True, exist_ok=True)
-    _RESULTS.write_text(json.dumps({
+    status = "ok" if best["spearman"] >= _WEAK_SIGNAL_THRESHOLD else "weak_signal"
+    return {
+        "status": status,
+        "n_log": len(log),
+        "n_labels": len(labels),
         "n_rows": len(rows),
         "label_distribution": dict(label_dist),
+        "best": best,
+        "top5": results[:5],
         "grid": results,
-    }, indent=2))
+        "weak_signal_threshold": _WEAK_SIGNAL_THRESHOLD,
+    }
+
+
+def main() -> int:
+    out = run()
+    print(f"score_log: {out.get('n_log', 0)} events  |  labels: {out.get('n_labels', 0)} pairs  |  joined: {out.get('n_rows', 0)}")
+
+    if out["status"] == "insufficient_data":
+        print(f"\nneed at least {out['min_rows']} joined rows to recommend weights. label more pairs first.")
+        return 1
+
+    print(f"label distribution: {out['label_distribution']}")
+    print(f"\ntop 5 by Spearman (N={out['n_rows']}):")
+    print(f"  {'w_kw':>6}  {'w_skill':>7}  {'w_ngram':>7}  {'w_edu':>6}  {'w_sen':>6}  {'w_cos':>6}  {'spearman':>9}  {'kendall':>8}")
+    for r in out["top5"]:
+        print(
+            f"  {r['w_kw']:>6}  {r['w_skill']:>7}  {r['w_ngram']:>7}  "
+            f"{r['w_edu']:>6}  {r['w_sen']:>6}  {r['w_cos']:>6}  "
+            f"{r['spearman']:>9}  {r['kendall_tau']:>8}"
+        )
+
+    best = out["best"]
+    print(
+        f"\nbest: w_kw={best['w_kw']} w_skill={best['w_skill']} w_ngram={best['w_ngram']} "
+        f"w_edu={best['w_edu']} w_sen={best['w_sen']} w_cos={best['w_cos']}  "
+        f"spearman={best['spearman']}"
+    )
+
+    if out["status"] == "weak_signal":
+        print(f"\nWARNING: best Spearman {best['spearman']} < {out['weak_signal_threshold']}. label more pairs.")
+
+    print("\nto apply: POST /api/admin/calibration/run or wait for auto-calibrator.")
     print(f"\nfull grid written to {_RESULTS}")
     return 0
 

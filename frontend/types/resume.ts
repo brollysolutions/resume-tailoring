@@ -80,6 +80,19 @@ export interface SkillCategory {
   skills: string[];
 }
 
+export interface SectionItem {
+  header?: string;
+  subheader?: string;
+  bullets?: string[];
+  text?: string;
+}
+
+export interface ExtraSection {
+  title: string;
+  content_type: "entries" | "text" | "list";
+  items: SectionItem[];
+}
+
 export interface ResumeData {
   name?: string;
   contact?: ContactInfo;
@@ -89,4 +102,6 @@ export interface ResumeData {
   projects?: ProjectEntry[];
   skills?: SkillCategory[];
   certifications?: string[];
+  extra_sections?: ExtraSection[];
+  section_order?: string[];
 }

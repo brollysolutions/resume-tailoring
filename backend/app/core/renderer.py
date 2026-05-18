@@ -137,6 +137,36 @@ def _contact_line(resume: Resume) -> str:
     return "  ·  ".join(parts)
 
 
+_DEFAULT_ORDER = ["summary", "experience", "projects", "education", "skills", "certifications"]
+
+
+def _render_extra_section_docx(doc, extra, section_heading_fn, size=10.5):
+    from docx.shared import Pt
+    section_heading_fn(extra.title)
+    for item in extra.items:
+        if extra.content_type == "entries":
+            if item.header:
+                p = doc.add_paragraph()
+                p.paragraph_format.space_after = Pt(1)
+                r = p.add_run(item.header)
+                r.bold = True
+                r.font.size = Pt(size)
+            if item.subheader:
+                p = doc.add_paragraph()
+                p.paragraph_format.space_after = Pt(1)
+                p.add_run(item.subheader).font.size = Pt(size)
+            if item.text:
+                p = doc.add_paragraph()
+                p.paragraph_format.space_after = Pt(1)
+                p.add_run(item.text).font.size = Pt(size)
+            for b in item.bullets:
+                _bullet(doc, b, size=size)
+        elif extra.content_type in ("list", "text"):
+            text = item.text or item.header or ""
+            if text:
+                _bullet(doc, text, size=size)
+
+
 # --- Modern DOCX builder --------------------------------------------------
 
 def _render_docx_modern(resume: Resume) -> bytes:
@@ -182,66 +212,68 @@ def _render_docx_modern(resume: Resume) -> bytes:
         # letter spacing approximated via space-after
         return p
 
-    if resume.summary:
-        section_heading("Summary")
-        p = doc.add_paragraph()
-        p.paragraph_format.space_after = Pt(2)
-        p.add_run(resume.summary).font.size = Pt(10.5)
-
-    if resume.experience:
-        section_heading("Experience")
-        for exp in resume.experience:
-            date = ""
-            if exp.start_date or exp.end_date:
-                date = f"{exp.start_date or ''}{' – ' if (exp.start_date and exp.end_date) else ''}{exp.end_date or ''}"
-            _two_col_row(doc, exp.title, date, bold_left=True)
-            if exp.company or exp.location:
-                _two_col_row(doc, exp.company or "", exp.location or "", italic_left=True)
-            for b in exp.bullets:
-                _bullet(doc, b)
-
-    if resume.projects:
-        section_heading("Projects")
-        for proj in resume.projects:
-            _two_col_row(doc, proj.name, proj.tech or "", bold_left=True, italic_right=True)
-            for b in proj.bullets:
-                _bullet(doc, b)
-
-    if resume.education:
-        section_heading("Education")
-        for ed in resume.education:
-            date = ""
-            if ed.start_date or ed.end_date:
-                date = f"{ed.start_date or ''}{' – ' if (ed.start_date and ed.end_date) else ''}{ed.end_date or ''}"
-            _two_col_row(doc, ed.institution, date, bold_left=True)
-            sub_left = ""
-            if ed.degree:
-                sub_left = ed.degree
-            if ed.field:
-                sub_left = (sub_left + " in " if sub_left else "") + ed.field
-            sub_right = ed.location or ""
-            if ed.gpa:
-                sub_right = (sub_right + " · " if sub_right else "") + f"GPA: {ed.gpa}"
-            if sub_left or sub_right:
-                _two_col_row(doc, sub_left, sub_right, italic_left=True)
-            for d in ed.details:
-                _bullet(doc, d)
-
-    if resume.skills:
-        section_heading("Skills")
-        for sk in resume.skills:
+    for sec in (resume.section_order or _DEFAULT_ORDER):
+        if sec == "summary" and resume.summary:
+            section_heading("Summary")
             p = doc.add_paragraph()
-            p.paragraph_format.space_after = Pt(1)
-            cat = p.add_run(f"{sk.category}: ")
-            cat.bold = True
-            cat.font.size = Pt(10.5)
-            val = p.add_run(", ".join(sk.skills))
-            val.font.size = Pt(10.5)
-
-    if resume.certifications:
-        section_heading("Certifications")
-        for c in resume.certifications:
-            _bullet(doc, c)
+            p.paragraph_format.space_after = Pt(2)
+            p.add_run(resume.summary).font.size = Pt(10.5)
+        elif sec == "experience" and resume.experience:
+            section_heading("Experience")
+            for exp in resume.experience:
+                date = ""
+                if exp.start_date or exp.end_date:
+                    date = f"{exp.start_date or ''}{' – ' if (exp.start_date and exp.end_date) else ''}{exp.end_date or ''}"
+                _two_col_row(doc, exp.title, date, bold_left=True)
+                if exp.company or exp.location:
+                    _two_col_row(doc, exp.company or "", exp.location or "", italic_left=True)
+                for b in exp.bullets:
+                    _bullet(doc, b)
+        elif sec == "projects" and resume.projects:
+            section_heading("Projects")
+            for proj in resume.projects:
+                _two_col_row(doc, proj.name, proj.tech or "", bold_left=True, italic_right=True)
+                for b in proj.bullets:
+                    _bullet(doc, b)
+        elif sec == "education" and resume.education:
+            section_heading("Education")
+            for ed in resume.education:
+                date = ""
+                if ed.start_date or ed.end_date:
+                    date = f"{ed.start_date or ''}{' – ' if (ed.start_date and ed.end_date) else ''}{ed.end_date or ''}"
+                _two_col_row(doc, ed.institution, date, bold_left=True)
+                sub_left = ""
+                if ed.degree:
+                    sub_left = ed.degree
+                if ed.field:
+                    sub_left = (sub_left + " in " if sub_left else "") + ed.field
+                sub_right = ed.location or ""
+                if ed.gpa:
+                    sub_right = (sub_right + " · " if sub_right else "") + f"GPA: {ed.gpa}"
+                if sub_left or sub_right:
+                    _two_col_row(doc, sub_left, sub_right, italic_left=True)
+                for d in ed.details:
+                    _bullet(doc, d)
+        elif sec == "skills" and resume.skills:
+            section_heading("Skills")
+            for sk in resume.skills:
+                p = doc.add_paragraph()
+                p.paragraph_format.space_after = Pt(1)
+                cat = p.add_run(f"{sk.category}: ")
+                cat.bold = True
+                cat.font.size = Pt(10.5)
+                val = p.add_run(", ".join(sk.skills))
+                val.font.size = Pt(10.5)
+        elif sec == "certifications" and resume.certifications:
+            section_heading("Certifications")
+            for c in resume.certifications:
+                _bullet(doc, c)
+        elif sec.startswith("extra:"):
+            extra_title = sec[6:]
+            for extra in resume.extra_sections:
+                if extra.title == extra_title:
+                    _render_extra_section_docx(doc, extra, section_heading, size=10.5)
+                    break
 
     buf = BytesIO()
     doc.save(buf)
@@ -296,67 +328,69 @@ def _render_docx_classic(resume: Resume) -> bytes:
         _set_section_heading_border(p)
         return p
 
-    if resume.summary:
-        section_heading("Summary")
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        p.paragraph_format.space_after = Pt(2)
-        p.add_run(resume.summary).font.size = Pt(11)
-
-    if resume.experience:
-        section_heading("Experience")
-        for exp in resume.experience:
-            date = ""
-            if exp.start_date or exp.end_date:
-                date = f"{exp.start_date or ''}{' – ' if (exp.start_date and exp.end_date) else ''}{exp.end_date or ''}"
-            _two_col_row(doc, exp.company or exp.title, date, bold_left=True, italic_right=True, size=11)
-            if exp.company or exp.location:
-                _two_col_row(doc, exp.title, exp.location or "", italic_left=True, size=10.5)
-            for b in exp.bullets:
-                _bullet(doc, b, size=11)
-
-    if resume.projects:
-        section_heading("Projects")
-        for proj in resume.projects:
-            _two_col_row(doc, proj.name, proj.tech or "", bold_left=True, italic_right=True, size=11)
-            for b in proj.bullets:
-                _bullet(doc, b, size=11)
-
-    if resume.education:
-        section_heading("Education")
-        for ed in resume.education:
-            date = ""
-            if ed.start_date or ed.end_date:
-                date = f"{ed.start_date or ''}{' – ' if (ed.start_date and ed.end_date) else ''}{ed.end_date or ''}"
-            _two_col_row(doc, ed.institution, date, bold_left=True, italic_right=True, size=11)
-            sub_left = ""
-            if ed.degree:
-                sub_left = ed.degree
-            if ed.field:
-                sub_left = (sub_left + " in " if sub_left else "") + ed.field
-            sub_right = ed.location or ""
-            if ed.gpa:
-                sub_right = (sub_right + " · " if sub_right else "") + f"GPA: {ed.gpa}"
-            if sub_left or sub_right:
-                _two_col_row(doc, sub_left, sub_right, italic_left=True, size=10.5)
-            for d in ed.details:
-                _bullet(doc, d, size=11)
-
-    if resume.skills:
-        section_heading("Skills")
-        for sk in resume.skills:
+    for sec in (resume.section_order or _DEFAULT_ORDER):
+        if sec == "summary" and resume.summary:
+            section_heading("Summary")
             p = doc.add_paragraph()
-            p.paragraph_format.space_after = Pt(1)
-            cat = p.add_run(f"{sk.category}: ")
-            cat.bold = True
-            cat.font.size = Pt(11)
-            val = p.add_run(", ".join(sk.skills))
-            val.font.size = Pt(11)
-
-    if resume.certifications:
-        section_heading("Certifications")
-        for c in resume.certifications:
-            _bullet(doc, c, size=11)
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            p.paragraph_format.space_after = Pt(2)
+            p.add_run(resume.summary).font.size = Pt(11)
+        elif sec == "experience" and resume.experience:
+            section_heading("Experience")
+            for exp in resume.experience:
+                date = ""
+                if exp.start_date or exp.end_date:
+                    date = f"{exp.start_date or ''}{' – ' if (exp.start_date and exp.end_date) else ''}{exp.end_date or ''}"
+                _two_col_row(doc, exp.company or exp.title, date, bold_left=True, italic_right=True, size=11)
+                if exp.company or exp.location:
+                    _two_col_row(doc, exp.title, exp.location or "", italic_left=True, size=10.5)
+                for b in exp.bullets:
+                    _bullet(doc, b, size=11)
+        elif sec == "projects" and resume.projects:
+            section_heading("Projects")
+            for proj in resume.projects:
+                _two_col_row(doc, proj.name, proj.tech or "", bold_left=True, italic_right=True, size=11)
+                for b in proj.bullets:
+                    _bullet(doc, b, size=11)
+        elif sec == "education" and resume.education:
+            section_heading("Education")
+            for ed in resume.education:
+                date = ""
+                if ed.start_date or ed.end_date:
+                    date = f"{ed.start_date or ''}{' – ' if (ed.start_date and ed.end_date) else ''}{ed.end_date or ''}"
+                _two_col_row(doc, ed.institution, date, bold_left=True, italic_right=True, size=11)
+                sub_left = ""
+                if ed.degree:
+                    sub_left = ed.degree
+                if ed.field:
+                    sub_left = (sub_left + " in " if sub_left else "") + ed.field
+                sub_right = ed.location or ""
+                if ed.gpa:
+                    sub_right = (sub_right + " · " if sub_right else "") + f"GPA: {ed.gpa}"
+                if sub_left or sub_right:
+                    _two_col_row(doc, sub_left, sub_right, italic_left=True, size=10.5)
+                for d in ed.details:
+                    _bullet(doc, d, size=11)
+        elif sec == "skills" and resume.skills:
+            section_heading("Skills")
+            for sk in resume.skills:
+                p = doc.add_paragraph()
+                p.paragraph_format.space_after = Pt(1)
+                cat = p.add_run(f"{sk.category}: ")
+                cat.bold = True
+                cat.font.size = Pt(11)
+                val = p.add_run(", ".join(sk.skills))
+                val.font.size = Pt(11)
+        elif sec == "certifications" and resume.certifications:
+            section_heading("Certifications")
+            for c in resume.certifications:
+                _bullet(doc, c, size=11)
+        elif sec.startswith("extra:"):
+            extra_title = sec[6:]
+            for extra in resume.extra_sections:
+                if extra.title == extra_title:
+                    _render_extra_section_docx(doc, extra, section_heading, size=11)
+                    break
 
     buf = BytesIO()
     doc.save(buf)
@@ -383,42 +417,58 @@ def resume_to_plaintext(resume: Resume) -> str:
     ] if v]
     if parts:
         lines.append(" | ".join(parts))
-    if resume.summary:
-        lines += ["", "SUMMARY", resume.summary]
-    if resume.experience:
-        lines += ["", "EXPERIENCE"]
-        for e in resume.experience:
-            head = f"{e.title} @ {e.company}"
-            if e.start_date or e.end_date:
-                head += f"  [{e.start_date or ''} – {e.end_date or ''}]"
-            if e.location:
-                head += f"  ({e.location})"
-            lines.append(head)
-            for b in (e.bullets or []):
-                lines.append(f"- {b}")
-    if resume.projects:
-        lines += ["", "PROJECTS"]
-        for p in resume.projects:
-            lines.append(f"{p.name}" + (f" — {p.tech}" if p.tech else ""))
-            for b in (p.bullets or []):
-                lines.append(f"- {b}")
-    if resume.education:
-        lines += ["", "EDUCATION"]
-        for ed in resume.education:
-            head = ed.institution
-            if ed.degree or ed.field:
-                head += f" — {ed.degree or ''} {('in ' + ed.field) if ed.field else ''}".strip()
-            if ed.start_date or ed.end_date:
-                head += f"  [{ed.start_date or ''} – {ed.end_date or ''}]"
-            lines.append(head)
-            for d in (ed.details or []):
-                lines.append(f"- {d}")
-    if resume.skills:
-        lines += ["", "SKILLS"]
-        for sk in resume.skills:
-            lines.append(f"{sk.category}: {', '.join(sk.skills or [])}")
-    if resume.certifications:
-        lines += ["", "CERTIFICATIONS"]
-        for c in (resume.certifications or []):
-            lines.append(f"- {c}")
+
+    for sec in (resume.section_order or _DEFAULT_ORDER):
+        if sec == "summary" and resume.summary:
+            lines += ["", "SUMMARY", resume.summary]
+        elif sec == "experience" and resume.experience:
+            lines += ["", "EXPERIENCE"]
+            for e in resume.experience:
+                head = f"{e.title} @ {e.company}"
+                if e.start_date or e.end_date:
+                    head += f"  [{e.start_date or ''} – {e.end_date or ''}]"
+                if e.location:
+                    head += f"  ({e.location})"
+                lines.append(head)
+                for b in (e.bullets or []):
+                    lines.append(f"- {b}")
+        elif sec == "projects" and resume.projects:
+            lines += ["", "PROJECTS"]
+            for p in resume.projects:
+                lines.append(f"{p.name}" + (f" — {p.tech}" if p.tech else ""))
+                for b in (p.bullets or []):
+                    lines.append(f"- {b}")
+        elif sec == "education" and resume.education:
+            lines += ["", "EDUCATION"]
+            for ed in resume.education:
+                head = ed.institution
+                if ed.degree or ed.field:
+                    head += f" — {ed.degree or ''} {('in ' + ed.field) if ed.field else ''}".strip()
+                if ed.start_date or ed.end_date:
+                    head += f"  [{ed.start_date or ''} – {ed.end_date or ''}]"
+                lines.append(head)
+                for d in (ed.details or []):
+                    lines.append(f"- {d}")
+        elif sec == "skills" and resume.skills:
+            lines += ["", "SKILLS"]
+            for sk in resume.skills:
+                lines.append(f"{sk.category}: {', '.join(sk.skills or [])}")
+        elif sec == "certifications" and resume.certifications:
+            lines += ["", "CERTIFICATIONS"]
+            for c in (resume.certifications or []):
+                lines.append(f"- {c}")
+        elif sec.startswith("extra:"):
+            extra_title = sec[6:]
+            for extra in resume.extra_sections:
+                if extra.title == extra_title:
+                    lines += ["", extra.title.upper()]
+                    for item in extra.items:
+                        if item.header:
+                            lines.append(item.header + (f" — {item.subheader}" if item.subheader else ""))
+                        if item.text:
+                            lines.append(item.text)
+                        for b in item.bullets:
+                            lines.append(f"- {b}")
+                    break
+
     return "\n".join(lines)

@@ -5,7 +5,7 @@ The whole pipeline (extract → tailor → render) operates on this schema.
 Once a resume is parsed into this shape, the original PDF/DOCX is no longer
 edited — we render fresh PDF/DOCX from the JSON using our own template.
 """
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -117,6 +117,32 @@ class SkillCategory(BaseModel):
     def normalize_skills(cls, v): return _coerce_str_list(v)
 
 
+class SectionItem(BaseModel):
+    header: Optional[str] = None
+    subheader: Optional[str] = None
+    bullets: List[str] = Field(default_factory=list)
+    text: Optional[str] = None
+
+    @field_validator("bullets", mode="before")
+    @classmethod
+    def normalize_bullets(cls, v): return _coerce_str_list(v)
+
+
+class ExtraSection(BaseModel):
+    title: str
+    content_type: Literal["entries", "text", "list"] = "entries"
+    items: List[SectionItem] = Field(default_factory=list)
+
+    @field_validator("content_type", mode="before")
+    @classmethod
+    def normalize_content_type(cls, v):
+        return v if v in ("entries", "text", "list") else "entries"
+
+    @field_validator("items", mode="before")
+    @classmethod
+    def normalize_items(cls, v): return _coerce_obj_list(v)
+
+
 class Resume(BaseModel):
     name: str = ""
     contact: ContactInfo = Field(default_factory=ContactInfo)
@@ -126,14 +152,17 @@ class Resume(BaseModel):
     projects: List[ProjectEntry] = Field(default_factory=list)
     skills: List[SkillCategory] = Field(default_factory=list)
     certifications: List[str] = Field(default_factory=list)
+    publications: List[str] = Field(default_factory=list)
+    extra_sections: List[ExtraSection] = Field(default_factory=list)
+    section_order: List[str] = Field(default_factory=list)
 
-    @field_validator("experience", "education", "projects", "skills", mode="before")
+    @field_validator("experience", "education", "projects", "skills", "extra_sections", mode="before")
     @classmethod
     def normalize_obj_list(cls, v): return _coerce_obj_list(v)
 
-    @field_validator("certifications", mode="before")
+    @field_validator("certifications", "publications", "section_order", mode="before")
     @classmethod
-    def normalize_certifications(cls, v): return _coerce_str_list(v)
+    def normalize_str_lists(cls, v): return _coerce_str_list(v)
 
     @field_validator("name", mode="before")
     @classmethod

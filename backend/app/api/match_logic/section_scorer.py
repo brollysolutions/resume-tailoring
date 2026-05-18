@@ -110,3 +110,29 @@ async def compute_section_scores(
         out[section] = result["score"]
 
     return out
+
+
+async def compute_experience_cosine(
+    resume_obj,
+    jd_embedding: Optional[list[float]],
+    get_embedding_fn,
+) -> Optional[float]:
+    """Raw cosine between the experience section embedding and JD embedding.
+
+    Returns None when experience section is empty or embeddings fail.
+    The raw (pre-remap) value is returned — hybrid_scorer remaps it.
+    """
+    if not jd_embedding:
+        return None
+    try:
+        exp_text = _section_text(resume_obj, "Experience")
+        if not exp_text.strip():
+            return None
+        exp_emb = await get_embedding_fn(exp_text)
+        if not exp_emb:
+            return None
+        from app.api.match_logic.hybrid_scorer import _cosine_similarity
+        return _cosine_similarity(exp_emb, jd_embedding)
+    except Exception as e:
+        logger.warning("compute_experience_cosine failed: %s", e)
+        return None

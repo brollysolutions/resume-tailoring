@@ -6,7 +6,11 @@ Endpoints:
 - POST /api/match/tailored: Score tailored resume with before/after + section breakdown
 """
 
+import json
 import logging
+from datetime import datetime, timezone
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -18,6 +22,34 @@ from .match_logic import score_resume_against_jd, detect_ceiling, compute_sectio
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_BACKEND = Path(__file__).resolve().parents[2]
+_DATA = _BACKEND / "data"
+_SECTION_DELTA_PATH = _DATA / "section_deltas.jsonl"
+
+
+def _log_section_delta(
+    resume_id: str,
+    jd_hash: str,
+    before_sections: dict,
+    after_sections: dict,
+    score_delta: int,
+) -> None:
+    """Log section score deltas for per-section calibration analysis. Best-effort."""
+    try:
+        _DATA.mkdir(parents=True, exist_ok=True)
+        event = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "resume_id": resume_id,
+            "jd_hash": jd_hash,
+            "before_sections": before_sections or {},
+            "after_sections": after_sections or {},
+            "score_delta": score_delta,
+        }
+        with _SECTION_DELTA_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event) + "\n")
+    except Exception as e:
+        logger.debug(f"Section delta log write failed: {e}")
 
 
 class MatchRequest(BaseModel):
@@ -76,9 +108,7 @@ async def match_resume(req: MatchRequest):
         logger.warning(f"JD embedding failed: {e}")
         jd_embedding = None
 
-    # Per-section cosine (Tier 3): max cosine between JD requirements and
-    # individual resume content blocks. Blended into the cosine signal in
-    # score_resume_against_jd.
+    # Per-section cosine (per-block max) for backward compat
     section_cosine = None
     try:
         from .match_logic.section_embedder import compute_section_cosine
@@ -88,11 +118,23 @@ async def match_resume(req: MatchRequest):
     except Exception as e:
         logger.warning(f"Section cosine failed: {e}")
 
+    # Experience-section cosine (more targeted than per-block max)
+    exp_section_cosine = None
+    try:
+        from .match_logic.section_scorer import compute_experience_cosine
+        exp_section_cosine = await compute_experience_cosine(
+            resume_obj, jd_embedding, get_embedding
+        )
+    except Exception as e:
+        logger.warning(f"Experience cosine failed: {e}")
+
     # Hybrid scoring with embeddings
     try:
         result = score_resume_against_jd(
             resume_text, resume_obj.model_dump(), req.jd_text,
-            resume_vector, jd_embedding, section_cosine=section_cosine,
+            resume_vector, jd_embedding,
+            section_cosine=section_cosine,
+            exp_section_cosine=exp_section_cosine,
             resume_id=req.resume_id,
         )
     except Exception as e:
@@ -102,6 +144,13 @@ async def match_resume(req: MatchRequest):
     # Hard requirement ceiling — regex extraction, no LLM
     hard_reqs = parse_jd_hard_requirements(req.jd_text)
     ceiling = detect_ceiling(resume_obj, hard_reqs)
+
+    # Log ceiling hits for calibration (Signal 5: hard "bad" label)
+    if ceiling and ceiling.get("score", 100) < 40:
+        import hashlib
+        from app.core.implicit_labeler import log_suggestion_event
+        jd_hash = hashlib.sha256(req.jd_text.encode("utf-8", errors="ignore")).hexdigest()[:16]
+        log_suggestion_event("ceiling_hit", resume_id=req.resume_id, jd_hash=jd_hash)
 
     # Per-section scores
     try:
@@ -141,6 +190,8 @@ async def match_resume(req: MatchRequest):
         except Exception as e:
             logger.warning(f"Section diagnosis failed: {e}")
 
+    from app.core.weights_store import get_weights
+    w = get_weights()
     return {
         "score": result["score"],
         "breakdown": result["breakdown"],
@@ -148,6 +199,14 @@ async def match_resume(req: MatchRequest):
         "ceiling": ceiling,
         "diagnosis": diagnosis,
         "gap_analysis": gap_analysis,
+        "active_weights": {
+            "w_kw": round(w.w_kw * 100),
+            "w_skill": round(w.w_skill * 100),
+            "w_ngram": round(w.w_ngram * 100),
+            "w_edu": round(w.w_edu * 100),
+            "w_sen": round(w.w_sen * 100),
+            "w_cos": round(w.w_cos * 100),
+        },
     }
 
 
@@ -200,9 +259,17 @@ async def match_tailored(req: MatchTailoredRequest):
             )
         except Exception as e:
             logger.warning(f"Original section cosine failed: {e}")
+        original_exp_cos = None
+        try:
+            from .match_logic.section_scorer import compute_experience_cosine
+            original_exp_cos = await compute_experience_cosine(resume_obj, jd_embedding, get_embedding)
+        except Exception:
+            pass
         original_result = score_resume_against_jd(
             resume_text_original, resume_obj.model_dump(), req.jd_text,
-            original_resume_vector, jd_embedding, section_cosine=original_section_cos,
+            original_resume_vector, jd_embedding,
+            section_cosine=original_section_cos,
+            exp_section_cosine=original_exp_cos,
             resume_id=req.resume_id,
         )
         original_sections = await compute_section_scores(resume_obj, resume_obj.model_dump(), req.jd_text, jd_embedding)
@@ -234,9 +301,17 @@ async def match_tailored(req: MatchTailoredRequest):
             )
         except Exception as e:
             logger.warning(f"Tailored section cosine failed: {e}")
+        tailored_exp_cos = None
+        try:
+            from .match_logic.section_scorer import compute_experience_cosine as _cec
+            tailored_exp_cos = await _cec(resume_tailored, jd_embedding, get_embedding)
+        except Exception:
+            pass
         tailored_result = score_resume_against_jd(
             resume_text_tailored, resume_tailored.model_dump(), req.jd_text,
-            tailored_resume_vector, jd_embedding, section_cosine=tailored_section_cos,
+            tailored_resume_vector, jd_embedding,
+            section_cosine=tailored_section_cos,
+            exp_section_cosine=tailored_exp_cos,
             resume_id=req.resume_id,
         )
         tailored_sections = await compute_section_scores(resume_tailored, resume_tailored.model_dump(), req.jd_text, jd_embedding)
@@ -245,6 +320,17 @@ async def match_tailored(req: MatchTailoredRequest):
         raise HTTPException(status_code=500, detail=f"Tailored scoring failed: {e}")
 
     delta = tailored_result["score"] - original_result["score"]
+
+    # Log section deltas for per-section calibration analysis (Signal 6)
+    import hashlib
+    jd_hash = hashlib.sha256(req.jd_text.encode("utf-8", errors="ignore")).hexdigest()[:16]
+    _log_section_delta(
+        resume_id=req.resume_id,
+        jd_hash=jd_hash,
+        before_sections=original_sections,
+        after_sections=tailored_sections,
+        score_delta=delta,
+    )
 
     return {
         "original": {

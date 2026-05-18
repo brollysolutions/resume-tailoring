@@ -375,3 +375,94 @@ def _fuzzy_coverage(top_jd: set, resume_tokens: set, threshold: int = 85) -> set
                 fuzzy_hits.add(jd_tok)
                 break
     return exact | fuzzy_hits
+
+
+# Multi-word tech skills matched as units (not split into individual tokens).
+# Shared by hybrid_scorer (ngram signal) and orchestrator (injection).
+_NGRAM_SKILLS: frozenset[str] = frozenset({
+    # ML / AI
+    "machine learning", "deep learning", "natural language processing",
+    "computer vision", "large language models", "reinforcement learning",
+    "generative ai", "neural networks", "transfer learning",
+    "convolutional neural", "transformer model", "foundation model",
+    # Data
+    "data engineering", "data science", "data analysis", "data pipeline",
+    "data warehouse", "data lake", "etl pipeline", "feature engineering",
+    "real time processing", "stream processing", "batch processing",
+    # Engineering practices
+    "test driven development", "behavior driven development",
+    "continuous integration", "continuous deployment", "continuous delivery",
+    "agile methodology", "system design", "design patterns",
+    "microservices architecture", "event driven architecture",
+    "object oriented programming", "domain driven design",
+    "distributed systems", "high availability", "fault tolerance",
+    # APIs / infra
+    "rest api", "restful api", "cloud native", "cloud computing",
+    "infrastructure as code", "site reliability", "ci cd",
+    "service mesh", "api gateway",
+})
+
+
+def extract_jd_ngrams(jd_text: str) -> frozenset[str]:
+    """Return multi-word skills from _NGRAM_SKILLS present in the JD."""
+    lower = jd_text.lower()
+    return frozenset(ng for ng in _NGRAM_SKILLS if ng in lower)
+
+
+def extract_resume_ngrams(resume_text: str) -> frozenset[str]:
+    """Return multi-word skills from _NGRAM_SKILLS present in the resume."""
+    lower = resume_text.lower()
+    return frozenset(ng for ng in _NGRAM_SKILLS if ng in lower)
+
+
+# Regex patterns to detect required / preferred section boundaries in JDs.
+_REQ_HEADER = re.compile(
+    r'(?:^|\n)\s*(?:requirements?|required(?:\s+skills?)?|must[\s-]have|essential'
+    r'|minimum\s+qualifications?|basic\s+qualifications?)\s*[:\-]?\s*(?:\n|$)',
+    re.IGNORECASE,
+)
+_PREF_HEADER = re.compile(
+    r'(?:^|\n)\s*(?:preferred(?:\s+skills?|qualifications?)?|nice[\s-]to[\s-]have'
+    r'|bonus|desired(?:\s+skills?)?|plus(?:\s+points?)?|additional\s+qualifications?)\s*[:\-]?\s*(?:\n|$)',
+    re.IGNORECASE,
+)
+# Any section-like header (catches transitions between sections).
+_ANY_HEADER = re.compile(
+    r'(?:^|\n)\s*(?:[A-Z][A-Za-z ]{2,30})\s*[:\-]\s*(?:\n|$)',
+)
+
+
+def parse_jd_required_preferred(jd_text: str) -> tuple[str, str]:
+    """Split JD into (required_text, preferred_text).
+
+    Looks for explicit 'Required' / 'Preferred' section headers.
+    Returns (full_text, '') when no explicit sections found — preserves
+    backward-compatible behavior (caller treats entire JD as required).
+    """
+    req_m = _REQ_HEADER.search(jd_text)
+    pref_m = _PREF_HEADER.search(jd_text)
+
+    if not req_m and not pref_m:
+        return (jd_text, "")
+
+    # Both sections found — extract each block until the next section header.
+    def _block_after(match: re.Match, text: str) -> str:
+        start = match.end()
+        # Find the next section-like header after this one.
+        next_h = _REQ_HEADER.search(text, start) or _PREF_HEADER.search(text, start)
+        end = next_h.start() if next_h else len(text)
+        return text[start:end].strip()
+
+    if req_m and pref_m:
+        req_text = _block_after(req_m, jd_text)
+        pref_text = _block_after(pref_m, jd_text)
+        return (req_text or jd_text, pref_text)
+
+    if req_m:
+        req_text = _block_after(req_m, jd_text)
+        return (req_text or jd_text, "")
+
+    # Only preferred found — everything else is "required".
+    pref_text = _block_after(pref_m, jd_text)
+    before = jd_text[: pref_m.start()].strip()
+    return (before or jd_text, pref_text)

@@ -233,6 +233,22 @@ async def get_tailoring_suggestions(request: TailorRequest):
         logger.info("[TIMING] suggestions: TOTAL=%.3fs  returned=%d suggestions  missing_kw=%d",
                     time.perf_counter() - t0, len(result.get("suggestions", [])),
                     len(result.get("jd_missing_keywords", [])))
+
+        # Log total suggestions per (resume_id, jd_hash) — used by implicit_labeler
+        # to compute acceptance ratio against the /apply event.
+        try:
+            import hashlib as _h
+            from app.core.implicit_labeler import log_suggestion_event
+            jd_hash = _h.sha256(request.jd_text.encode("utf-8", errors="ignore")).hexdigest()[:16]
+            log_suggestion_event(
+                "suggestions_generated",
+                resume_id=request.resume_id,
+                jd_hash=jd_hash,
+                total=len(result.get("suggestions", [])),
+            )
+        except Exception as e:
+            logger.debug("suggestion event log failed (non-fatal): %s", e)
+
         return {
             "resume_id": request.resume_id,
             "sections": result["sections"],
@@ -297,6 +313,8 @@ async def apply_tailoring(request: ApplyRequest):
         logger.info("[TIMING] apply: render_%s=%.3fs  TOTAL=%.3fs",
                     request.format, time.perf_counter() - t_render, time.perf_counter() - t0)
 
+        # Implicit-label event: user downloaded a tailored resume — count this
+        # as acceptance signal. accepted_count = len(suggestions sent at /apply).
         return StreamingResponse(
             BytesIO(data),
             media_type=media_type,

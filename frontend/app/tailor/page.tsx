@@ -15,6 +15,7 @@ function TailorPageContent() {
   const [tailoredResume, setTailoredResume] = useState<ResumeData | null>(null);
   const [pendingSuggestions, setPendingSuggestions] = useState<Suggestion[]>([]);
   const [approved, setApproved] = useState<Suggestion[]>([]);
+  const [initialSuggestionCount, setInitialSuggestionCount] = useState<number>(0);
   const [resumeId, setResumeId] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState<string>("modern");
   const [jdText, setJdText] = useState<string>("");
@@ -93,6 +94,7 @@ function TailorPageContent() {
         const data = await suggRes.json();
         const sugg: Suggestion[] = data.suggestions || [];
         setPendingSuggestions(sugg);
+        setInitialSuggestionCount(sugg.length);
         setProjectNames(data.project_names || []);
         const maxId = sugg.reduce((m: number, s: Suggestion) => Math.max(m, s.id || 0), 0);
         setNextSuggestionId(Math.max(maxId + 1, 10000));
@@ -165,18 +167,17 @@ function TailorPageContent() {
   // Batch emit — entry-level AI rewrite emits N replace suggestions at once.
   const handleEmitBatch = useCallback((batch: Array<Omit<Suggestion, "id">>) => {
     if (batch.length === 0) return;
-    setNextSuggestionId((startId) => {
-      const withIds: Suggestion[] = batch.map((sg, i) => ({
-        ...(sg as Suggestion),
-        id: startId + i,
-        reasoning: sg.reasoning || "Entry AI rewrite",
-      }));
-      setApproved((prev) => [...prev, ...withIds]);
-      setTailoredResume((prev) => prev ? applySuggestionsClient(prev, withIds) : prev);
-      setStaleScore(true);
-      return startId + batch.length;
-    });
-  }, []);
+    const startId = nextSuggestionId;
+    const withIds: Suggestion[] = batch.map((sg, i) => ({
+      ...(sg as Suggestion),
+      id: startId + i,
+      reasoning: sg.reasoning || "Entry AI rewrite",
+    }));
+    setNextSuggestionId(startId + batch.length);
+    setApproved((prev) => [...prev, ...withIds]);
+    setTailoredResume((prev) => prev ? applySuggestionsClient(prev, withIds) : prev);
+    setStaleScore(true);
+  }, [nextSuggestionId]);
 
   // Accept an LLM pending suggestion → moves to approved + applies locally.
   const handleAcceptPending = useCallback((id: number, edited: string) => {
@@ -276,6 +277,10 @@ function TailorPageContent() {
           format,
           template_id: templateId,
           ...(keptProjects.length > 0 ? { new_projects: keptProjects } : {}),
+          // Calibration signal — backend's implicit_labeler joins these to
+          // compute acceptance ratio per (resume_id, jd_hash).
+          jd_text: jdText,
+          total_suggestions: initialSuggestionCount,
         }),
       });
       if (!res.ok) throw new Error("Failed to generate tailored document.");

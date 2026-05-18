@@ -12,6 +12,7 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
     from app.core.config import settings
     if settings.PRELOAD_EMBEDDING_MODEL:
         logger.info("Preloading embedding model...")
@@ -23,7 +24,25 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Embedding preload failed (will lazy-load on first request): {e}")
     else:
         logger.info("Skipping embedding preload (lazy-load on first request).")
-    yield
+
+    # Background auto-calibrator: derives labels from acceptance events and
+    # re-fits scoring weights when ≥ TRIGGER_NEW_LABELS new labels accumulate.
+    calibrator_task: asyncio.Task | None = None
+    try:
+        from app.core.auto_calibrator import watcher_loop
+        calibrator_task = asyncio.create_task(watcher_loop())
+    except Exception as e:
+        logger.warning(f"auto_calibrator failed to start (non-fatal): {e}")
+
+    try:
+        yield
+    finally:
+        if calibrator_task is not None:
+            calibrator_task.cancel()
+            try:
+                await calibrator_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
 
 app = FastAPI(
@@ -51,11 +70,12 @@ async def health_check():
     return {"status": "ok"}
 
 
-from app.api import resume, match, tailor
+from app.api import resume, match, tailor, admin
 
 app.include_router(resume.router, prefix="/api/resume", tags=["Resume"])
 app.include_router(match.router, prefix="/api/match", tags=["Match"])
 app.include_router(tailor.router, prefix="/api/tailor", tags=["Tailor"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 
 if __name__ == "__main__":

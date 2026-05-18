@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { ExternalLink, ArrowRight, Loader2, Check, Maximize2, X, Wand2, Target } from "lucide-react";
 import { TemplatePreview } from "@/components/TemplatePreview";
 import { Tabs } from "@/components/Tabs";
@@ -33,11 +34,13 @@ function scoreTextColor(val: number) {
 function OverviewPanel({
   matchScore,
   matchBreakdown,
+  matchWeights,
   matchCeiling,
   scoreColor,
 }: {
   matchScore: number;
   matchBreakdown: { kw: number; sk: number; cos: number } | null;
+  matchWeights: { kw: number; sk: number; cos: number };
   matchCeiling: { score: number; reasons: string[]; exp_required?: number | null; exp_actual?: number | null } | null;
   scoreColor: string;
 }) {
@@ -61,9 +64,9 @@ function OverviewPanel({
         {matchBreakdown && (
           <div className="mt-4 space-y-2">
             {[
-              { label: "Keywords", value: matchBreakdown.kw, weight: 55, tooltip: "JD keywords found anywhere in your resume" },
-              { label: "Skills→JD coverage", value: matchBreakdown.sk, weight: 25, tooltip: "How many of your listed skills appear in the JD (different from per-section Skills score)" },
-              { label: "Semantic", value: matchBreakdown.cos, weight: 20, tooltip: "Overall content similarity (embedding cosine)" },
+              { label: "Keywords", value: matchBreakdown.kw, weight: matchWeights.kw, tooltip: "JD keywords found anywhere in your resume" },
+              { label: "Skills→JD coverage", value: matchBreakdown.sk, weight: matchWeights.sk, tooltip: "How many of your listed skills appear in the JD (different from per-section Skills score)" },
+              { label: "Semantic", value: matchBreakdown.cos, weight: matchWeights.cos, tooltip: "Overall content similarity (embedding cosine)" },
             ].map((b) => (
               <div key={b.label} className="flex items-center gap-3">
                 <span className="text-[11px] text-muted w-32 shrink-0 cursor-help" title={b.tooltip}>{b.label}</span>
@@ -240,12 +243,16 @@ function SuggestionsPanel({
   );
 }
 
-export default function JobSearchPage() {
+function JobSearchContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  
   const [keywords, setKeywords] = useState<string[]>([]);
   const [jdText, setJdText] = useState("");
   const [isMatching, setIsMatching] = useState(false);
   const [matchScore, setMatchScore] = useState<number | null>(null);
   const [matchBreakdown, setMatchBreakdown] = useState<{ kw: number; sk: number; cos: number } | null>(null);
+  const [matchWeights, setMatchWeights] = useState<{ kw: number; sk: number; cos: number }>({ kw: 55, sk: 25, cos: 20 });
   const [matchCeiling, setMatchCeiling] = useState<{ score: number; reasons: string[]; exp_required?: number | null; exp_actual?: number | null } | null>(null);
   const [sectionScores, setSectionScores] = useState<Record<string, number | null> | null>(null);
   const [matchGaps, setMatchGaps] = useState<GapAnalysis | null>(null);
@@ -285,10 +292,10 @@ export default function JobSearchPage() {
             if (!res.ok) return;
             const data = await res.json();
             setPreviews((prev) => ({ ...prev, [t.id]: data.html || "" }));
-          } catch {}
+          } catch (err: unknown) {}
         })
       );
-    } catch {
+    } catch (err: unknown) {
       setTemplatesError(true);
     } finally {
       setIsTemplatesLoading(false);
@@ -296,26 +303,23 @@ export default function JobSearchPage() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      const params = new URLSearchParams(window.location.search);
-      const kw = params.get("keywords");
-      if (kw) {
-        setKeywords(kw.split("|").map((k) => k.trim()).filter(Boolean));
-        const rid = params.get("resume_id");
-        if (rid) sessionStorage.setItem("current_resume_id", rid);
-      } else if (!sessionStorage.getItem("current_resume_id")) {
-        window.location.href = "/";
-        return;
-      }
+    const kw = searchParams.get("keywords");
+    if (kw) {
+      setKeywords(kw.split("|").map((k) => k.trim()).filter(Boolean));
+      const rid = searchParams.get("resume_id");
+      if (rid) sessionStorage.setItem("current_resume_id", rid);
+    } else if (!sessionStorage.getItem("current_resume_id")) {
+      router.push("/");
+      return;
+    }
 
-      const stored = sessionStorage.getItem("template_id");
-      if (stored) setSelectedTemplate(stored);
+    const stored = sessionStorage.getItem("template_id");
+    if (stored) setSelectedTemplate(stored);
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
-      const resumeId = sessionStorage.getItem("current_resume_id");
-      await loadTemplates(resumeId, apiUrl);
-    })();
-  }, [loadTemplates]);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+    const resumeId = sessionStorage.getItem("current_resume_id");
+    loadTemplates(resumeId, apiUrl);
+  }, [searchParams, router, loadTemplates]);
 
   const handleSelectTemplate = useCallback((id: string) => {
     setSelectedTemplate(id);
@@ -366,12 +370,19 @@ export default function JobSearchPage() {
       } else {
         setMatchBreakdown(null);
       }
+      if (data.active_weights) {
+        setMatchWeights({
+          kw: data.active_weights.w_kw ?? 55,
+          sk: data.active_weights.w_skill ?? 25,
+          cos: data.active_weights.w_cos ?? 20,
+        });
+      }
       setMatchCeiling(data.ceiling ?? null);
       setSectionScores(data.section_scores ?? null);
       setMatchGaps(data.gap_analysis ?? null);
       setResultsTab("overview");
-    } catch (err: any) {
-      setError(err.message || "Something went wrong.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setIsMatching(false);
     }
@@ -380,7 +391,7 @@ export default function JobSearchPage() {
   const onTailor = () => {
     sessionStorage.setItem("tailor_jd_text", jdText);
     sessionStorage.setItem("template_id", selectedTemplate);
-    window.location.href = "/tailor";
+    router.push("/tailor");
   };
 
   const scoreColor =
@@ -558,6 +569,7 @@ export default function JobSearchPage() {
               <OverviewPanel
                 matchScore={matchScore}
                 matchBreakdown={matchBreakdown}
+                matchWeights={matchWeights}
                 matchCeiling={matchCeiling}
                 scoreColor={scoreColor}
               />
@@ -636,5 +648,17 @@ export default function JobSearchPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function JobSearchPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-muted" />
+      </div>
+    }>
+      <JobSearchContent />
+    </Suspense>
   );
 }

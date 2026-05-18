@@ -1,9 +1,12 @@
+import json as _json
 import logging
 import os
 import uuid
 import asyncio
 import json
 import fitz
+from datetime import datetime, timezone
+from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 
 from app.core.vector_db import get_embedding, init_qdrant
@@ -13,6 +16,19 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_UPLOAD_EVENTS_PATH = Path(__file__).resolve().parents[2] / "data" / "upload_events.jsonl"
+
+
+def _log_upload_event(resume_id: str) -> None:
+    """Best-effort append. Never raises."""
+    try:
+        _UPLOAD_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        event = {"ts": datetime.now(timezone.utc).isoformat(), "resume_id": resume_id}
+        with _UPLOAD_EVENTS_PATH.open("a", encoding="utf-8") as f:
+            f.write(_json.dumps(event) + "\n")
+    except Exception as e:
+        logger.debug("upload_events log write failed: %s", e)
 
 UPLOAD_DIR = settings.UPLOAD_DIR
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -125,6 +141,8 @@ async def upload_resume(file: UploadFile = File(...)):
             )
         except Exception as e:
             logger.exception("Vector storage failed")
+
+    _log_upload_event(resume_id)
 
     return {
         "message": "Resume uploaded and processed successfully",

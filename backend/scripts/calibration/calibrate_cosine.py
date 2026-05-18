@@ -81,31 +81,62 @@ def _percentile(sorted_vals: list[float], p: float) -> float:
     return sorted_vals[lo] * (1 - frac) + sorted_vals[hi] * frac
 
 
-def main() -> int:
-    log = _load_jsonl(_LOG)
-    labels = _load_jsonl(_LABELS)
+def run(log_path: Path = _LOG, labels_path: Path = _LABELS) -> dict:
+    """Programmatic entrypoint. Returns dict with status + anchors.
+
+    status:
+      - "ok": anchors fit, p_low/p_high returned
+      - "insufficient_bad": fewer than _MIN_BAD bad-labeled rows
+      - "narrow_spread": p95 - p5 < 0.05
+    """
+    log = _load_jsonl(log_path)
+    labels = _load_jsonl(labels_path)
     rows = _join(log, labels)
 
     bad = [r for r in rows if r["label"] == "bad"]
     good = [r for r in rows if r["label"] == "good"]
     ok = [r for r in rows if r["label"] == "ok"]
 
-    print(f"joined rows: {len(rows)}  (good={len(good)}  ok={len(ok)}  bad={len(bad)})")
+    counts = {"good": len(good), "ok": len(ok), "bad": len(bad), "total": len(rows)}
 
     if len(bad) < _MIN_BAD:
-        print(f"need at least {_MIN_BAD} bad-labeled rows to fit a cosine floor. label more bad pairs first.")
-        return 1
+        return {"status": "insufficient_bad", "counts": counts, "min_bad": _MIN_BAD}
 
     bad_cos = sorted(r["cos"] for r in bad)
     p_low = _percentile(bad_cos, 5)
     p_high = _percentile(bad_cos, 95)
 
     if p_high - p_low < 0.05:
-        print(f"bad-cosine spread too narrow (p5={p_low:.4f}, p95={p_high:.4f}). label more diverse bad pairs.")
+        return {"status": "narrow_spread", "counts": counts, "p_low": p_low, "p_high": p_high}
+
+    return {
+        "status": "ok",
+        "counts": counts,
+        "p_low": round(p_low, 4),
+        "p_high": round(p_high, 4),
+    }
+
+
+def main() -> int:
+    out = run()
+    c = out.get("counts", {})
+    print(f"joined rows: {c.get('total', 0)}  (good={c.get('good', 0)}  ok={c.get('ok', 0)}  bad={c.get('bad', 0)})")
+
+    if out["status"] == "insufficient_bad":
+        print(f"need at least {out['min_bad']} bad-labeled rows to fit a cosine floor. label more bad pairs first.")
+        return 1
+    if out["status"] == "narrow_spread":
+        print(f"bad-cosine spread too narrow (p5={out['p_low']:.4f}, p95={out['p_high']:.4f}). label more diverse bad pairs.")
         return 1
 
+    p_low, p_high = out["p_low"], out["p_high"]
     print(f"\nrecommended remap anchors: p_low={p_low:.4f}  p_high={p_high:.4f}")
     print(f"new formula: (raw_cos - {p_low:.4f}) / ({p_high:.4f} - {p_low:.4f})  clamped [0, 1]")
+
+    # Reload rows for before/after preview only (cheap).
+    log = _load_jsonl(_LOG)
+    labels = _load_jsonl(_LABELS)
+    rows = _join(log, labels)
 
     def remap_old(raw: float) -> float:
         return max(0.0, (raw - 0.3) / 0.7)

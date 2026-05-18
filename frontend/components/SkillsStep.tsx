@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { SkillCategory, SkillSuggestion, SkillSuggestionMode } from "@/lib/skills";
 
@@ -50,16 +50,12 @@ export function SkillsStep({
   const [newCatName, setNewCatName] = useState("");
   const [newCatSkill, setNewCatSkill] = useState("");
 
-  // ID factory — local counter monotonically advancing past parent's seed.
-  const [idSeed, setIdSeed] = useState<number>(nextSuggestionId);
+  // ID factory — ref so synchronous loop calls each get a unique id.
+  const idSeedRef = useRef<number>(nextSuggestionId);
   useEffect(() => {
-    setIdSeed((cur) => Math.max(cur, nextSuggestionId));
+    idSeedRef.current = Math.max(idSeedRef.current, nextSuggestionId);
   }, [nextSuggestionId]);
-  const nextId = () => {
-    const id = idSeed;
-    setIdSeed((n) => n + 1);
-    return id;
-  };
+  const nextId = () => idSeedRef.current++;
 
   // Bucket pending suggestions by destination:
   //   - buckets[catLower]    suggestions on an EXISTING resume category

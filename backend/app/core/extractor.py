@@ -21,6 +21,8 @@ ABSOLUTE FIDELITY RULES (these override every other instruction):
 - A heading like "Summary", "Profile", "About Me", or "Objective" must be literally present in the source for a non-null "summary" to be returned.
 - If the resume has no Projects section, "projects" MUST be [].
 - If the resume has no Certifications section, "certifications" MUST be [].
+- If the resume has no Publications section, "publications" MUST be [].
+- If the resume has no extra/non-standard sections, "extra_sections" MUST be [].
 - Never invent dates, companies, titles, bullets, or skills that are not literally present in the source text.
 
 Rules:
@@ -29,6 +31,8 @@ Rules:
 - For dates, preserve original formatting (e.g., "Aug 2020", "Jun 2025 – Dec 2025", "Present", "May 2024 - Current").
 - Each bullet point becomes its own string. Strip leading bullet characters (•, -, –, *).
 - For skills: if the resume groups skills under category labels (e.g., "Backend:", "Languages:"), use those category names. Otherwise put everything under category "Skills".
+- section_order: list ALL section headings top-to-bottom using their original title casing. Prefix extra (non-standard) sections with "extra:" (e.g. ["Summary", "Experience", "Publications", "Education", "Skills"]). Include every section present in the document.
+- extra_sections: any section NOT matching summary/experience/education/projects/skills/certifications/publications goes here. Do NOT drop it. Set content_type to "entries" if items have headers or bullets, "list" if short one-liners, "text" if a prose block.
 - Return ONLY the JSON. No prose, no markdown fence, no commentary.
 
 SCHEMA:
@@ -78,7 +82,23 @@ SCHEMA:
       "skills": ["string"]
     }
   ],
-  "certifications": ["string"]
+  "certifications": ["string"],
+  "publications": ["string"],
+  "section_order": ["string"],
+  "extra_sections": [
+    {
+      "title": "string",
+      "content_type": "entries|text|list",
+      "items": [
+        {
+          "header": "string|null",
+          "subheader": "string|null",
+          "bullets": ["string"],
+          "text": "string|null"
+        }
+      ]
+    }
+  ]
 }"""
 
 
@@ -125,6 +145,55 @@ def _loose_json_extract(text: str) -> dict:
             return {}
 
 
+_SECTION_MAP = {
+    "summary": "summary",
+    "profile": "summary",
+    "objective": "summary",
+    "professional summary": "summary",
+    "experience": "experience",
+    "work experience": "experience",
+    "professional experience": "experience",
+    "work history": "experience",
+    "employment history": "experience",
+    "education": "education",
+    "academic background": "education",
+    "projects": "projects",
+    "personal projects": "projects",
+    "technical projects": "projects",
+    "skills": "skills",
+    "technical skills": "skills",
+    "expertise": "skills",
+    "core competencies": "skills",
+    "proficiencies": "skills",
+    "certifications": "certifications",
+    "certificates": "certifications",
+    "awards": "certifications",
+}
+
+
+def _normalize_order(raw_order: list, extra_titles: list[str]) -> list[str]:
+    """Map raw LLM section titles to canonical section keys.
+
+    Known sections → their lowercase key ("Experience" → "experience").
+    Titles matching an extra_sections title → "extra:<Title>".
+    Anything unrecognized → dropped (prevents stale/hallucinated entries).
+    """
+    result = []
+    seen_keys = set()
+    for s in raw_order:
+        key = s.lower().strip()
+        if key in _SECTION_MAP:
+            canonical = _SECTION_MAP[key]
+            if canonical not in seen_keys:
+                result.append(canonical)
+                seen_keys.add(canonical)
+        elif s in extra_titles:
+            if f"extra:{s}" not in seen_keys:
+                result.append(f"extra:{s}")
+                seen_keys.add(f"extra:{s}")
+    return result
+
+
 async def extract_resume(raw_text: str) -> Resume:
     user_prompt = f"Resume text:\n\n{raw_text[:8000]}"
     try:
@@ -156,7 +225,7 @@ async def extract_resume(raw_text: str) -> Resume:
         data["summary"] = None
 
     try:
-        return Resume.model_validate(data)
+        resume = Resume.model_validate(data)
     except Exception as e:
         logger.exception(f"Schema validation failed, returning minimal Resume: {e}")
         # Never dump raw text into summary — that creates a fake Summary
@@ -164,3 +233,22 @@ async def extract_resume(raw_text: str) -> Resume:
         # re-upload if the parse was really that broken.
         name = (data.get("name") if isinstance(data, dict) else None) or "Unknown"
         return Resume(name=name)
+
+    if isinstance(data, dict):
+        extra_titles = [e.title for e in resume.extra_sections]
+        resume.section_order = _normalize_order(data.get("section_order", []), extra_titles)
+
+        # Ensure all populated standard sections are in the order somewhere
+        # (prevents them from being invisible if the LLM forgot them in section_order)
+        for key in ["summary", "experience", "education", "projects", "skills", "certifications"]:
+            val = getattr(resume, key)
+            if val and key not in resume.section_order:
+                resume.section_order.append(key)
+
+        # Also ensure extra sections are included
+        for extra in resume.extra_sections:
+            extra_key = f"extra:{extra.title}"
+            if extra_key not in resume.section_order:
+                resume.section_order.append(extra_key)
+
+    return resume
