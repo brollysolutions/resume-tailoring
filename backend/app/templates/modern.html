@@ -4,13 +4,23 @@
 <meta charset="utf-8">
 <title>{{ resume.name }}</title>
 <style>
-  @page { size: Letter; margin: 0.6in 0.65in; }
+  @page {
+    size: Letter;
+    margin: {{ density.margin if density else '0.55in' }};
+    @top-right {
+      content: "{{ resume.name }} — Page " counter(page);
+      font-family: 'Helvetica', 'Arial', sans-serif;
+      font-size: 8.5pt;
+      color: #888;
+    }
+  }
+  @page :first { @top-right { content: ""; } }
   * { box-sizing: border-box; }
   html, body { background: #fff; }
   body {
     font-family: 'Helvetica', 'Arial', sans-serif;
-    font-size: 10.5pt;
-    line-height: 1.3;
+    font-size: {{ density.font_size_pt if density else 10.8 }}pt;
+    line-height: {{ density.line_height if density else 1.3 }};
     color: #1a1a1a;
     margin: 0;
     padding: 0;

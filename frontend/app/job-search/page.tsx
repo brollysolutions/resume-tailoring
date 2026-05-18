@@ -265,8 +265,9 @@ function JobSearchContent() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("modern");
   const [modalTemplate, setModalTemplate] = useState<TemplateMeta | null>(null);
   const [resultsTab, setResultsTab] = useState<ResultsTab>("overview");
+  const [layoutDensity, setLayoutDensity] = useState<"auto" | "compact" | "standard" | "expanded">("auto");
 
-  const loadTemplates = useCallback(async (resumeId: string | null, apiUrl: string) => {
+  const loadTemplates = useCallback(async (resumeId: string | null, apiUrl: string, density: string) => {
     setIsTemplatesLoading(true);
     setTemplatesError(false);
     try {
@@ -287,6 +288,7 @@ function JobSearchContent() {
                 resume_id: resumeId,
                 template_id: t.id,
                 suggestions: [],
+                layout_density: density === "auto" ? null : density,
               }),
             });
             if (!res.ok) return;
@@ -316,10 +318,22 @@ function JobSearchContent() {
     const stored = sessionStorage.getItem("template_id");
     if (stored) setSelectedTemplate(stored);
 
+    const storedDensity = sessionStorage.getItem("layout_density");
+    const initialDensity = (storedDensity as "auto" | "compact" | "standard" | "expanded") || "auto";
+    if (storedDensity) setLayoutDensity(initialDensity);
+
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
     const resumeId = sessionStorage.getItem("current_resume_id");
-    loadTemplates(resumeId, apiUrl);
+    loadTemplates(resumeId, apiUrl, initialDensity);
   }, [searchParams, router, loadTemplates]);
+
+  const handleDensityChange = useCallback((d: "auto" | "compact" | "standard" | "expanded") => {
+    setLayoutDensity(d);
+    sessionStorage.setItem("layout_density", d);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+    const resumeId = sessionStorage.getItem("current_resume_id");
+    loadTemplates(resumeId, apiUrl, d);
+  }, [loadTemplates]);
 
   const handleSelectTemplate = useCallback((id: string) => {
     setSelectedTemplate(id);
@@ -391,6 +405,7 @@ function JobSearchContent() {
   const onTailor = () => {
     sessionStorage.setItem("tailor_jd_text", jdText);
     sessionStorage.setItem("template_id", selectedTemplate);
+    sessionStorage.setItem("layout_density", layoutDensity);
     router.push("/tailor");
   };
 
@@ -417,9 +432,30 @@ function JobSearchContent() {
 
       {/* Template picker */}
       <section className="mb-12">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted mb-4">
-          Template
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
+            Template
+          </h2>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-muted">Density</span>
+            <div className="inline-flex rounded-md border border-border overflow-hidden">
+              {(["auto", "compact", "standard", "expanded"] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => handleDensityChange(d)}
+                  className={`px-2.5 py-1 text-[11px] capitalize transition-colors ${
+                    layoutDensity === d
+                      ? "bg-foreground text-background"
+                      : "bg-transparent text-muted hover:bg-subtle"
+                  }`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
         {isTemplatesLoading ? (
           <div className="h-40 card flex items-center justify-center gap-2 text-sm text-muted">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -430,7 +466,7 @@ function JobSearchContent() {
             <p>Could not load templates.</p>
             <button
               className="btn-secondary text-xs"
-              onClick={() => loadTemplates(sessionStorage.getItem("current_resume_id"), process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004")}
+              onClick={() => loadTemplates(sessionStorage.getItem("current_resume_id"), process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004", layoutDensity)}
             >
               Retry
             </button>

@@ -65,6 +65,93 @@ def _resolve_template_id(template_id: Optional[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Layout density — adaptive sizing/margins/spacing
+# ---------------------------------------------------------------------------
+
+DENSITY_PRESETS: Dict[str, Dict] = {
+    "compact": {
+        "margin": "0.4in",
+        "margin_inches": 0.4,
+        "font_size_pt": 10.0,
+        "line_height": 1.18,
+        "entry_gap_pt": 3,
+        "section_gap_pt": 8,
+    },
+    "standard": {
+        "margin": "0.55in",
+        "margin_inches": 0.55,
+        "font_size_pt": 10.8,
+        "line_height": 1.3,
+        "entry_gap_pt": 5,
+        "section_gap_pt": 11,
+    },
+    "expanded": {
+        "margin": "0.75in",
+        "margin_inches": 0.75,
+        "font_size_pt": 11.5,
+        "line_height": 1.4,
+        "entry_gap_pt": 7,
+        "section_gap_pt": 14,
+    },
+}
+
+
+def _resolve_density(layout_density: Optional[str]) -> str:
+    if layout_density in DENSITY_PRESETS:
+        return layout_density
+    return "standard"
+
+
+def _estimate_density(resume: Resume) -> str:
+    """Heuristic auto-detection: count content volume → pick density preset.
+
+    <2000 chars → expanded (lots of whitespace)
+    2000-5000 chars → standard
+    >5000 chars → compact (fit more per page)
+    """
+    char_count = 0
+    section_count = 0
+
+    if resume.summary:
+        char_count += len(resume.summary)
+        section_count += 1
+    for e in resume.experience:
+        char_count += len(e.title or "") + len(e.company or "")
+        char_count += sum(len(b) for b in (e.bullets or []))
+        if e.bullets:
+            section_count += 0  # experience counted once below
+    if resume.experience:
+        section_count += 1
+    for p in resume.projects:
+        char_count += len(p.name or "") + sum(len(b) for b in (p.bullets or []))
+    if resume.projects:
+        section_count += 1
+    for ed in resume.education:
+        char_count += len(ed.institution or "") + len(ed.degree or "")
+        char_count += sum(len(d) for d in (ed.details or []))
+    if resume.education:
+        section_count += 1
+    for s in resume.skills:
+        char_count += sum(len(sk) for sk in (s.skills or []))
+    if resume.skills:
+        section_count += 1
+    char_count += sum(len(c) for c in resume.certifications)
+    char_count += sum(len(p.title or "") + len(p.authors or "") for p in resume.publications)
+    char_count += sum(len(a.title or "") + len(a.description or "") for a in resume.awards)
+    char_count += sum(len(v.role or "") + sum(len(b) for b in (v.bullets or [])) for v in resume.volunteer)
+    for sec in (resume.publications, resume.awards, resume.languages,
+                resume.volunteer, resume.patents, resume.talks, resume.certifications):
+        if sec:
+            section_count += 1
+
+    if char_count < 2000 and section_count < 4:
+        return "expanded"
+    if char_count > 5000:
+        return "compact"
+    return "standard"
+
+
+# ---------------------------------------------------------------------------
 # HTML & PDF
 # ---------------------------------------------------------------------------
 
@@ -72,15 +159,19 @@ def render_html(
     resume: Resume,
     template_id: Optional[str] = "modern",
     highlight_edits: Optional[List[Dict]] = None,
+    layout_density: Optional[str] = None,
 ) -> str:
     tid = _resolve_template_id(template_id)
+    density_key = _resolve_density(layout_density) if layout_density else _estimate_density(resume)
+    density = DENSITY_PRESETS[density_key]
     template = _env.get_template(f"{tid}.html")
-    return template.render(resume=resume)
+    return template.render(resume=resume, density=density, density_name=density_key)
 
 
-def render_pdf(resume: Resume, template_id: Optional[str] = "modern") -> bytes:
+def render_pdf(resume: Resume, template_id: Optional[str] = "modern",
+               layout_density: Optional[str] = None) -> bytes:
     from weasyprint import HTML
-    html = render_html(resume, template_id)
+    html = render_html(resume, template_id, layout_density=layout_density)
     return HTML(string=html).write_pdf()
 
 
@@ -279,23 +370,58 @@ def _render_talk_docx(doc, talk, *, size=10.5):
         r.font.size = Pt(size - 0.5)
 
 
+def _add_page2_header(doc, name: str):
+    """Add a right-aligned header (name + page #) that appears on pages 2+ only."""
+    from docx.shared import Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    section = doc.sections[0]
+    section.different_first_page_header_footer = True
+    header = section.header
+    # Clear default empty paragraph if present
+    p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    run = p.add_run(f"{name or ''} — Page ")
+    run.font.size = Pt(9)
+    # Page number field
+    fld_begin = OxmlElement("w:fldChar")
+    fld_begin.set(qn("w:fldCharType"), "begin")
+    run._r.append(fld_begin)
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = "PAGE"
+    run._r.append(instr)
+    fld_end = OxmlElement("w:fldChar")
+    fld_end.set(qn("w:fldCharType"), "end")
+    run._r.append(fld_end)
+
+
 # --- Modern DOCX builder --------------------------------------------------
 
-def _render_docx_modern(resume: Resume) -> bytes:
+def _render_docx_modern(resume: Resume, density_key: str = "standard") -> bytes:
     from docx import Document
     from docx.shared import Pt, Inches, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
+    density = DENSITY_PRESETS[density_key]
+    base_size = density["font_size_pt"]
+    margin_in = density["margin_inches"]
+    section_gap = density["section_gap_pt"]
+
     doc = Document()
     for section in doc.sections:
-        section.top_margin = Inches(0.5)
-        section.bottom_margin = Inches(0.5)
-        section.left_margin = Inches(0.6)
-        section.right_margin = Inches(0.6)
+        section.top_margin = Inches(margin_in)
+        section.bottom_margin = Inches(margin_in)
+        section.left_margin = Inches(margin_in + 0.05)
+        section.right_margin = Inches(margin_in + 0.05)
+
+    _add_page2_header(doc, resume.name or "")
 
     style = doc.styles["Normal"]
     style.font.name = "Calibri"
-    style.font.size = Pt(10.5)
+    style.font.size = Pt(base_size)
 
     # Name (left-aligned, bold)
     name_p = doc.add_paragraph()
@@ -316,12 +442,11 @@ def _render_docx_modern(resume: Resume) -> bytes:
 
     def section_heading(text: str):
         p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(8)
+        p.paragraph_format.space_before = Pt(section_gap)
         p.paragraph_format.space_after = Pt(3)
         r = p.add_run(text.upper())
         r.bold = True
-        r.font.size = Pt(10.5)
-        # letter spacing approximated via space-after
+        r.font.size = Pt(base_size)
         return p
 
     for sec in (resume.section_order or _DEFAULT_ORDER):
@@ -329,7 +454,7 @@ def _render_docx_modern(resume: Resume) -> bytes:
             section_heading("Summary")
             p = doc.add_paragraph()
             p.paragraph_format.space_after = Pt(2)
-            p.add_run(resume.summary).font.size = Pt(10.5)
+            p.add_run(resume.summary).font.size = Pt(base_size)
         elif sec == "experience" and resume.experience:
             section_heading("Experience")
             for exp in resume.experience:
@@ -418,21 +543,28 @@ def _render_docx_modern(resume: Resume) -> bytes:
 
 # --- Classic DOCX builder -------------------------------------------------
 
-def _render_docx_classic(resume: Resume) -> bytes:
+def _render_docx_classic(resume: Resume, density_key: str = "standard") -> bytes:
     from docx import Document
     from docx.shared import Pt, Inches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
+    density = DENSITY_PRESETS[density_key]
+    base_size = density["font_size_pt"]
+    margin_in = density["margin_inches"]
+    section_gap = density["section_gap_pt"]
+
     doc = Document()
     for section in doc.sections:
-        section.top_margin = Inches(0.5)
-        section.bottom_margin = Inches(0.5)
-        section.left_margin = Inches(0.6)
-        section.right_margin = Inches(0.6)
+        section.top_margin = Inches(margin_in)
+        section.bottom_margin = Inches(margin_in)
+        section.left_margin = Inches(margin_in + 0.05)
+        section.right_margin = Inches(margin_in + 0.05)
+
+    _add_page2_header(doc, resume.name or "")
 
     style = doc.styles["Normal"]
     style.font.name = "Georgia"
-    style.font.size = Pt(10.8)
+    style.font.size = Pt(base_size)
 
     # Centered name in small caps
     name_p = doc.add_paragraph()
@@ -455,11 +587,11 @@ def _render_docx_classic(resume: Resume) -> bytes:
     def section_heading(text: str):
         p = doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_before = Pt(10)
+        p.paragraph_format.space_before = Pt(section_gap)
         p.paragraph_format.space_after = Pt(3)
         r = p.add_run(text.upper())
         r.bold = True
-        r.font.size = Pt(12)
+        r.font.size = Pt(base_size + 1.2)
         _set_section_heading_border(p)
         return p
 
@@ -558,21 +690,28 @@ def _render_docx_classic(resume: Resume) -> bytes:
 
 # --- Academic DOCX builder ---------------------------------------------------
 
-def _render_docx_academic(resume: Resume) -> bytes:
+def _render_docx_academic(resume: Resume, density_key: str = "standard") -> bytes:
     from docx import Document
     from docx.shared import Pt, Inches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
+    density = DENSITY_PRESETS[density_key]
+    base_size = density["font_size_pt"]
+    margin_in = density["margin_inches"]
+    section_gap = density["section_gap_pt"]
+
     doc = Document()
     for section in doc.sections:
-        section.top_margin = Inches(0.75)
-        section.bottom_margin = Inches(0.75)
-        section.left_margin = Inches(0.75)
-        section.right_margin = Inches(0.75)
+        section.top_margin = Inches(margin_in)
+        section.bottom_margin = Inches(margin_in)
+        section.left_margin = Inches(margin_in)
+        section.right_margin = Inches(margin_in)
+
+    _add_page2_header(doc, resume.name or "")
 
     style = doc.styles["Normal"]
     style.font.name = "Georgia"
-    style.font.size = Pt(11)
+    style.font.size = Pt(base_size)
 
     # Centered name in small-caps style
     name_p = doc.add_paragraph()
@@ -594,11 +733,11 @@ def _render_docx_academic(resume: Resume) -> bytes:
 
     def section_heading(text: str):
         p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(16)
+        p.paragraph_format.space_before = Pt(section_gap + 2)
         p.paragraph_format.space_after = Pt(5)
         r = p.add_run(text.upper())
         r.bold = True
-        r.font.size = Pt(13)
+        r.font.size = Pt(base_size + 2)
         r.font.name = "Georgia"
         _set_section_heading_border(p, color="111111")
         return p
@@ -703,9 +842,11 @@ _DOCX_BUILDERS = {
 }
 
 
-def render_docx(resume: Resume, template_id: Optional[str] = "modern") -> bytes:
+def render_docx(resume: Resume, template_id: Optional[str] = "modern",
+                layout_density: Optional[str] = None) -> bytes:
     builder = _DOCX_BUILDERS.get(_resolve_template_id(template_id), _render_docx_modern)
-    return builder(resume)
+    density_key = _resolve_density(layout_density) if layout_density else _estimate_density(resume)
+    return builder(resume, density_key)
 
 def resume_to_plaintext(resume: Resume) -> str:
     """Convert Resume object to plaintext representation."""

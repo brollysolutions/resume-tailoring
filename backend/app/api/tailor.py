@@ -97,6 +97,7 @@ class PreviewRequest(BaseModel):
     suggestions: list = []
     template_id: Optional[str] = "modern"
     new_projects: Optional[list] = None
+    layout_density: Optional[str] = None  # compact | standard | expanded | None (auto)
 
 
 class ApplyRequest(BaseModel):
@@ -105,6 +106,7 @@ class ApplyRequest(BaseModel):
     format: Literal["pdf", "docx"] = "pdf"
     template_id: Optional[str] = "modern"
     new_projects: Optional[list] = None
+    layout_density: Optional[str] = None  # compact | standard | expanded | None (auto)
 
 
 class GenerateProjectsRequest(BaseModel):
@@ -276,7 +278,7 @@ async def preview_tailoring(request: PreviewRequest):
 
         t_render = time.perf_counter()
         tailored = apply_suggestions(resume, request.suggestions)
-        html = render_html(tailored, request.template_id)
+        html = render_html(tailored, request.template_id, layout_density=request.layout_density)
         logger.info("[TIMING] preview: render=%.3fs  template=%s",
                     time.perf_counter() - t_render, request.template_id)
 
@@ -303,11 +305,11 @@ async def apply_tailoring(request: ApplyRequest):
 
         t_render = time.perf_counter()
         if request.format == "pdf":
-            data = render_pdf(tailored, request.template_id)
+            data = render_pdf(tailored, request.template_id, layout_density=request.layout_density)
             filename = f"{safe_base}_tailored.pdf"
             media_type = PDF_MEDIA_TYPE
         else:
-            data = render_docx(tailored, request.template_id)
+            data = render_docx(tailored, request.template_id, layout_density=request.layout_density)
             filename = f"{safe_base}_tailored.docx"
             media_type = DOCX_MEDIA_TYPE
         logger.info("[TIMING] apply: render_%s=%.3fs  TOTAL=%.3fs",
