@@ -25,6 +25,8 @@
     color: #111;
     margin: 0;
     padding: 0;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
   }
   /* Defensive: only <li> ever shows a bullet glyph. */
   p, div, span, h1, h2, h3 { list-style: none; }
@@ -77,6 +79,8 @@
     flex-wrap: nowrap;
     overflow: hidden;
     gap: 6pt;
+    max-width: 100%;
+    min-width: 0;
   }
   .entry-head .left { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .entry-head .right { font-style: italic; color: #444; white-space: nowrap; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; max-width: 58%; }
@@ -90,8 +94,8 @@
   .entry-sub .role { font-style: italic; }
 
   ul { margin: 1pt 0 0 0; padding-left: 14pt; list-style: disc outside; }
-  li { margin-bottom: 1pt; }
-  p { margin: 0 0 3pt 0; }
+  li { margin-bottom: 1pt; overflow-wrap: break-word; }
+  p { margin: 0 0 3pt 0; overflow-wrap: break-word; }
 
   .summary {
     margin: 0 0 2pt 0;

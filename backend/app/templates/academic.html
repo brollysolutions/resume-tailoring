@@ -25,6 +25,8 @@
     color: #000;
     margin: 0;
     padding: 0;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
   }
   p, div, span, h1, h2, h3 { list-style: none; }
   p, li { orphans: 2; widows: 2; }
@@ -71,7 +73,10 @@
     align-items: baseline;
     font-size: 11pt;
     flex-wrap: nowrap;
+    overflow: hidden;
     gap: 6pt;
+    max-width: 100%;
+    min-width: 0;
   }
   .entry-head .left { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .entry-head .right { font-style: italic; white-space: nowrap; flex-shrink: 0; color: #333; }
@@ -85,8 +90,8 @@
   }
 
   ul { margin: 3pt 0 0 0; padding-left: 16pt; list-style: disc outside; }
-  li { margin-bottom: 2pt; }
-  p { margin: 0 0 4pt 0; }
+  li { margin-bottom: 2pt; overflow-wrap: break-word; }
+  p { margin: 0 0 4pt 0; overflow-wrap: break-word; }
 
   .summary { text-align: justify; margin-bottom: 2pt; }
 

@@ -24,6 +24,8 @@
     color: #1a1a1a;
     margin: 0;
     padding: 0;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
   }
   /* Defensive: never let non-list elements show bullets. */
   p, div, span, h1, h2, h3 { list-style: none; }
@@ -70,6 +72,8 @@
     flex-wrap: nowrap;
     overflow: hidden;
     gap: 6pt;
+    max-width: 100%;
+    min-width: 0;
   }
   .entry-head span:first-child {
     overflow: hidden;
@@ -87,8 +91,8 @@
   .entry-sub .role { font-style: italic; }
 
   ul { margin: 2pt 0 0 0; padding-left: 14pt; list-style: disc outside; }
-  li { margin-bottom: 1.5pt; }
-  p { margin: 0 0 4pt 0; }
+  li { margin-bottom: 1.5pt; overflow-wrap: break-word; }
+  p { margin: 0 0 4pt 0; overflow-wrap: break-word; }
 
   .summary { margin: 0 0 4pt 0; }
   .skill-row { margin: 0 0 3pt 0; }
