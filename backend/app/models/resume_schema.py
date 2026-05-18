@@ -71,6 +71,10 @@ class ExperienceEntry(BaseModel):
     end_date: Optional[str] = None
     bullets: List[str] = Field(default_factory=list)
 
+    @field_validator("title", "company", mode="before")
+    @classmethod
+    def normalize_str_fields(cls, v): return _coerce_optional_str(v) or ""
+
     @field_validator("bullets", mode="before")
     @classmethod
     def normalize_bullets(cls, v): return _coerce_str_list(v)
@@ -86,6 +90,10 @@ class EducationEntry(BaseModel):
     gpa: Optional[str] = None
     details: List[str] = Field(default_factory=list)
 
+    @field_validator("institution", mode="before")
+    @classmethod
+    def normalize_institution(cls, v): return _coerce_optional_str(v) or ""
+
     @field_validator("details", mode="before")
     @classmethod
     def normalize_details(cls, v): return _coerce_str_list(v)
@@ -95,6 +103,10 @@ class ProjectEntry(BaseModel):
     name: str = ""
     tech: Optional[str] = None
     bullets: List[str] = Field(default_factory=list)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v): return _coerce_optional_str(v) or ""
 
     @field_validator("tech", mode="before")
     @classmethod
@@ -111,6 +123,10 @@ class ProjectEntry(BaseModel):
 class SkillCategory(BaseModel):
     category: str = ""
     skills: List[str] = Field(default_factory=list)
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def normalize_category(cls, v): return _coerce_optional_str(v) or ""
 
     @field_validator("skills", mode="before")
     @classmethod
