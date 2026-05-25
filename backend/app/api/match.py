@@ -8,14 +8,92 @@ Endpoints:
 
 import json
 import logging
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional, Dict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.core.vector_db import init_qdrant, get_embedding
+from app.core.vector_db import init_qdrant, get_embedding, get_embeddings
+
+# In-process cache for invariant original snapshots
+# Key: (resume_id, jd_hash)
+# Value: dict of {score, breakdown, section_scores}
+_ORIGINAL_SNAPSHOT_CACHE: dict[tuple[str, str], dict] = {}
+_MAX_SNAPSHOT_CACHE_SIZE = 100
+
+def _get_cached_original_snapshot(resume_id: str, jd_text: str) -> Optional[dict]:
+    """Retrieve original snapshot from the in-process cache."""
+    jd_hash = hashlib.sha256(jd_text.encode("utf-8", errors="ignore")).hexdigest()
+    key = (resume_id, jd_hash)
+    val = _ORIGINAL_SNAPSHOT_CACHE.get(key)
+    if val:
+        logger.info(f"[CACHE] hit for original snapshot for resume_id={resume_id}")
+    return val
+
+def _set_cached_original_snapshot(resume_id: str, jd_text: str, snapshot: dict) -> None:
+    """Store original snapshot in the in-process cache."""
+    jd_hash = hashlib.sha256(jd_text.encode("utf-8", errors="ignore")).hexdigest()
+    key = (resume_id, jd_hash)
+    if len(_ORIGINAL_SNAPSHOT_CACHE) >= _MAX_SNAPSHOT_CACHE_SIZE:
+        try:
+            oldest_key = next(iter(_ORIGINAL_SNAPSHOT_CACHE))
+            _ORIGINAL_SNAPSHOT_CACHE.pop(oldest_key)
+        except StopIteration:
+            pass
+    _ORIGINAL_SNAPSHOT_CACHE[key] = snapshot
+
+
+async def _prewarm_embeddings(resume_obj, resume_json: dict, jd_text: str, full_text: Optional[str] = None) -> None:
+    """
+    Collect all texts that will be embedded during the scoring process
+    and call get_embeddings in a single batched pass to prewarm the cache.
+    """
+    from app.api.match_logic.section_embedder import extract_jd_requirements, resume_content_blocks
+    from app.api.match_logic.section_scorer import _section_text, _SECTIONS
+
+    texts_to_embed = []
+
+    # 1. Job Description text
+    if jd_text and jd_text.strip():
+        texts_to_embed.append(jd_text)
+
+    # 2. JD Requirements
+    jd_reqs = extract_jd_requirements(jd_text)
+    if jd_reqs and jd_reqs.strip():
+        texts_to_embed.append(jd_reqs)
+
+    # 3. Resume Content Blocks
+    blocks = resume_content_blocks(resume_json)
+    for block in blocks:
+        if block and block.strip():
+            texts_to_embed.append(block)
+
+    # 4. Per-section texts
+    for section in _SECTIONS:
+        sec_text = _section_text(resume_obj, section)
+        if sec_text and sec_text.strip():
+            texts_to_embed.append(sec_text)
+
+    # 5. Full text (tailored whole-doc plaintext) if provided
+    if full_text and full_text.strip():
+        texts_to_embed.append(full_text)
+
+    # Deduplicate and call get_embeddings
+    if texts_to_embed:
+        try:
+            logger.info(f"[TIMING] Prewarming {len(texts_to_embed)} embeddings in a batch")
+            start_time = datetime.now()
+            await get_embeddings(texts_to_embed)
+            elapsed = (datetime.now() - start_time).total_seconds() * 1000.0
+            logger.info(f"[TIMING] Prewarmed {len(texts_to_embed)} embeddings in {elapsed:.2f}ms")
+        except Exception as e:
+            logger.warning(f"Embedding prewarming failed: {e}")
 from app.core.renderer import resume_to_plaintext
+from app.core.keyword_utils import _significant_tokens
+from app.core.cache import get_cached_value, set_cached_value
 from app.models.resume_schema import Resume
 
 from .match_logic import score_resume_against_jd, detect_ceiling, compute_section_scores, parse_jd_hard_requirements, compute_gap_analysis
@@ -23,9 +101,41 @@ from .match_logic import score_resume_against_jd, detect_ceiling, compute_sectio
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+def _get_tailored_cache_key(req: "MatchTailoredRequest") -> str:
+    """Deterministic key for caching tailored match results."""
+    # Convert lists/dicts to stable strings for hashing
+    sugg_str = json.dumps(req.accepted_suggestions, sort_keys=True)
+    proj_str = json.dumps(req.new_projects, sort_keys=True)
+    raw = f"{req.resume_id}|{req.jd_text}|{sugg_str}|{proj_str}"
+    return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
+
+
 _BACKEND = Path(__file__).resolve().parents[2]
 _DATA = _BACKEND / "data"
 _SECTION_DELTA_PATH = _DATA / "section_deltas.jsonl"
+
+_MIN_JD_CHARS = 200
+_MIN_JD_TOKENS = 30
+
+
+def _validate_jd(jd_text: str) -> None:
+    """Reject JDs too short to score meaningfully.
+
+    Threshold tuned to catch placeholder inputs like 'This is my job description'
+    (28 chars, 4 tokens) without blocking legitimate brief JDs.
+    """
+    text = (jd_text or "").strip()
+    if len(text) < _MIN_JD_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job description too short ({len(text)} chars). Paste at least {_MIN_JD_CHARS} characters of the actual JD so we can score it accurately.",
+        )
+    tokens = _significant_tokens(text)
+    if len(tokens) < _MIN_JD_TOKENS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job description has too few meaningful keywords ({len(tokens)} found). Make sure you pasted the full role description, not just a heading.",
+        )
 
 
 def _log_section_delta(
@@ -82,6 +192,8 @@ async def match_resume(req: MatchRequest):
         "diagnosis": {...}
     }
     """
+    _validate_jd(req.jd_text)
+
     # Load resume from Qdrant (with vector for semantic similarity)
     q_client = init_qdrant("resumes")
     results = q_client.retrieve(collection_name="resumes", ids=[req.resume_id], with_payload=True, with_vectors=True)
@@ -100,6 +212,9 @@ async def match_resume(req: MatchRequest):
     except Exception as e:
         logger.exception("Failed to parse resume JSON")
         raise HTTPException(status_code=500, detail=f"Invalid resume JSON: {e}")
+
+    # Prewarm embeddings
+    await _prewarm_embeddings(resume_obj, resume_obj.model_dump(), req.jd_text)
 
     # Embed JD for semantic similarity
     try:
@@ -128,6 +243,20 @@ async def match_resume(req: MatchRequest):
     except Exception as e:
         logger.warning(f"Experience cosine failed: {e}")
 
+    # Per-section cosines for R5 section-weighted cosine signal
+    section_cosines = {}
+    try:
+        from .match_logic.section_scorer import compute_section_cosines
+        section_cosines = await compute_section_cosines(resume_obj, jd_embedding, get_embedding)
+    except Exception as e:
+        logger.warning(f"Section cosines (R5) failed: {e}")
+
+    # Hard requirement ceiling — regex extraction, no LLM. Computed up-front
+    # so the runtime extraction and ceiling decision can be persisted with
+    # the score event (R2 — calibration auditing).
+    hard_reqs = parse_jd_hard_requirements(req.jd_text)
+    ceiling = detect_ceiling(resume_obj, hard_reqs)
+
     # Hybrid scoring with embeddings
     try:
         result = score_resume_against_jd(
@@ -136,14 +265,14 @@ async def match_resume(req: MatchRequest):
             section_cosine=section_cosine,
             exp_section_cosine=exp_section_cosine,
             resume_id=req.resume_id,
+            ceiling=ceiling,
+            hard_reqs=hard_reqs,
+            section_cosines=section_cosines or None,
+            resume_obj=resume_obj,
         )
     except Exception as e:
         logger.exception("Hybrid scoring failed")
         raise HTTPException(status_code=500, detail=f"Scoring failed: {e}")
-
-    # Hard requirement ceiling — regex extraction, no LLM
-    hard_reqs = parse_jd_hard_requirements(req.jd_text)
-    ceiling = detect_ceiling(resume_obj, hard_reqs)
 
     # Log ceiling hits for calibration (Signal 5: hard "bad" label)
     if ceiling and ceiling.get("score", 100) < 40:
@@ -152,16 +281,24 @@ async def match_resume(req: MatchRequest):
         jd_hash = hashlib.sha256(req.jd_text.encode("utf-8", errors="ignore")).hexdigest()[:16]
         log_suggestion_event("ceiling_hit", resume_id=req.resume_id, jd_hash=jd_hash)
 
-    # Per-section scores
+    # Per-section scores — now returns {section: {score, features, weights_used}}
     try:
-        section_scores = await compute_section_scores(resume_obj, resume_obj.model_dump(), req.jd_text, jd_embedding)
+        section_data = await compute_section_scores(
+            resume_obj, resume_obj.model_dump(), req.jd_text, jd_embedding,
+            resume_id=req.resume_id,
+        )
     except Exception as e:
         logger.warning(f"Section scoring failed: {e}")
-        section_scores = {}
+        section_data = {}
+
+    # Flatten for back-compat: section_scores is still {section: int|None}
+    section_scores = {s: (v["score"] if v else None) for s, v in section_data.items()}
+    # New: per-section feature contributions for UI breakdown
+    section_features = {s: (v["features"] if v else None) for s, v in section_data.items()}
 
     # Diagnosis
     from .match_logic.hybrid_scorer import diagnose_score
-    diagnosis = diagnose_score(result["breakdown"], section_scores, ceiling)
+    diagnosis = diagnose_score(result["score"], result["breakdown"], section_scores, ceiling)
 
     # Gap analysis
     try:
@@ -184,7 +321,11 @@ async def match_resume(req: MatchRequest):
                 }
                 for s in gap_analysis["low_sections"]
             ]
-            explanations = await analyze_low_sections(req.jd_text, payload)
+            explanations = await analyze_low_sections(
+                req.jd_text,
+                payload,
+                section_gaps=gap_analysis.get("section_gaps"),
+            )
             for s in gap_analysis["low_sections"]:
                 s["explanation"] = explanations.get(s["section"], "")
         except Exception as e:
@@ -196,6 +337,7 @@ async def match_resume(req: MatchRequest):
         "score": result["score"],
         "breakdown": result["breakdown"],
         "section_scores": section_scores,
+        "section_features": section_features,
         "ceiling": ceiling,
         "diagnosis": diagnosis,
         "gap_analysis": gap_analysis,
@@ -215,6 +357,7 @@ async def match_tailored(req: MatchTailoredRequest):
     """Score resume before and after tailoring suggestions.
 
     Applies accepted_suggestions to resume, re-scores, returns before/after breakdown.
+    Cached by input parameters to speed up page reloads.
 
     Returns:
     {
@@ -223,6 +366,15 @@ async def match_tailored(req: MatchTailoredRequest):
         "delta": int (score improvement)
     }
     """
+    _validate_jd(req.jd_text)
+
+    # Check cache
+    cache_key = f"tailored_match:{_get_tailored_cache_key(req)}"
+    cached = await get_cached_value(cache_key)
+    if cached:
+        logger.info(f"match_tailored: cache hit for resume_id={req.resume_id}")
+        return cached
+
     # Load resume (with vector for semantic similarity)
     q_client = init_qdrant("resumes")
     results = q_client.retrieve(collection_name="resumes", ids=[req.resume_id], with_payload=True, with_vectors=True)
@@ -241,6 +393,11 @@ async def match_tailored(req: MatchTailoredRequest):
 
     resume_text_original = resume_to_plaintext(resume_obj)
 
+    # Hard requirement ceiling — extract JD requirements once (JD does not
+    # change between original/tailored); compute per-snapshot ceiling for
+    # logging (R2).
+    hard_reqs = parse_jd_hard_requirements(req.jd_text)
+
     # Embed JD once (reuse for both original and tailored)
     try:
         jd_embedding = await get_embedding(req.jd_text)
@@ -248,34 +405,67 @@ async def match_tailored(req: MatchTailoredRequest):
         logger.warning(f"JD embedding failed: {e}")
         jd_embedding = None
 
-    # Score original
-    try:
-        from .match_logic.section_embedder import compute_section_cosine
-        original_resume_vector = results[0].vector if hasattr(results[0], 'vector') and results[0].vector else None
-        original_section_cos = None
+    # Try to load cached original snapshot
+    original_snapshot = _get_cached_original_snapshot(req.resume_id, req.jd_text)
+
+    if original_snapshot is None:
+        logger.info(f"[CACHE] Miss for original snapshot. Computing...")
+        # Prewarm original embeddings
+        await _prewarm_embeddings(resume_obj, resume_obj.model_dump(), req.jd_text)
+
+        original_ceiling = detect_ceiling(resume_obj, hard_reqs)
+
+        # Score original
         try:
-            original_section_cos = await compute_section_cosine(
-                resume_obj.model_dump(), req.jd_text, get_embedding
+            from .match_logic.section_embedder import compute_section_cosine
+            original_resume_vector = results[0].vector if hasattr(results[0], 'vector') and results[0].vector else None
+            original_section_cos = None
+            try:
+                original_section_cos = await compute_section_cosine(
+                    resume_obj.model_dump(), req.jd_text, get_embedding
+                )
+            except Exception as e:
+                logger.warning(f"Original section cosine failed: {e}")
+            original_exp_cos = None
+            try:
+                from .match_logic.section_scorer import compute_experience_cosine
+                original_exp_cos = await compute_experience_cosine(resume_obj, jd_embedding, get_embedding)
+            except Exception:
+                pass
+            original_section_cosines = {}
+            try:
+                from .match_logic.section_scorer import compute_section_cosines
+                original_section_cosines = await compute_section_cosines(resume_obj, jd_embedding, get_embedding)
+            except Exception:
+                pass
+            original_result = score_resume_against_jd(
+                resume_text_original, resume_obj.model_dump(), req.jd_text,
+                original_resume_vector, jd_embedding,
+                section_cosine=original_section_cos,
+                exp_section_cosine=original_exp_cos,
+                resume_id=req.resume_id,
+                ceiling=original_ceiling,
+                hard_reqs=hard_reqs,
+                section_cosines=original_section_cosines or None,
+                resume_obj=resume_obj,
             )
+            original_sections_raw = await compute_section_scores(
+                resume_obj, resume_obj.model_dump(), req.jd_text, jd_embedding,
+                resume_id=req.resume_id,
+            )
+            original_sections = {s: (v["score"] if v else None) for s, v in original_sections_raw.items()}
         except Exception as e:
-            logger.warning(f"Original section cosine failed: {e}")
-        original_exp_cos = None
-        try:
-            from .match_logic.section_scorer import compute_experience_cosine
-            original_exp_cos = await compute_experience_cosine(resume_obj, jd_embedding, get_embedding)
-        except Exception:
-            pass
-        original_result = score_resume_against_jd(
-            resume_text_original, resume_obj.model_dump(), req.jd_text,
-            original_resume_vector, jd_embedding,
-            section_cosine=original_section_cos,
-            exp_section_cosine=original_exp_cos,
-            resume_id=req.resume_id,
-        )
-        original_sections = await compute_section_scores(resume_obj, resume_obj.model_dump(), req.jd_text, jd_embedding)
-    except Exception as e:
-        logger.exception("Original scoring failed")
-        raise HTTPException(status_code=500, detail=f"Scoring failed: {e}")
+            logger.exception("Original scoring failed")
+            raise HTTPException(status_code=500, detail=f"Scoring failed: {e}")
+
+        original_snapshot = {
+            "score": original_result["score"],
+            "breakdown": original_result["breakdown"],
+            "section_scores": original_sections,
+        }
+        _set_cached_original_snapshot(req.resume_id, req.jd_text, original_snapshot)
+    else:
+        logger.info(f"[CACHE] Hit! Reusing cached original snapshot for resume_id={req.resume_id}")
 
     # Apply suggestions and re-score
     try:
@@ -286,6 +476,10 @@ async def match_tailored(req: MatchTailoredRequest):
         if req.new_projects:
             resume_tailored = _replace_projects(resume_tailored, req.new_projects)
         resume_text_tailored = resume_to_plaintext(resume_tailored)
+        tailored_ceiling = detect_ceiling(resume_tailored, hard_reqs)
+
+        # Prewarm tailored embeddings
+        await _prewarm_embeddings(resume_tailored, resume_tailored.model_dump(), req.jd_text, full_text=resume_text_tailored)
 
         # Embed tailored resume text for semantic similarity
         try:
@@ -307,19 +501,33 @@ async def match_tailored(req: MatchTailoredRequest):
             tailored_exp_cos = await _cec(resume_tailored, jd_embedding, get_embedding)
         except Exception:
             pass
+        tailored_section_cosines = {}
+        try:
+            from .match_logic.section_scorer import compute_section_cosines as _csc
+            tailored_section_cosines = await _csc(resume_tailored, jd_embedding, get_embedding)
+        except Exception:
+            pass
         tailored_result = score_resume_against_jd(
             resume_text_tailored, resume_tailored.model_dump(), req.jd_text,
             tailored_resume_vector, jd_embedding,
             section_cosine=tailored_section_cos,
             exp_section_cosine=tailored_exp_cos,
             resume_id=req.resume_id,
+            ceiling=tailored_ceiling,
+            hard_reqs=hard_reqs,
+            section_cosines=tailored_section_cosines or None,
+            resume_obj=resume_tailored,
         )
-        tailored_sections = await compute_section_scores(resume_tailored, resume_tailored.model_dump(), req.jd_text, jd_embedding)
+        tailored_sections_raw = await compute_section_scores(
+            resume_tailored, resume_tailored.model_dump(), req.jd_text, jd_embedding,
+            resume_id=req.resume_id,
+        )
+        tailored_sections = {s: (v["score"] if v else None) for s, v in tailored_sections_raw.items()}
     except Exception as e:
         logger.exception("Tailored scoring failed")
         raise HTTPException(status_code=500, detail=f"Tailored scoring failed: {e}")
 
-    delta = tailored_result["score"] - original_result["score"]
+    delta = tailored_result["score"] - original_snapshot["score"]
 
     # Log section deltas for per-section calibration analysis (Signal 6)
     import hashlib
@@ -327,16 +535,16 @@ async def match_tailored(req: MatchTailoredRequest):
     _log_section_delta(
         resume_id=req.resume_id,
         jd_hash=jd_hash,
-        before_sections=original_sections,
+        before_sections=original_snapshot["section_scores"],
         after_sections=tailored_sections,
         score_delta=delta,
     )
 
-    return {
+    result = {
         "original": {
-            "score": original_result["score"],
-            "breakdown": original_result["breakdown"],
-            "section_scores": original_sections,
+            "score": original_snapshot["score"],
+            "breakdown": original_snapshot["breakdown"],
+            "section_scores": original_snapshot["section_scores"],
         },
         "tailored": {
             "score": tailored_result["score"],
@@ -345,3 +553,8 @@ async def match_tailored(req: MatchTailoredRequest):
         },
         "delta": delta,
     }
+
+    # Save to cache (24h TTL)
+    await set_cached_value(cache_key, result, ttl=86400)
+
+    return result

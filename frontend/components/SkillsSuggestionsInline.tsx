@@ -52,6 +52,17 @@ export function SkillsSuggestionsInline({
     setLoading(true);
     setError(null);
     try {
+      let intensity = "balanced";
+      let sectionIntensities = null;
+      if (typeof window !== "undefined") {
+        intensity = localStorage.getItem("tailor_intensity") || "balanced";
+        const saved = localStorage.getItem("tailor_section_intensities");
+        if (saved) {
+          try {
+            sectionIntensities = JSON.parse(saved);
+          } catch (e) {}
+        }
+      }
       const res = await fetch(`${apiUrl}/api/tailor/refresh-skills`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -59,6 +70,7 @@ export function SkillsSuggestionsInline({
           resume_id: resumeId,
           jd_text: jdText,
           accepted_suggestions: acceptedSuggestions.map((s) => ({
+            id: s.id,
             section: s.section,
             mode: s.mode,
             original: s.original,
@@ -67,10 +79,13 @@ export function SkillsSuggestionsInline({
             skill: s.skill,
             target_category: s.target_category,
             is_new_category: s.is_new_category,
+            new_skills: s.new_skills,
           })),
           ...(newProjects && newProjects.length > 0 ? { new_projects: newProjects } : {}),
           next_id: nextSuggestionId,
           user_prompt: null,
+          intensity,
+          section_intensities: sectionIntensities,
         }),
       });
       if (!res.ok) throw new Error("Failed to load skills.");
@@ -128,13 +143,26 @@ export function SkillsSuggestionsInline({
         {open && !loading ? <ChevronUp className="w-3 h-3 ml-0.5" /> : <ChevronDown className="w-3 h-3 ml-0.5" />}
       </button>
 
-      {open && !loading && (
+      {open && (
         <div className="mt-2 border border-border rounded-md p-3 bg-subtle/30 space-y-3">
-          {error && <p className="text-xs text-danger">{error}</p>}
+          {loading ? (
+            <div className="space-y-3 animate-pulse select-none">
+              <div>
+                <div className="h-3 bg-muted/40 rounded w-1/3 mb-2" />
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="h-6 bg-muted/20 rounded w-16" />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {error && <p className="text-xs text-danger">{error}</p>}
 
-          {!error && items.length === 0 && loaded && (
-            <p className="text-xs text-success">Skills already aligned with the JD.</p>
-          )}
+              {!error && items.length === 0 && loaded && (
+                <p className="text-xs text-success">Skills already aligned with the JD.</p>
+              )}
 
           {toAdd.length > 0 && (
             <div>
@@ -190,8 +218,10 @@ export function SkillsSuggestionsInline({
               </div>
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
+  )}
+</div>
   );
 }

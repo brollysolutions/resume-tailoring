@@ -14,12 +14,27 @@ logger = logging.getLogger(__name__)
 
 _DATE_RE = re.compile(r'(\d{1,2})[/\-](\d{4})')
 _YEAR_RE = re.compile(r'\b(19|20)\d{2}\b')
+_MONTHS = {
+    "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+    "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7,
+    "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9, "oct": 10,
+    "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12,
+}
+_MON_YEAR_RE = re.compile(r'([a-z]{3,9})\.?\s+((?:19|20)\d{2})', re.IGNORECASE)
+_RANGE_SEP_RE = re.compile(r'\s*(?:–|—|-|\bto\b)\s*', re.IGNORECASE)
 _SENIORITY_ORDER = ["junior", "mid", "senior", "staff", "principal", "lead"]
 
 # Matches "5+ years", "5-7 years", "minimum 5 years", "at least 5 years of experience"
 _YRS_EXP_RE = re.compile(
     r'(?:minimum\s+|at\s+least\s+|over\s+)?(\d+)\+?\s*(?:[-–]\s*\d+\s*)?'
     r'years?\s*(?:of\s*)?(?:experience|exp\b)',
+    re.IGNORECASE,
+)
+
+# Label form where "Experience" precedes the number: "Experience: 1-3 Years",
+# "Experience – 2+ Years", "Experience 5 Years". Captures the lower bound.
+_YRS_EXP_LABEL_RE = re.compile(
+    r'experience\s*[:\-–—]?\s*(\d+)\s*(?:[-–—]\s*\d+\s*)?\+?\s*years?\b',
     re.IGNORECASE,
 )
 
@@ -54,22 +69,62 @@ def parse_jd_hard_requirements(jd_text: str) -> dict:
     Returns same shape as extract_jd_hard_requirements():
       {min_years_experience, required_degrees, seniority_level, required_skills_hard}
     """
-    text_lower = jd_text.lower()
+    sentences = re.split(r'[.!?\n]+', jd_text)
+    
+    # 1. Years of experience — filter out company history/fluff
+    valid_years = []
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        
+        matches = _YRS_EXP_RE.findall(sentence) + _YRS_EXP_LABEL_RE.findall(sentence)
+        if not matches:
+            continue
 
-    # Years of experience — take the highest number mentioned near "years experience"
-    yrs_matches = _YRS_EXP_RE.findall(jd_text)
-    min_years = max((int(y) for y in yrs_matches), default=None)
+        sentence_lower = sentence.lower()
 
-    # Degrees — only extract when JD explicitly mentions degree requirement
+        # Check if the sentence is about the company/team experience
+        is_company_fluff = False
+        if re.search(r'(?:we|company|firm|team|our)\s+(?:have|has|bring|possess)\s+(?:over\s+|more\s+than\s+)?(?:\d+)\+?\s*years', sentence_lower):
+            is_company_fluff = True
+
+        if not is_company_fluff:
+            for y in matches:
+                valid_years.append(int(y))
+                
+    min_years = min(15, max(valid_years)) if valid_years else None
+
+    # 2. Degrees — ignore preferred/desired degrees
     required_degrees = []
     if _DEGREE_CONTEXT_RE.search(jd_text):
-        for m in _DEGREE_RE.finditer(jd_text):
-            raw = m.group(1).lower().rstrip(".")
-            canonical = _DEGREE_MAP.get(raw)
-            if canonical and canonical not in required_degrees:
-                required_degrees.append(canonical)
+        for sentence in sentences:
+            sentence_lower = sentence.lower().strip()
+            if not sentence_lower:
+                continue
+                
+            for m in _DEGREE_RE.finditer(sentence_lower):
+                raw = m.group(1).rstrip(".")
+                canonical = _DEGREE_MAP.get(raw)
+                if not canonical:
+                    continue
+                    
+                # Check if this sentence indicates it's preferred
+                is_preferred = False
+                preferred_indicators = [
+                    "preferred", "prefer", "a plus", "desired", "optional", 
+                    "nice to have", "advantage", "helpful", "not required",
+                    "highly valued", "is a plus", "strongly preferred"
+                ]
+                for ind in preferred_indicators:
+                    if ind in sentence_lower:
+                        is_preferred = True
+                        break
+                        
+                if not is_preferred and canonical not in required_degrees:
+                    required_degrees.append(canonical)
 
-    # Seniority — check job title area (first 200 chars) first, then full text
+    # 3. Seniority — check job title area (first 200 chars) first, then full text
     seniority = None
     title_area = jd_text[:200].lower()
     for level in reversed(_SENIORITY_ORDER):
@@ -111,6 +166,12 @@ def _parse_date_token(s: str) -> tuple[int, int] | None:
         except ValueError:
             pass
 
+    m = _MON_YEAR_RE.search(s)
+    if m:
+        month = _MONTHS.get(m.group(1).lower())
+        if month:
+            return (int(m.group(2)), month)
+
     m = _YEAR_RE.search(s)
     if m:
         try:
@@ -130,8 +191,23 @@ def estimate_years_experience(resume) -> Optional[float]:
 
     spans: list[tuple[tuple[int, int], tuple[int, int]]] = []
     for e in resume.experience:
-        start = _parse_date_token(e.start_date or "")
-        end = _parse_date_token(e.end_date or "")
+        raw_start = e.start_date or ""
+        raw_end = e.end_date or ""
+
+        start = _parse_date_token(raw_start)
+        end = _parse_date_token(raw_end)
+
+        # Whole range may have collapsed into start_date ("Jan 2022 - Present",
+        # "2022 - 2024") with end_date empty. Split and parse both halves.
+        if not raw_end.strip() and _RANGE_SEP_RE.search(raw_start):
+            parts = _RANGE_SEP_RE.split(raw_start, maxsplit=1)
+            if len(parts) == 2:
+                cand_start = _parse_date_token(parts[0])
+                cand_end = _parse_date_token(parts[1])
+                tail = parts[1].strip().lower()
+                if cand_start is not None and (cand_end is not None or tail in {"present", "current", "now"}):
+                    start = cand_start
+                    end = cand_end
 
         if end is None:
             today = _dt.date.today()

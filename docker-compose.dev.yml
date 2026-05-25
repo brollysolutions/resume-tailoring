@@ -19,13 +19,23 @@ services:
     container_name: resume_qdrant_dev
     restart: always
     ports:
-      - "6334:6333"
+      - "6335:6333"
     volumes:
       - qdrant_data_dev:/qdrant/storage
     networks:
       - resume_network_dev
 
+  redis:
+    image: redis:alpine
+    container_name: resume_redis_dev
+    restart: always
+    ports:
+      - "6380:6379"
+    networks:
+      - resume_network_dev
+
   backend:
+
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
@@ -41,6 +51,8 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-resumedb}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - LLM_PROVIDER=${LLM_PROVIDER:-groq}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}

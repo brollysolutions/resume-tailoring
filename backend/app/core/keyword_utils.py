@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 _STOPWORDS = frozenset({
-    "the", "and", "for", "are", "but", "not", "you", "all", "any", "can",
+    "a", "an", "the", "and", "for", "are", "but", "not", "you", "all", "any", "can",
+    "in", "of", "to", "or", "is", "it", "by", "at", "on", "be", "as", "if", "do", "does", "so",
     "had", "her", "was", "one", "our", "out", "day", "get", "has", "him",
     "his", "how", "man", "new", "now", "old", "see", "two", "way", "who",
     "boy", "did", "its", "let", "put", "say", "she", "too", "use", "this",
@@ -56,6 +57,13 @@ _STOPWORDS = frozenset({
 })
 
 
+def _drop_fragments(tokens: list[str]) -> list[str]:
+    """Defense-in-depth: drop fragment-of-compound tokens that may slip past
+    the alias / compound rewrite pass."""
+    return [t for t in tokens if t.lower() not in _STOPWORDS]
+
+
+
 # Curated JD-noise vocabulary — kept separate from _STOPWORDS so it's obvious
 # what is "English stopword" vs "structural JD garbage". Anything here is
 # dropped post-normalization in both _significant_tokens and _top_jd_tokens.
@@ -83,6 +91,31 @@ _BLOCKED_GENERIC = frozenset({
     # employment fluff
     "employee", "employees", "employer", "employment", "career", "careers",
     "opportunity", "opportunities", "applicant", "applicants",
+    # Activity / concept nouns — describe what the role DOES, not tools to list.
+    # Concrete tools that implement these (Docker, CI/CD, Kubernetes, GitLab,
+    # Figma, etc.) are captured separately via the alias map and score normally.
+    "containerization", "containerize", "containerized", "container", "containers",
+    "deployment", "deployments", "deploy", "deploys", "deployed", "deploying",
+    "design", "designs", "designing", "designed",
+    "automation", "automate", "automates", "automating", "automated",
+    "orchestration", "orchestrate", "orchestrating", "orchestrated",
+    "monitoring", "monitor", "monitors", "monitored",
+    "scaling", "scale", "scales", "scalable", "scalability",
+    "optimization", "optimize", "optimizes", "optimizing", "optimized",
+    "integration", "integrate", "integrates", "integrating", "integrated",
+    "configuration", "configure", "configures", "configuring", "configured",
+    "documentation", "document", "documents", "documented",
+    "troubleshooting", "troubleshoot", "troubleshoots",
+    "versioning", "version", "versions",
+    "standardize", "standardization",
+    "streamline", "streamlining", "streamlined",
+    "delivery", "delivering", "delivered",
+    "maintenance",
+    "review", "reviewing", "reviews",
+    "quality",
+    "digital", "recruitment", "hiring", "smart", "impactful", "growth",
+    "global", "success", "innovative", "fast-paced", "dynamic",
+    "solutions", "solution", "driven", "passionate", "motivated",
 })
 
 
@@ -114,11 +147,21 @@ _COMPOUND_REWRITES: dict[str, str] = {
     "back-end": "backend",
     "object oriented": "oop",
     "object-oriented": "oop",
+    "spring boot": "springboot",
+    "google cloud": "gcp",
+    "google cloud platform": "gcp",
+    "amazon web services": "aws",
+    "micro services": "microservices",
+    "micro-services": "microservices",
+    "unit testing": "testing",
+    "software development": "development",
 }
 
 
 def _pre_normalize(text: str) -> str:
     """Collapse known multi-word tech terms BEFORE tokenization."""
+    if not text:
+        return ""
     lowered = text.lower()
     for compound, canonical in _COMPOUND_REWRITES.items():
         lowered = lowered.replace(compound, canonical)
@@ -147,6 +190,13 @@ _ALIASES: dict[str, str] = {
     "fastapi": "fastapi",
     "django": "django",
     "flask": "flask",
+    # Java / JVM
+    "java": "java",
+    "spring": "spring",
+    "springboot": "springboot",
+    "hibernate": "hibernate",
+    "maven": "maven",
+    "gradle": "gradle",
     # Cloud / DevOps
     "k8s": "kubernetes",
     "kube": "kubernetes",
@@ -272,7 +322,9 @@ def _jd_entity_tokens(jd_text: str) -> frozenset:
     for ent in doc.ents:
         if ent.label_ not in _DROP_ENT_LABELS:
             continue
-        for tok in re.findall(r'\b[a-z][a-z0-9+#.\-]{2,}\b', ent.text.lower()):
+        for tok in re.findall(r'\b[a-z][a-z0-9+#.\-]*\b', ent.text.lower()):
+            if len(tok) < 2 and tok not in {"c", "r"}:
+                continue
             norm = _normalize_token(tok)
             if norm:
                 out.add(norm)
@@ -307,7 +359,8 @@ def _normalize_token(tok: str) -> str:
 def _tokenize_raw(text: str) -> list[str]:
     """Regex tokenize — keeps tech-friendly punctuation (.+#-).
     Runs _pre_normalize first to collapse multi-word compound tech terms."""
-    return re.findall(r'\b[a-z][a-z0-9+#.\-]{2,}\b', _pre_normalize(text))
+    tokens = re.findall(r'\b[a-z][a-z0-9+#.\-]*\b', _pre_normalize(text))
+    return [t for t in tokens if len(t) >= 2 or t in {"c", "r"}]
 
 
 def _significant_tokens(text: str) -> set:
@@ -329,8 +382,10 @@ def _top_jd_tokens(jd_text: str, k: int = 50, min_freq: int = 2) -> set:
     """Return up to k most-frequent significant normalized tokens in the JD.
 
     Filters: English stopwords, curated JD noise (_BLOCKED_GENERIC), and
-    NER entities (cities, persons, orgs, dates, numerics). Tokens appearing
-    fewer than min_freq times are dropped to suppress one-off noise."""
+    NER entities (cities, persons, orgs, dates, numerics).
+
+    Ranked by frequency, then alphabetically. Includes all significant tokens
+    up to limit k, regardless of frequency (min_freq is now a soft hint)."""
     counts: Counter = Counter()
     for raw in _tokenize_raw(jd_text):
         if raw in _STOPWORDS or raw in _BLOCKED_GENERIC:
@@ -342,11 +397,8 @@ def _top_jd_tokens(jd_text: str, k: int = 50, min_freq: int = 2) -> set:
     if not counts:
         return set()
     entities = _jd_entity_tokens(jd_text)
-    # If filtering would leave nothing, fall back to single-occurrence allowed
-    # (very short JDs where every token appears once).
-    filtered = [(t, c) for t, c in counts.items() if t not in entities and c >= min_freq]
-    if not filtered:
-        filtered = [(t, c) for t, c in counts.items() if t not in entities]
+    # Return top K significant tokens that are NOT entities.
+    filtered = [(t, c) for t, c in counts.items() if t not in entities]
     filtered.sort(key=lambda x: (-x[1], x[0]))
     return {t for t, _ in filtered[:k]}
 
@@ -379,27 +431,23 @@ def _fuzzy_coverage(top_jd: set, resume_tokens: set, threshold: int = 85) -> set
 
 # Multi-word tech skills matched as units (not split into individual tokens).
 # Shared by hybrid_scorer (ngram signal) and orchestrator (injection).
+# Pruned 2026-05-19 — 22 phrases removed after audit confirmed they were dead
+# across corpus JDs + corpus resumes + 26 unique jd_excerpts in score_log.
+# See backend/docs/audit/keywords/ngram_dead_after_excerpts.csv.
 _NGRAM_SKILLS: frozenset[str] = frozenset({
     # ML / AI
     "machine learning", "deep learning", "natural language processing",
     "computer vision", "large language models", "reinforcement learning",
-    "generative ai", "neural networks", "transfer learning",
-    "convolutional neural", "transformer model", "foundation model",
+    "neural networks", "convolutional neural",
     # Data
     "data engineering", "data science", "data analysis", "data pipeline",
-    "data warehouse", "data lake", "etl pipeline", "feature engineering",
-    "real time processing", "stream processing", "batch processing",
+    "data warehouse", "stream processing",
     # Engineering practices
-    "test driven development", "behavior driven development",
     "continuous integration", "continuous deployment", "continuous delivery",
-    "agile methodology", "system design", "design patterns",
-    "microservices architecture", "event driven architecture",
-    "object oriented programming", "domain driven design",
-    "distributed systems", "high availability", "fault tolerance",
+    "design patterns", "microservices architecture", "distributed systems",
     # APIs / infra
-    "rest api", "restful api", "cloud native", "cloud computing",
-    "infrastructure as code", "site reliability", "ci cd",
-    "service mesh", "api gateway",
+    "rest api", "restful api", "infrastructure as code", "site reliability",
+    "service mesh",
 })
 
 

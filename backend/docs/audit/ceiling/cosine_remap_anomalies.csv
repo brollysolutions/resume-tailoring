@@ -1,0 +1,186 @@
+ts,resume_id,jd_hash,kw_raw,skill_raw,ngram_raw,cosine_blended,whole_doc_cos_raw,exp_cos_raw,final_score,jd_excerpt_60
+2026-05-17T09:19:48.048153+00:00,5eac9e08-bbe2-4f14-8faf-75a3bf99a261,27f0f933705c8220,0.0,0.0,0.0,1.0,1.0,0.0,36,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:19:52.111411+00:00,5eac9e08-bbe2-4f14-8faf-75a3bf99a261,b41af77d86b58c91,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:20:25.825332+00:00,,a0df1ac6af5aa940,0.0476,0.0,0.0,1.0,1.0,0.0,41,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:20:25.851331+00:00,,a0df1ac6af5aa940,0.0476,0.0,0.0,1.0,1.0,0.0,41,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:20:25.864144+00:00,,a0df1ac6af5aa940,0.0,0.2,0.0,1.0,1.0,0.0,44,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:20:25.912717+00:00,,c489d46a470d66b8,0.0357,0.0,0.0,1.0,1.0,0.0,41,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:20:25.927049+00:00,,c489d46a470d66b8,0.0357,0.1818,0.0,1.0,1.0,0.0,45,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:20:25.952648+00:00,,f4b0dd544f11bfa8,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:20:25.973810+00:00,,f4b0dd544f11bfa8,0.0556,0.0,0.0,1.0,1.0,0.0,42,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:20:25.986358+00:00,,f4b0dd544f11bfa8,0.0,0.3182,0.0,1.0,1.0,0.0,48,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:20:26.013533+00:00,,d2fa341f65ed0219,0.0588,0.0,1.0,1.0,1.0,0.0,52,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:20:26.036571+00:00,,d2fa341f65ed0219,0.0294,0.0,1.0,1.0,1.0,0.0,51,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:20:26.048525+00:00,,d2fa341f65ed0219,0.0,0.2,1.0,1.0,1.0,0.0,52,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:20:44.483238+00:00,,98898065c2a1dd7b,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:20:44.512662+00:00,,98898065c2a1dd7b,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:20:44.526321+00:00,,98898065c2a1dd7b,0.0,0.2,0.0,1.0,1.0,0.0,45,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:20:44.553254+00:00,,da0dde82ea9194c3,0.08,0.0,1.0,1.0,1.0,0.0,49,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:20:44.565916+00:00,,da0dde82ea9194c3,0.04,0.0,1.0,1.0,1.0,0.0,48,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:20:44.592197+00:00,,da0dde82ea9194c3,0.08,0.25,1.0,1.0,1.0,0.0,52,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:20:54.104223+00:00,,fbb8d6874a197ee4,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:20:54.128039+00:00,,fbb8d6874a197ee4,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:20:54.143575+00:00,,fbb8d6874a197ee4,0.0833,0.2308,0.0,1.0,1.0,0.0,47,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:21:01.461162+00:00,,93332a1bf429ae28,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:21:01.495593+00:00,,93332a1bf429ae28,0.0,0.25,0.0,1.0,1.0,0.0,46,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:21:10.176908+00:00,,27f0f933705c8220,0.08,0.0,0.0,1.0,1.0,0.0,39,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:21:10.187971+00:00,,27f0f933705c8220,0.08,0.0,0.0,1.0,1.0,0.0,39,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:21:10.207843+00:00,,27f0f933705c8220,0.04,0.0,0.0,1.0,1.0,0.0,38,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:21:10.219592+00:00,,27f0f933705c8220,0.0,0.3125,0.0,1.0,1.0,0.0,44,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:21:19.761291+00:00,,03032fcbfa879876,0.0294,0.0,0.0,1.0,1.0,0.0,41,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:21:19.830865+00:00,,03032fcbfa879876,0.0294,0.2143,0.0,1.0,1.0,0.0,46,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:21:28.015078+00:00,,b41af77d86b58c91,0.05,0.0,0.0,1.0,1.0,0.0,42,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:21:28.028893+00:00,,b41af77d86b58c91,0.05,0.0,0.0,1.0,1.0,0.0,42,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:21:28.044466+00:00,,b41af77d86b58c91,0.05,0.0,0.0,1.0,1.0,0.0,42,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:21:28.055924+00:00,,b41af77d86b58c91,0.0,0.2273,0.0,1.0,1.0,0.0,45,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:21:36.758727+00:00,,cee8ff7a4b5f3e8c,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:21:36.780533+00:00,,cee8ff7a4b5f3e8c,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:21:36.791212+00:00,,cee8ff7a4b5f3e8c,0.0,0.125,0.0,1.0,1.0,0.0,42,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:21:59.640806+00:00,,a0df1ac6af5aa940,0.0952,0.0,0.0,1.0,1.0,0.0,43,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:21:59.652004+00:00,,a0df1ac6af5aa940,0.0476,0.0,0.0,1.0,1.0,0.0,41,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:21:59.664621+00:00,,a0df1ac6af5aa940,0.0,0.5667,0.0,1.0,1.0,0.0,53,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:22:08.594182+00:00,,c489d46a470d66b8,0.0714,0.5455,0.0,1.0,1.0,0.0,53,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:22:16.545643+00:00,,f4b0dd544f11bfa8,0.0556,0.0,0.0,1.0,1.0,0.0,42,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:22:16.575457+00:00,,f4b0dd544f11bfa8,0.0,0.4091,0.0,1.0,1.0,0.0,49,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:22:24.310904+00:00,16cf5a23-4251-4a52-a11c-3503b9fa4120,d2fa341f65ed0219,0.0882,0.8,1.0,1.0,1.0,1.0,70,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:22:26.323052+00:00,,d2fa341f65ed0219,0.0,0.0,1.0,1.0,1.0,0.0,50,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:22:26.342000+00:00,,d2fa341f65ed0219,0.0588,0.0,1.0,1.0,1.0,0.0,52,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:22:26.364776+00:00,,d2fa341f65ed0219,0.0294,0.6,1.0,1.0,1.0,0.0,66,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:22:44.729638+00:00,,98898065c2a1dd7b,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:22:53.452179+00:00,,da0dde82ea9194c3,0.0,0.0,1.0,1.0,1.0,0.0,46,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:22:53.495088+00:00,,da0dde82ea9194c3,0.04,0.75,1.0,1.0,1.0,0.0,65,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:23:01.844993+00:00,,fbb8d6874a197ee4,0.0833,0.0,0.0,1.0,1.0,0.0,42,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:23:01.867382+00:00,,fbb8d6874a197ee4,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:23:01.880146+00:00,,fbb8d6874a197ee4,0.0833,0.4615,0.0,1.0,1.0,0.0,54,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:23:17.233539+00:00,,93332a1bf429ae28,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:23:17.246771+00:00,,93332a1bf429ae28,0.05,0.6071,0.0,1.0,1.0,0.0,55,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:23:29.788261+00:00,,27f0f933705c8220,0.08,0.0,0.3333,1.0,1.0,0.0,42,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:23:29.815853+00:00,,27f0f933705c8220,0.0,0.4375,0.0,1.0,1.0,0.0,48,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:23:36.704113+00:00,16cf5a23-4251-4a52-a11c-3503b9fa4120,03032fcbfa879876,0.0882,0.9286,0.0,1.0,1.0,1.0,62,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:23:38.553609+00:00,,03032fcbfa879876,0.0294,0.0,0.0,1.0,1.0,0.0,41,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:23:38.568115+00:00,,03032fcbfa879876,0.0294,0.0,0.0,1.0,1.0,0.0,41,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:23:38.585212+00:00,,03032fcbfa879876,0.0,0.7857,0.0,1.0,1.0,0.0,57,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:23:50.172152+00:00,,b41af77d86b58c91,0.05,0.0,0.0,1.0,1.0,0.0,42,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:23:50.216345+00:00,,b41af77d86b58c91,0.0,0.4545,0.0,1.0,1.0,0.0,51,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:23:56.666223+00:00,16cf5a23-4251-4a52-a11c-3503b9fa4120,cee8ff7a4b5f3e8c,0.0,0.8125,0.0,1.0,1.0,1.0,58,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:23:58.531019+00:00,,cee8ff7a4b5f3e8c,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:23:58.541716+00:00,,cee8ff7a4b5f3e8c,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:23:58.556880+00:00,,cee8ff7a4b5f3e8c,0.0,0.6875,0.0,1.0,1.0,0.0,56,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:24:06.753309+00:00,,a0df1ac6af5aa940,0.0952,0.0,0.0,1.0,1.0,0.0,43,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:24:06.788404+00:00,,a0df1ac6af5aa940,0.0476,0.2667,0.0,1.0,1.0,0.0,47,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:24:20.144833+00:00,,c489d46a470d66b8,0.0357,0.0,0.0,1.0,1.0,0.0,41,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:24:20.181941+00:00,,c489d46a470d66b8,0.0357,0.2727,0.0,1.0,1.0,0.0,46,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:24:39.646675+00:00,,f4b0dd544f11bfa8,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:24:39.687614+00:00,,f4b0dd544f11bfa8,0.0,0.4091,0.0,1.0,1.0,0.0,49,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:24:48.315210+00:00,,d2fa341f65ed0219,0.0588,0.0,1.0,1.0,1.0,0.0,52,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:24:48.348811+00:00,,d2fa341f65ed0219,0.0,0.2,1.0,1.0,1.0,0.0,52,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:24:57.119441+00:00,,98898065c2a1dd7b,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:24:57.159534+00:00,,98898065c2a1dd7b,0.0,0.2,0.0,1.0,1.0,0.0,45,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:25:03.360526+00:00,8f01e655-adb2-44e6-9b4b-88168c6ed37e,da0dde82ea9194c3,0.08,0.75,1.0,1.0,1.0,1.0,68,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:25:05.303191+00:00,,da0dde82ea9194c3,0.0,0.0,1.0,1.0,1.0,0.0,46,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:25:05.314722+00:00,,da0dde82ea9194c3,0.04,0.0,1.0,1.0,1.0,0.0,48,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:25:05.329222+00:00,,da0dde82ea9194c3,0.08,0.0,1.0,1.0,1.0,0.0,49,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:25:05.342367+00:00,,da0dde82ea9194c3,0.0,0.25,1.0,1.0,1.0,0.0,50,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:25:14.136496+00:00,,fbb8d6874a197ee4,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:25:14.147792+00:00,,fbb8d6874a197ee4,0.0,0.2692,0.0,1.0,1.0,0.0,47,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:25:21.584094+00:00,,93332a1bf429ae28,0.05,0.0,0.0,1.0,1.0,0.0,42,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:25:21.619921+00:00,,93332a1bf429ae28,0.0,0.4286,0.0,1.0,1.0,0.0,49,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:25:30.703689+00:00,,27f0f933705c8220,0.0,0.0,0.0,1.0,1.0,0.0,36,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:25:30.740149+00:00,,27f0f933705c8220,0.0,0.3125,0.0,1.0,1.0,0.0,44,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:25:39.758453+00:00,,03032fcbfa879876,0.0588,0.0,0.0,1.0,1.0,0.0,42,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:25:39.782402+00:00,,03032fcbfa879876,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:25:39.794447+00:00,,03032fcbfa879876,0.0,0.3571,0.0,1.0,1.0,0.0,47,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:25:57.867336+00:00,,b41af77d86b58c91,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:25:57.904771+00:00,,b41af77d86b58c91,0.0,0.2273,0.0,1.0,1.0,0.0,45,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:26:10.491900+00:00,,cee8ff7a4b5f3e8c,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:26:10.529517+00:00,,cee8ff7a4b5f3e8c,0.0,0.3125,0.0,1.0,1.0,0.0,46,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:26:21.268842+00:00,,a0df1ac6af5aa940,0.0476,0.0,0.0,1.0,1.0,0.0,41,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:26:21.282199+00:00,,a0df1ac6af5aa940,0.0,0.3667,0.0,1.0,1.0,0.0,47,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:26:30.265353+00:00,,c489d46a470d66b8,0.0714,0.0,0.0,1.0,1.0,0.0,42,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:26:30.277268+00:00,,c489d46a470d66b8,0.0357,0.2727,0.0,1.0,1.0,0.0,46,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:26:40.420868+00:00,,f4b0dd544f11bfa8,0.0556,0.0,0.1667,1.0,1.0,0.0,43,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:26:40.435192+00:00,,f4b0dd544f11bfa8,0.0,0.5909,0.0,1.0,1.0,0.0,52,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:26:51.355751+00:00,,d2fa341f65ed0219,0.0,0.2,1.0,1.0,1.0,0.0,52,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:27:14.646970+00:00,,98898065c2a1dd7b,0.0,0.2,0.0,1.0,1.0,0.0,45,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:27:23.670883+00:00,,fbb8d6874a197ee4,0.0,0.3462,0.0,1.0,1.0,0.0,48,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:27:32.519359+00:00,,93332a1bf429ae28,0.0,0.5357,0.0,1.0,1.0,0.0,50,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:27:52.933186+00:00,,27f0f933705c8220,0.04,0.0,0.0,1.0,1.0,0.0,38,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:27:52.949515+00:00,,27f0f933705c8220,0.0,0.375,0.0,1.0,1.0,0.0,45,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:28:14.466055+00:00,,b41af77d86b58c91,0.05,0.0,0.2,1.0,1.0,0.0,44,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:28:14.480593+00:00,,b41af77d86b58c91,0.0,0.3636,0.0,1.0,1.0,0.0,48,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:28:24.649683+00:00,,cee8ff7a4b5f3e8c,0.0,0.375,0.0,1.0,1.0,0.0,46,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:28:32.533477+00:00,,a0df1ac6af5aa940,0.0476,0.0,0.0,1.0,1.0,0.0,41,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:28:32.548862+00:00,,a0df1ac6af5aa940,0.0476,0.0,0.0,1.0,1.0,0.0,41,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:28:32.568435+00:00,,a0df1ac6af5aa940,0.0952,0.0,0.25,1.0,1.0,0.0,45,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:28:40.141227+00:00,,c489d46a470d66b8,0.0714,0.0,0.0,1.0,1.0,0.0,42,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:28:47.798620+00:00,,f4b0dd544f11bfa8,0.0556,0.0,0.0,1.0,1.0,0.0,42,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:28:47.812488+00:00,,f4b0dd544f11bfa8,0.0556,0.0,0.0,1.0,1.0,0.0,42,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:28:56.548049+00:00,,d2fa341f65ed0219,0.0588,0.0,1.0,1.0,1.0,0.0,52,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:29:07.773894+00:00,,98898065c2a1dd7b,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:29:27.975771+00:00,,da0dde82ea9194c3,0.04,0.0,1.0,1.0,1.0,0.0,48,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:29:27.988286+00:00,,da0dde82ea9194c3,0.04,0.0,1.0,1.0,1.0,0.0,48,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:29:36.991712+00:00,,fbb8d6874a197ee4,0.0833,0.0,0.0,1.0,1.0,0.0,42,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:29:37.003939+00:00,,fbb8d6874a197ee4,0.0,0.2308,0.0,1.0,1.0,0.0,45,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:30:08.760207+00:00,,27f0f933705c8220,0.08,0.0,0.0,1.0,1.0,0.0,39,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:30:08.778874+00:00,,27f0f933705c8220,0.04,0.0,0.0,1.0,1.0,0.0,38,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:30:16.247073+00:00,,03032fcbfa879876,0.0294,0.0,0.0,1.0,1.0,0.0,41,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:30:26.077707+00:00,,b41af77d86b58c91,0.05,0.0,0.0,1.0,1.0,0.0,42,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:30:40.685858+00:00,,cee8ff7a4b5f3e8c,0.0714,0.0,0.0,1.0,1.0,0.0,42,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:30:40.696634+00:00,,cee8ff7a4b5f3e8c,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:31:01.958179+00:00,,a0df1ac6af5aa940,0.0476,0.0,0.0,1.0,1.0,0.0,41,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:31:01.974331+00:00,,a0df1ac6af5aa940,0.0,0.5333,0.0,1.0,1.0,0.0,51,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:31:16.472248+00:00,,c489d46a470d66b8,0.0714,0.4545,0.0,1.0,1.0,0.0,52,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:31:26.809935+00:00,,f4b0dd544f11bfa8,0.0,0.3182,0.0,1.0,1.0,0.0,46,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:31:38.851618+00:00,,d2fa341f65ed0219,0.0588,0.0,1.0,1.0,1.0,0.0,52,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:31:38.872973+00:00,,d2fa341f65ed0219,0.0,0.6,1.0,1.0,1.0,0.0,65,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:31:50.561978+00:00,,98898065c2a1dd7b,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:31:50.583109+00:00,,98898065c2a1dd7b,0.0,0.3667,0.0,1.0,1.0,0.0,48,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:32:04.133204+00:00,408202a3-0490-490c-ace9-952a2db4b190,da0dde82ea9194c3,0.0,0.75,1.0,1.0,1.0,1.0,66,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:32:06.582542+00:00,,da0dde82ea9194c3,0.0,0.0,1.0,1.0,1.0,0.0,46,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:32:15.775868+00:00,,fbb8d6874a197ee4,0.0833,0.0,0.0,1.0,1.0,0.0,42,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:32:15.792045+00:00,,fbb8d6874a197ee4,0.0,0.6154,0.0,1.0,1.0,0.0,55,Job Title: Junior Frontend Developer  We are a fast-growing 
+2026-05-17T09:32:26.252365+00:00,,93332a1bf429ae28,0.05,0.0,0.0,1.0,1.0,0.0,42,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:32:26.265205+00:00,,93332a1bf429ae28,0.0,0.5714,0.0,1.0,1.0,0.0,52,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:32:40.739556+00:00,,27f0f933705c8220,0.0,0.0,0.0,1.0,1.0,0.0,36,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:32:40.753133+00:00,,27f0f933705c8220,0.0,0.4375,0.0,1.0,1.0,0.0,48,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:32:57.044842+00:00,,03032fcbfa879876,0.0294,0.0,0.0,1.0,1.0,0.0,41,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:32:57.057133+00:00,,03032fcbfa879876,0.0588,0.0,0.0,1.0,1.0,0.0,42,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:32:57.069402+00:00,,03032fcbfa879876,0.0,0.6429,0.0,1.0,1.0,0.0,56,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:33:04.841078+00:00,408202a3-0490-490c-ace9-952a2db4b190,b41af77d86b58c91,0.05,0.4091,0.2,1.0,1.0,1.0,52,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:33:07.199185+00:00,,b41af77d86b58c91,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:33:07.222438+00:00,,b41af77d86b58c91,0.0,0.0,0.0,1.0,1.0,0.0,40,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:33:07.244581+00:00,,b41af77d86b58c91,0.0,0.3182,0.0,1.0,1.0,0.0,47,Job Title: Machine Learning Engineer  We are an autonomous v
+2026-05-17T09:33:17.135246+00:00,408202a3-0490-490c-ace9-952a2db4b190,cee8ff7a4b5f3e8c,0.0714,0.8125,0.0,1.0,1.0,1.0,60,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:33:19.457845+00:00,,cee8ff7a4b5f3e8c,0.0714,0.0,0.0,1.0,1.0,0.0,42,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:33:19.469058+00:00,,cee8ff7a4b5f3e8c,0.0714,0.0,0.0,1.0,1.0,0.0,42,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:33:19.480710+00:00,,cee8ff7a4b5f3e8c,0.0,0.6875,0.0,1.0,1.0,0.0,56,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:32:06.597812+00:00,,da0dde82ea9194c3,0.0,0.0,1.0,0.9945,0.9945,0.0,46,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:25:30.728050+00:00,,27f0f933705c8220,0.04,0.0,0.0,0.9873,0.9873,0.0,37,"Job Title: AI Engineer, LLMs  We are a Series B enterprise s"
+2026-05-17T09:28:03.836700+00:00,,03032fcbfa879876,0.0294,0.0,0.0,0.9832,0.9832,0.0,40,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:31:16.447297+00:00,,c489d46a470d66b8,0.0357,0.0,0.0,0.9817,0.9817,0.0,41,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:21:01.483758+00:00,,93332a1bf429ae28,0.0,0.0,0.0,0.9666,0.9666,0.0,39,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:31:26.795545+00:00,,f4b0dd544f11bfa8,0.0556,0.0,0.0,0.9647,0.9647,0.0,41,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:19:33.379655+00:00,5eac9e08-bbe2-4f14-8faf-75a3bf99a261,d2fa341f65ed0219,0.0,0.0,1.0,0.9616,0.9616,0.0,49,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:29:07.800007+00:00,,98898065c2a1dd7b,0.0588,0.1667,0.0,0.9515,0.9515,0.0,45,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:27:14.701794+00:00,,da0dde82ea9194c3,0.0,0.25,1.0,0.9491,0.9491,0.0,48,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:32:06.617899+00:00,,da0dde82ea9194c3,0.0,0.5,1.0,0.9431,0.9431,0.0,59,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:20:25.889879+00:00,,c489d46a470d66b8,0.0357,0.0,0.0,0.9428,0.9428,0.0,40,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:24:06.776484+00:00,,a0df1ac6af5aa940,0.0,0.0,0.0,0.9369,0.9369,0.0,38,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:22:08.564312+00:00,,c489d46a470d66b8,0.0357,0.0,0.0,0.9367,0.9367,0.0,39,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:31:16.459397+00:00,,c489d46a470d66b8,0.0714,0.0,0.0,0.9362,0.9362,0.0,41,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:28:03.854564+00:00,,03032fcbfa879876,0.0,0.4286,0.0,0.9352,0.9352,0.0,46,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:24:57.146227+00:00,,98898065c2a1dd7b,0.0,0.0,0.0,0.9344,0.9344,0.0,38,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:28:56.572878+00:00,,d2fa341f65ed0219,0.0294,0.4,1.0,0.919,0.919,0.0,58,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:29:28.002043+00:00,,da0dde82ea9194c3,0.08,0.0,1.0,0.9086,0.9086,0.0,47,Job Title: Director of FP&A  We are a scaling global SaaS co
+2026-05-17T09:26:51.340734+00:00,,d2fa341f65ed0219,0.0294,0.0,1.0,0.9077,0.9077,0.0,49,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:28:40.157789+00:00,,c489d46a470d66b8,0.0357,0.0,0.0,0.902,0.902,0.0,39,Job Title: Data Analyst  We are a fast-growing direct-to-con
+2026-05-17T09:28:47.824849+00:00,,f4b0dd544f11bfa8,0.0556,0.1818,0.0,0.8992,0.8992,0.0,41,Job Title: Senior Data Engineer  We are a global fintech org
+2026-05-17T09:28:32.585598+00:00,,a0df1ac6af5aa940,0.0476,0.3333,0.0,0.8991,0.8991,0.0,45,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:27:32.502019+00:00,,93332a1bf429ae28,0.0,0.0,0.0,0.8978,0.8978,0.0,37,Job Title: Full Stack Engineer  We are an established B2B Sa
+2026-05-17T09:30:16.286827+00:00,,03032fcbfa879876,0.0294,0.4286,0.0,0.8917,0.8917,0.0,46,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:24:48.337744+00:00,,d2fa341f65ed0219,0.0588,0.0,1.0,0.8886,0.8886,0.0,49,"Job Title: Product Designer  We are a well-funded, innovativ"
+2026-05-17T09:19:30.756242+00:00,5eac9e08-bbe2-4f14-8faf-75a3bf99a261,a0df1ac6af5aa940,0.0,0.0,0.0,0.8868,0.8868,0.0,37,Job Title: Senior Backend Engineer  We are a leading healtht
+2026-05-17T09:21:19.808063+00:00,,03032fcbfa879876,0.0294,0.0,0.0,0.8854,0.8854,0.0,38,Job Title: Growth Marketing Manager  We are a rapidly expand
+2026-05-17T09:26:10.516352+00:00,,cee8ff7a4b5f3e8c,0.0714,0.0,0.0,0.863,0.863,0.0,39,Job Title: Junior iOS Developer  We are an award-winning dig
+2026-05-17T09:27:14.631879+00:00,,98898065c2a1dd7b,0.0,0.0,0.0,0.862,0.862,0.0,37,Job Title: DevOps Engineer  We are a fast-paced cloud infras
+2026-05-17T09:28:24.633798+00:00,,cee8ff7a4b5f3e8c,0.0,0.0,0.0,0.8503,0.8503,0.0,36,Job Title: Junior iOS Developer  We are an award-winning dig

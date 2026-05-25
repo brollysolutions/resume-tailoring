@@ -8,6 +8,7 @@ from typing import List
 from app.core.keyword_utils import _significant_tokens, _STOPWORDS
 
 # Lightweight skill dictionary (tech stack common across job descriptions)
+# Normalized form (no spaces, canonical names).
 _TECH_SKILLS = {
     # Languages
     "python", "javascript", "typescript", "java", "c++", "c#", "go", "rust", "ruby", "php", "kotlin",
@@ -23,7 +24,7 @@ _TECH_SKILLS = {
     "circleci", "travis", "heroku", "vercel", "cloudflare",
     # Big Data & ML
     "spark", "hadoop", "kafka", "airflow", "pandas", "numpy", "scikit-learn", "tensorflow",
-    "pytorch", "keras", "xgboost", "nlp", "machine learning", "deep learning", "ai", "llm",
+    "pytorch", "keras", "xgboost", "nlp", "machinelearning", "deeplearning", "ai", "llm",
     # Messaging & Queues
     "rabbitmq", "mqtt", "amqp", "sqs", "pubsub", "kinesis",
     # Monitoring & Observability
@@ -39,11 +40,10 @@ _TECH_SKILLS = {
 
 def extract_skills(text: str) -> set[str]:
     """Extract recognized tech skills from text (case-insensitive).
-
-    Returns set of matched skill names from _TECH_SKILLS dictionary.
-    """
-    text_lower = text.lower()
-    return {skill for skill in _TECH_SKILLS if skill in text_lower}
+    Uses the canonical normalization pipeline from keyword_utils."""
+    from app.core.keyword_utils import _significant_tokens
+    tokens = _significant_tokens(text)
+    return tokens & _TECH_SKILLS
 
 
 class BM25Ranker:

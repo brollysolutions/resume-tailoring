@@ -47,21 +47,24 @@
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md
            bg-accent text-white text-sm font-medium
-           hover:bg-accent-hover transition-colors
+           hover:bg-accent-hover hover:scale-[1.02] hover:shadow-md
+           active:scale-[0.97] transition-all duration-150
            disabled:opacity-40 disabled:pointer-events-none;
   }
 
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md
            border border-border bg-white text-foreground text-sm font-medium
-           hover:bg-subtle transition-colors
+           hover:bg-subtle hover:scale-[1.02] hover:shadow-sm
+           active:scale-[0.97] transition-all duration-150
            disabled:opacity-40 disabled:pointer-events-none;
   }
 
   .btn-ghost {
     @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md
            text-muted text-sm font-medium
-           hover:bg-subtle hover:text-foreground transition-colors;
+           hover:bg-subtle hover:text-foreground
+           active:scale-[0.95] transition-all duration-150;
   }
 
   .input {
@@ -97,6 +100,17 @@
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background: var(--color-muted);
   }
+}
+
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 /* Print styles for resume export */

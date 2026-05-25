@@ -117,6 +117,15 @@ def _join(log: list[dict], labels: list[dict]) -> list[dict]:
         ev = by_key.get((rid, jdh))
         if ev is None:
             continue
+        # R4: prefer ngram_coverage (clean 0.0-when-inactive) over legacy
+        # ngram_raw (1.0-sentinel). Pre-R4 rows lack the new fields, so
+        # fall back to ngram_raw and assume ngram_active=True — this means
+        # the legacy 1.0 sentinel is treated as a real coverage value for
+        # old rows (matches the prior calibration behavior).
+        ngram_cov_raw = ev.get("ngram_coverage")
+        if ngram_cov_raw is None:
+            ngram_cov_raw = ev.get("ngram_raw") or 1.0
+        ngram_active = bool(ev.get("ngram_active", True))
         joined.append({
             "resume_id": rid,
             "jd_hash": jdh,
@@ -124,7 +133,8 @@ def _join(log: list[dict], labels: list[dict]) -> list[dict]:
             "label_value": _LABEL_VALUE[label],
             "kw_raw":        float(ev.get("kw_raw") or 0.0),
             "skill_raw":     float(ev.get("skill_raw") or 0.0),
-            "ngram_raw":     float(ev.get("ngram_raw") or 1.0),   # 1.0 = no penalty for old events
+            "ngram_coverage": float(ngram_cov_raw),
+            "ngram_active":  ngram_active,
             "edu_raw":       float(ev.get("edu_raw") or 1.0),
             "seniority_raw": float(ev.get("seniority_raw") or 1.0),
             "cosine_blended":float(ev.get("cosine_blended") or 0.0),
@@ -140,7 +150,7 @@ def _grid():
         w_skill:0.10 – 0.25  (4 values)
         w_ngram:0.05 – 0.20  (4 values)
         w_edu:  0.00, 0.05, 0.10 (3 values)
-        w_sen:  0.05, 0.10, 0.15 (3 values)
+        w_sen:  0.00, 0.05, 0.10 (3 values - re-enabled since seniority is now blended)
         w_cos:  remainder, accepted if 0.10 – 0.45
     Total: 5×4×4×3×3 = 720 candidate points.
     """
@@ -148,7 +158,7 @@ def _grid():
     skill_vals = [round(0.10 + 0.05 * i, 2) for i in range(4)]
     ngram_vals = [round(0.05 + 0.05 * i, 2) for i in range(4)]
     edu_vals   = [0.00, 0.05, 0.10]
-    sen_vals   = [0.05, 0.10, 0.15]
+    sen_vals   = [0.00, 0.05, 0.10]
 
     for w_kw, w_sk, w_ng, w_edu, w_sen in product(
         kw_vals, skill_vals, ngram_vals, edu_vals, sen_vals
@@ -158,11 +168,21 @@ def _grid():
             yield (w_kw, w_sk, w_ng, w_edu, w_sen, w_cos)
 
 
-def run(log_path: Path = _LOG, labels_path: Path = _LABELS, write_results: bool = True) -> dict:
+def run(
+    log_path: Path = _LOG,
+    labels_path: Path = _LABELS,
+    write_results: bool = True,
+    eval_split_fn=None,
+) -> dict:
     """Programmatic entrypoint used by auto_calibrator.
 
-    Returns dict with keys: status, n_log, n_labels, n_rows, best, top5, grid.
+    Returns dict with keys: status, n_log, n_labels, n_rows, best, top5, grid,
+    spearman_train, spearman_test, n_train, n_test.
     status: "ok" | "weak_signal" | "insufficient_data"
+
+    eval_split_fn: optional Callable[[list[dict]], tuple[list, list]].
+    When provided, grid search fits on train rows; spearman_test is the
+    held-out Spearman ρ (R7 — generalization signal, not in-sample fit).
     """
     log = _load_jsonl(log_path)
     labels = _load_jsonl(labels_path)
@@ -177,23 +197,45 @@ def run(log_path: Path = _LOG, labels_path: Path = _LABELS, write_results: bool 
             "min_rows": _MIN_ROWS,
         }
 
+    # R7: resume-stratified train/test split when caller provides a split fn.
+    if eval_split_fn is not None:
+        train_rows, test_rows = eval_split_fn(rows)
+        if not train_rows:  # degenerate split guard
+            train_rows, test_rows = rows, []
+    else:
+        train_rows, test_rows = rows, []
+
     label_dist = defaultdict(int)
     for r in rows:
         label_dist[r["label"]] += 1
 
-    truth = [r["label_value"] for r in rows]
+    truth = [r["label_value"] for r in train_rows]
     results: list[dict] = []
 
     for w_kw, w_sk, w_ng, w_edu, w_sen, w_cos in _grid():
-        predicted = [
-            w_kw * r["kw_raw"]
-            + w_sk  * r["skill_raw"]
-            + w_ng  * r["ngram_raw"]
-            + w_edu * r["edu_raw"]
-            + w_sen * r["seniority_raw"]
-            + w_cos * r["cosine_blended"]
-            for r in rows
-        ]
+        # R4: mirror hybrid_scorer.compute_signals — redistribute w_ngram into
+        # w_kw when ngram_active=False so the grid scores the same blend the
+        # live scorer produces.
+        predicted = []
+        for r in train_rows:
+            if r["ngram_active"]:
+                p = (
+                    w_kw * r["kw_raw"]
+                    + w_sk  * r["skill_raw"]
+                    + w_ng  * r["ngram_coverage"]
+                    + w_edu * r["edu_raw"]
+                    + w_sen * r["seniority_raw"]
+                    + w_cos * r["cosine_blended"]
+                )
+            else:
+                p = (
+                    (w_kw + w_ng) * r["kw_raw"]
+                    + w_sk  * r["skill_raw"]
+                    + w_edu * r["edu_raw"]
+                    + w_sen * r["seniority_raw"]
+                    + w_cos * r["cosine_blended"]
+                )
+            predicted.append(p)
         rho = _spearman(predicted, truth)
         tau = _kendall_tau(predicted, truth)
         results.append({
@@ -210,11 +252,47 @@ def run(log_path: Path = _LOG, labels_path: Path = _LABELS, write_results: bool 
     results.sort(key=lambda r: r["spearman"], reverse=True)
     best = results[0]
 
+    # R7: evaluate best weights on held-out test rows.
+    n_train = len(train_rows)
+    spearman_train = best["spearman"]
+    if test_rows:
+        test_truth = [r["label_value"] for r in test_rows]
+        bw = best
+        test_predicted = []
+        for r in test_rows:
+            if r["ngram_active"]:
+                p = (
+                    bw["w_kw"] * r["kw_raw"]
+                    + bw["w_skill"] * r["skill_raw"]
+                    + bw["w_ngram"] * r["ngram_coverage"]
+                    + bw["w_edu"] * r["edu_raw"]
+                    + bw["w_sen"] * r["seniority_raw"]
+                    + bw["w_cos"] * r["cosine_blended"]
+                )
+            else:
+                p = (
+                    (bw["w_kw"] + bw["w_ngram"]) * r["kw_raw"]
+                    + bw["w_skill"] * r["skill_raw"]
+                    + bw["w_edu"] * r["edu_raw"]
+                    + bw["w_sen"] * r["seniority_raw"]
+                    + bw["w_cos"] * r["cosine_blended"]
+                )
+            test_predicted.append(p)
+        spearman_test = round(_spearman(test_predicted, test_truth), 4)
+        n_test = len(test_rows)
+    else:
+        spearman_test = None
+        n_test = 0
+
     if write_results:
         _DATA.mkdir(parents=True, exist_ok=True)
         _RESULTS.write_text(json.dumps({
             "n_rows": len(rows),
+            "n_train": n_train,
+            "n_test": n_test,
             "label_distribution": dict(label_dist),
+            "spearman_train": spearman_train,
+            "spearman_test": spearman_test,
             "grid": results,
         }, indent=2))
 
@@ -229,6 +307,10 @@ def run(log_path: Path = _LOG, labels_path: Path = _LABELS, write_results: bool 
         "top5": results[:5],
         "grid": results,
         "weak_signal_threshold": _WEAK_SIGNAL_THRESHOLD,
+        "spearman_train": spearman_train,
+        "spearman_test": spearman_test,
+        "n_train": n_train,
+        "n_test": n_test,
     }
 
 

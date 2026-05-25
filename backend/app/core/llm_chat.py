@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # Clean suggested text
 _LEADING_MARKER_RE = re.compile(r'^\s*(?:[-•*—‒–·]+|\d+[.)])\s+')
 _JD_PAREN_RE = re.compile(r'\s*\([^)]*\b(?:JD|Job Description|job description)\b[^)]*\)', re.IGNORECASE)
-_INLINE_DASH_RE = re.compile(r'\s+-\s+')
+_INLINE_DASH_RE = re.compile(r'\s*[–—]\s*|\s+-\s+')
 _COMPOUND_HYPHEN_RE = re.compile(r'(?<=\w)-(?=\w)')
 _LABEL_PREFIX_RE = re.compile(r'^\s*(?:[SBM]\d+|Suggested|Original|New|Bullet)\s*:\s*', re.IGNORECASE)
 
@@ -41,6 +41,7 @@ def _clean_suggested(text: str) -> str:
     text = _JD_PAREN_RE.sub('', text)
     text = _INLINE_DASH_RE.sub(' ', text)
     text = _COMPOUND_HYPHEN_RE.sub(' ', text)
+    text = re.sub(r'\s{2,}', ' ', text)
     return text.strip()
 
 
@@ -132,7 +133,7 @@ RULES:
 - Use ONLY facts from RESUME CONTEXT. Do NOT fabricate metrics, employers, tech, or scale claims.
 - Inject JD keywords listed below where honestly applicable — this is the main purpose.
 - Single line, roughly same length unless user asked to expand/shrink.
-- No leading bullets ("- ", "• "), no hyphens as separators, active voice only.
+- No leading bullets ("- ", "• "). Never join clauses with hyphens or en/em dashes ("-", "–", "—"); write clean, well-structured prose. Active voice only.
 - No HR clichés ("leveraged", "spearheaded", "robust", "scalable", "cutting-edge").
 {kw_block}
 

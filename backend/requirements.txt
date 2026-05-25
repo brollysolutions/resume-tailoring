@@ -19,3 +19,12 @@ weasyprint
 jinja2
 rapidfuzz
 spacy
+redis
+pytest
+pytest-asyncio
+httpx
+pytest-mock
+langchain
+langchain-core
+langchain-community
+langgraph

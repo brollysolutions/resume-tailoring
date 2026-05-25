@@ -1,0 +1,13 @@
+jd_file,n_raw_tokens,n_after_stopwords,n_after_blocked,n_unique_normalized,n_entities_dropped,n_dropped_min_freq,n_final_top_jd,top5_kept,top5_dropped_ner,top5_dropped_blocked,top5_dropped_min_freq
+backend-python-fastapi-senior.txt,268,196,176,147,0,125,22,data|backend|microservices|using|api,,architect|environments|senior|engineer|responsibilities,title|leading|healthtech|providing|infrastructure
+data-analytics-sql-tableau-mid.txt,280,207,201,157,0,128,29,data|analytical|business|complex|directly,,responsibilities|stakeholders|senior|proficiency|communication,title|dataanalyst|fast-growing|direct-to-consumer|lifestyle
+data-eng-spark-aws-senior.txt,279,208,194,147,0,122,25,data|apache|aws|pipelines|airflow,,engineer|architect|understanding|senior|analyst,title|global|fintech|processes|billions
+design-product-figma-mid.txt,334,251,234,166,0,133,33,design|user|complex|product|designing,,platform|engineering|professional|responsibilities|lead,title|designer|well-funded|innovative|edtech
+devops-sre-terraform-kubernates-mid.txt,276,202,186,152,0,131,21,infrastructure|cloud|kubernetes|aws|complex,,engineer|environments|professional|platforms|engineering,title|fast-paced|delivering|high-availability|low-latency
+finance-fpa-modelling-senior.txt,310,231,216,168,0,144,24,financial|complex|highly|corporate|finance,,lead|industry|responsibilities|opportunities|packages,title|director|scaling|providing|mission-critical
+frontend-react-junior.txt,243,169,153,131,0,114,17,web|react|responsive|using|agile,,understanding|junior|developer|responsibilities|frameworks,title|fast-growing|e-commerce|startup|next
+fullstack-node-react-mid.txt,268,182,166,134,0,110,24,complex|building|design|server|using,,engineer|environments|professional|understanding|platform,title|established|b2b|saas|inventory
+genai-rag-langchain-senior.txt,288,218,208,162,0,128,34,building|complex|llm|generation|inference,,frameworks|engineering|engineer|responsibilities|architect,title|series|enterprise|revolutionizing|customer
+marketing-paid-growth-mid.txt,305,235,224,169,0,135,34,ads|advertising|directly|marketing|acquisition,,manager|platforms|responsibilities|tools|professional,title|expanding|focused|personal|wellness
+ml-classical-pytorch-mid.txt,267,199,187,151,0,130,21,machinelearning|models|computervision|deeplearning|using,,proficiency|engineer|environments|developing|responsibilities,title|autonomous|vehicle|startup|creating
+mobile-ios-swift-junior.txt,272,195,183,146,0,123,23,mobile|ios|native|app|apple,,collaborative|professional|understanding|familiarity|junior,title|digital|product|agency|creating

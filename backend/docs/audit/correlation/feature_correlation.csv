@@ -1,0 +1,7 @@
+signal,kw_raw,skill_raw,ngram_raw,edu_raw,seniority_raw,cosine_blended
+kw_raw,1.0,0.51,-0.173,0.17,0.0,0.028
+skill_raw,0.51,1.0,-0.161,0.128,0.0,0.274
+ngram_raw,-0.173,-0.161,1.0,-0.09,0.0,-0.197
+edu_raw,0.17,0.128,-0.09,1.0,0.0,0.062
+seniority_raw,0.0,0.0,0.0,0.0,0.0,0.0
+cosine_blended,0.028,0.274,-0.197,0.062,0.0,1.0

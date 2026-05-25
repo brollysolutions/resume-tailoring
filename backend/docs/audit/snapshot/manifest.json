@@ -1,0 +1,78 @@
+{
+  "snapshot_at": "2026-05-19T16:22:03.631122+00:00",
+  "source": "C:\\JobSearching\\backend\\data",
+  "files": {
+    "score_log.jsonl": {
+      "present": true,
+      "size_bytes": 365290,
+      "sha256": "a1ad2eef148517a8ae50ac4771854280a2bb57122a779ea5228fb041eb52da87",
+      "rows": 607,
+      "min_ts": "2026-05-17T09:19:30.756242+00:00",
+      "max_ts": "2026-05-19T15:15:46.328865+00:00"
+    },
+    "section_score_log.jsonl": {
+      "present": true,
+      "size_bytes": 20536,
+      "sha256": "ac921e662edf27260a2a9aa2816cefd0b16156f74a858d90c3e074901a2bffee",
+      "rows": 72,
+      "min_ts": "2026-05-19T10:53:14.578318+00:00",
+      "max_ts": "2026-05-19T15:15:48.569679+00:00"
+    },
+    "labels.jsonl": {
+      "present": true,
+      "size_bytes": 36622,
+      "sha256": "2c48121c6f34534612bc62135d912e3e265788e0a6d689f1d185fde0e524ae25",
+      "rows": 136,
+      "min_ts": null,
+      "max_ts": null
+    },
+    "suggestion_events.jsonl": {
+      "present": true,
+      "size_bytes": 9025,
+      "sha256": "bd7f1ac2ae3dd22b42882c8259ca8c70b7ad2970e0ac7dce80946711047052de",
+      "rows": 56,
+      "min_ts": "2026-05-17T09:19:30.795002+00:00",
+      "max_ts": "2026-05-19T11:20:12.637053+00:00"
+    },
+    "upload_events.jsonl": {
+      "present": true,
+      "size_bytes": 6433,
+      "sha256": "8a971d7541fee4c4cdc0190de914e1f7344a8b04ae3b847a6fac78fbd963bef0",
+      "rows": 67,
+      "min_ts": "2026-05-17T09:16:50.265425+00:00",
+      "max_ts": "2026-05-19T14:42:49.742224+00:00"
+    },
+    "section_deltas.jsonl": {
+      "present": true,
+      "size_bytes": 9476,
+      "sha256": "ef8e2a48a1d2df61b1761cb2ada9d894b0f71df17cd90b8b5099ae6fc64444ce",
+      "rows": 30,
+      "min_ts": "2026-05-17T10:28:10.610703+00:00",
+      "max_ts": "2026-05-19T11:19:45.661554+00:00"
+    },
+    "weights_active.json": {
+      "present": true,
+      "size_bytes": 288,
+      "sha256": "75aadeed90274bb5d948ce5b626bfa11057e6f0840dae328a98cde1b568b2ad8"
+    },
+    "auto_calibrator_state.json": {
+      "present": true,
+      "size_bytes": 134,
+      "sha256": "10be6fc6cd21f1c2a49cafbfa4b4155ee45dd0a65c325f233fde8fd8e784579f"
+    },
+    "auto_calibrator_last_attempt.json": {
+      "present": true,
+      "size_bytes": 465,
+      "sha256": "c0d9788f168b5a0847c17663a2c0c27723355c5f4a5acac7c12686743cf95878"
+    },
+    "weights_history/": {
+      "present": true,
+      "count": 3,
+      "files": [
+        "weights_2026-05-17T10-22-57.239574+00-00.json",
+        "weights_2026-05-17T14-20-11.007573+00-00.json",
+        "weights_2026-05-19T09-59-57.490385+00-00.json"
+      ]
+    }
+  }
+}

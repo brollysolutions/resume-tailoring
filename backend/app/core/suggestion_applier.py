@@ -89,6 +89,16 @@ def _apply_skill_mode(data: dict, sg: dict) -> int:
     is_new_category = bool(sg.get("is_new_category"))
     data.setdefault("skills", [])
 
+    if mode == "replace_section":
+        new_skills = sg.get("new_skills", [])
+        if isinstance(new_skills, list):
+            data["skills"] = list(new_skills)
+            logger.info("apply_suggestions: REPLACE_SECTION skills (count=%d)", len(data["skills"]))
+            return 1
+        else:
+            logger.warning("apply_suggestions: replace_section failed — new_skills is not a list: %r", type(new_skills))
+        return 0
+
     if mode == "delete_category":
         target = category.lower()
         before = len(data["skills"])
@@ -202,6 +212,33 @@ def _apply_skill_mode(data: dict, sg: dict) -> int:
     return 0
 
 
+def resolve_verbatim_original(resume_data: dict, section: str, original: str) -> str | None:
+    """Snap an LLM-provided `original` to the exact resume line it refers to.
+
+    The chat copilot's `original` can be a paraphrase (the model echoes the line
+    imperfectly). The backend applier matches fuzzily so it still applies, but the
+    client-side applier matches exactly and would miss — leaving the editor panel
+    out of sync with the preview. Returning the verbatim line lets both appliers
+    act on the identical string. Returns None when no candidate clears the bar.
+    """
+    if not original:
+        return None
+    from rapidfuzz import fuzz, process as rf_process
+
+    candidates = _collect_candidates(resume_data, section)
+    if not candidates:
+        return None
+    texts = [c[1] for c in candidates]
+    norm_texts = [_norm(t) for t in texts]
+    result = rf_process.extractOne(
+        _norm(original), norm_texts, scorer=fuzz.partial_ratio, score_cutoff=55
+    )
+    if result is None:
+        return None
+    _matched_norm, _score, idx = result
+    return texts[idx]
+
+
 def apply_suggestions(resume: Resume, suggestions: list) -> Resume:
     """Apply tailoring suggestions (edits, adds, deletes) to resume.
 
@@ -230,6 +267,19 @@ def apply_suggestions(resume: Resume, suggestions: list) -> Resume:
         # Skills section uses the explicit-field schema.
         if skill_section:
             applied += _apply_skill_mode(data, sg)
+            continue
+
+        # mode="reorder_sections" — update the global section order.
+        if mode == "reorder_sections":
+            try:
+                import json
+                new_order = json.loads(sg.get("suggested") or "")
+                if isinstance(new_order, list):
+                    data["section_order"] = new_order
+                    applied += 1
+                    logger.info("apply_suggestions: REORDER_SECTIONS (count=%d)", len(new_order))
+            except Exception as e:
+                logger.warning("apply_suggestions: reorder_sections parse failed: %s", e)
             continue
 
         original = (sg.get("original") or "").strip()
@@ -405,12 +455,9 @@ def apply_suggestions(resume: Resume, suggestions: list) -> Resume:
             logger.warning("apply_suggestions: NO MATCH (best=%d < 55) section=%r\n  original: %r\n  top cand: %r",
                           best, section, original[:80], texts[0][:80] if texts else "")
 
-    # Drop empty skill categories
-    if isinstance(data.get("skills"), list):
-        data["skills"] = [
-            cat for cat in data["skills"]
-            if (cat.get("skills") or [])
-        ]
+    # Note: We used to drop empty skill categories here, but that is now
+    # handled by the Pydantic validator/model itself or intentionally kept
+    # for user review.
 
     logger.info("apply_suggestions: applied %d / %d suggestions", applied, len(suggestions))
     return Resume.model_validate(data)

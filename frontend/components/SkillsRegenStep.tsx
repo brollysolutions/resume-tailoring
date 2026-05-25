@@ -33,6 +33,7 @@ interface Props {
   onEmit: (s: Omit<Suggestion, "id">) => void;
   sectionScore?: number;
   editCount?: number;
+  headerExtras?: React.ReactNode;
 }
 
 type Phase = "collapsed" | "expanded" | "regenerating" | "reviewing";
@@ -51,23 +52,13 @@ export function SkillsRegenStep({
   onEmit,
   sectionScore,
   editCount,
+  headerExtras,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("collapsed");
   const [regen, setRegen] = useState<RegenResult | null>(null);
   const [regenError, setRegenError] = useState<string | null>(null);
 
   const currentSkills: SkillCategory[] = resume.skills || [];
-
-  const scorePill = useMemo(() => {
-    if (typeof sectionScore !== "number") return null;
-    const color =
-      sectionScore >= 75 ? "text-success" : sectionScore >= 60 ? "text-amber-600" : "text-danger";
-    return (
-      <span className={`text-[10px] font-medium ${color}`}>
-        {sectionScore}%
-      </span>
-    );
-  }, [sectionScore]);
 
   const handleGenerate = async () => {
     setPhase("regenerating");
@@ -100,10 +91,27 @@ export function SkillsRegenStep({
         })),
       };
 
+      let intensity = "balanced";
+      let sectionIntensities = null;
+      if (typeof window !== "undefined") {
+        intensity = localStorage.getItem("tailor_intensity") || "balanced";
+        const saved = localStorage.getItem("tailor_section_intensities");
+        if (saved) {
+          try {
+            sectionIntensities = JSON.parse(saved);
+          } catch (e) {}
+        }
+      }
       const res = await fetch(`${apiUrl}/api/tailor/generate-skills`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resume_id: resumeId, jd_text: jdText, tailored }),
+        body: JSON.stringify({
+          resume_id: resumeId,
+          jd_text: jdText,
+          tailored,
+          intensity,
+          section_intensities: sectionIntensities,
+        }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -141,30 +149,22 @@ export function SkillsRegenStep({
   // --- COLLAPSED ---
   if (phase === "collapsed") {
     return (
-      <section className="card p-4 space-y-3">
-        <header className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            Skills {scorePill}
-            {editCount ? (
-              <span className="text-[10px] text-muted">({editCount} edit{editCount === 1 ? "" : "s"})</span>
-            ) : null}
-          </h3>
-        </header>
-        <p className="text-xs text-muted">
-          Finish tailoring Experience, Projects, and Education first — then regenerate Skills so they reflect the JD plus everything you accepted.
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={handleGenerate} className="btn-primary text-xs inline-flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5" /> Generate Skills
-          </button>
+      <section className="card p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
           <button
             onClick={() => setPhase("expanded")}
-            className="btn-ghost text-xs inline-flex items-center gap-1"
+            className="flex items-center gap-2 min-w-0 flex-1 text-left group"
           >
-            <ChevronDown className="w-3.5 h-3.5" /> Edit manually
+            <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" />
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted group-hover:text-foreground transition-colors">Skills</h3>
+            {editCount ? (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success/10 text-success border border-success/30">
+                {editCount} edited
+              </span>
+            ) : null}
           </button>
+          {headerExtras}
         </div>
-        {regenError && <p className="text-xs text-danger">{regenError}</p>}
       </section>
     );
   }
@@ -172,12 +172,23 @@ export function SkillsRegenStep({
   // --- REGENERATING ---
   if (phase === "regenerating") {
     return (
-      <section className="card p-4 space-y-3">
-        <header className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold flex items-center gap-2">Skills {scorePill}</h3>
-        </header>
-        <div className="flex items-center gap-2 text-xs text-muted">
-          <Loader2 className="w-4 h-4 animate-spin" /> Analyzing JD + tailored content…
+      <section className="card p-3 space-y-3 animate-pulse select-none">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1 text-left group">
+            <ChevronUp className="w-3.5 h-3.5 text-muted shrink-0" />
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted transition-colors">Skills</h3>
+          </div>
+          {headerExtras}
+        </div>
+        <div className="space-y-3 mt-1 pl-5">
+          <div className="h-3.5 bg-muted/60 rounded w-1/4" />
+          <div className="flex flex-wrap gap-2">
+            <div className="h-6 bg-muted/40 rounded-full w-16" />
+            <div className="h-6 bg-muted/40 rounded-full w-24" />
+            <div className="h-6 bg-muted/40 rounded-full w-20" />
+            <div className="h-6 bg-muted/40 rounded-full w-14" />
+            <div className="h-6 bg-muted/40 rounded-full w-18" />
+          </div>
         </div>
       </section>
     );
@@ -186,11 +197,15 @@ export function SkillsRegenStep({
   // --- REVIEWING (proposed vs current) ---
   if (phase === "reviewing" && regen) {
     return (
-      <section className="card p-4 space-y-3">
-        <header className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            Skills — review proposal {scorePill}
-          </h3>
+      <section className="card p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            onClick={() => setPhase("collapsed")}
+            className="flex items-center gap-2 min-w-0 flex-1 text-left group"
+          >
+            <ChevronUp className="w-3.5 h-3.5 text-muted shrink-0" />
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted group-hover:text-foreground transition-colors">Skills — review proposal</h3>
+          </button>
           <div className="flex items-center gap-1.5">
             <button onClick={handleGenerate} className="btn-ghost text-xs inline-flex items-center gap-1" title="Regenerate">
               <Sparkles className="w-3.5 h-3.5" /> Retry
@@ -201,19 +216,22 @@ export function SkillsRegenStep({
             <button onClick={handleAcceptRegen} className="btn-primary text-xs inline-flex items-center gap-1">
               <Check className="w-3.5 h-3.5" /> Accept
             </button>
+            {headerExtras}
           </div>
-        </header>
-        {regen.reasoning && (
-          <p className="text-[11px] text-muted italic">{regen.reasoning}</p>
-        )}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <p className="text-[10px] font-semibold text-muted uppercase tracking-wide">Current</p>
-            <SkillsReadonly skills={currentSkills} emptyText="No skills yet" />
-          </div>
-          <div className="space-y-2">
-            <p className="text-[10px] font-semibold text-success uppercase tracking-wide">Proposed</p>
-            <SkillsReadonly skills={regen.skills} emptyText="" />
+        </div>
+        <div className="space-y-2 mt-2">
+          {regen.reasoning && (
+            <p className="text-[11px] text-muted italic">{regen.reasoning}</p>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <p className="text-[10px] font-semibold text-muted uppercase tracking-wide">Current</p>
+              <SkillsReadonly skills={currentSkills} emptyText="No skills yet" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-[10px] font-semibold text-success uppercase tracking-wide">Proposed</p>
+              <SkillsReadonly skills={regen.skills} emptyText="" />
+            </div>
           </div>
         </div>
       </section>
@@ -222,52 +240,65 @@ export function SkillsRegenStep({
 
   // --- EXPANDED (manual CRUD editor) ---
   return (
-    <section className="card p-4 space-y-3">
-      <header className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold flex items-center gap-2">
-          Skills {scorePill}
+    <section className="card p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          onClick={() => setPhase("collapsed")}
+          className="flex items-center gap-2 min-w-0 flex-1 text-left group"
+        >
+          <ChevronUp className="w-3.5 h-3.5 text-muted shrink-0" />
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted group-hover:text-foreground transition-colors">Skills</h3>
           {editCount ? (
-            <span className="text-[10px] text-muted">({editCount} edit{editCount === 1 ? "" : "s"})</span>
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success/10 text-success border border-success/30">
+              {editCount} edited
+            </span>
           ) : null}
-        </h3>
+        </button>
         <div className="flex items-center gap-1.5">
           <button onClick={handleGenerate} className="btn-ghost text-xs inline-flex items-center gap-1" title="Regenerate from JD + tailored content">
             <Sparkles className="w-3.5 h-3.5" /> Generate
           </button>
-          <button onClick={() => setPhase("collapsed")} className="btn-ghost text-xs inline-flex items-center gap-1" title="Collapse">
-            <ChevronUp className="w-3.5 h-3.5" /> Collapse
-          </button>
+          {headerExtras}
         </div>
-      </header>
+      </div>
 
-      {currentSkills.length === 0 ? (
-        <p className="text-xs text-muted">No skills yet. Add a category below or click <b>Generate</b>.</p>
-      ) : (
-        currentSkills.map((cat, i) => (
-          <SkillCategoryEditor
-            key={`scat-${cat.category}-${i}`}
-            category={cat}
-            allCategories={currentSkills.map((c) => c.category)}
-            onEmit={onEmit}
-          />
-        ))
-      )}
+      <div className="space-y-2 mt-2">
+        <div className="mt-1 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[11px] flex items-start gap-2">
+          <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-semibold text-amber-900">Recommended Workflow:</span> For best results, generate your Skills <strong>after</strong> tailoring and accepting changes in other sections. The generator scans your accepted updates to capture and extract newly added technical keywords!
+          </div>
+        </div>
 
-      <AddCategoryRow onAdd={(name) => onEmit({
-        section: "Skills",
-        mode: "add_skill",
-        target_category: name,
-        is_new_category: true,
-        // Empty placeholder skill so the category is created in the store —
-        // we immediately remove it. This is a tiny hack: applySkillsMode's
-        // add_skill ignores empty skills, so instead we add a sentinel then
-        // remove. Simpler path: emit a single add_skill with a sentinel
-        // "(add a skill)" placeholder the user can rename right away.
-        skill: "(add a skill)",
-        reasoning: "User created new skill category",
-      })} />
+        {currentSkills.length === 0 ? (
+          <p className="text-xs text-muted">No skills yet. Add a category below or click <b>Generate</b>.</p>
+        ) : (
+          currentSkills.map((cat, i) => (
+            <SkillCategoryEditor
+              key={`scat-${cat.category}-${i}`}
+              category={cat}
+              allCategories={currentSkills.map((c) => c.category)}
+              onEmit={onEmit}
+            />
+          ))
+        )}
 
-      {regenError && <p className="text-xs text-danger">{regenError}</p>}
+        <AddCategoryRow onAdd={(name) => onEmit({
+          section: "Skills",
+          mode: "add_skill",
+          target_category: name,
+          is_new_category: true,
+          // Empty placeholder skill so the category is created in the store —
+          // we immediately remove it. This is a tiny hack: applySkillsMode's
+          // add_skill ignores empty skills, so instead we add a sentinel then
+          // remove. Simpler path: emit a single add_skill with a sentinel
+          // "(add a skill)" placeholder the user can rename right away.
+          skill: "(add a skill)",
+          reasoning: "User created new skill category",
+        })} />
+
+        {regenError && <p className="text-xs text-danger">{regenError}</p>}
+      </div>
     </section>
   );
 }

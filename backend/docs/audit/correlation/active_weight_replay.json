@@ -1,0 +1,21 @@
+{
+  "weights_active": {
+    "w_kw": 0.4,
+    "w_skill": 0.2,
+    "w_ngram": 0.05,
+    "w_edu": 0.1,
+    "w_sen": 0.15,
+    "w_cos": 0.1
+  },
+  "weights_active_calibrated_at": "2026-05-19T09:59:57.490385+00:00",
+  "weights_active_reported_spearman": 0.3052,
+  "snapshot_n_joined": 136,
+  "spearman_active_on_snapshot": 0.3431,
+  "spearman_active_on_snapshot_ci": [
+    0.1873,
+    0.4689
+  ],
+  "spearman_active_no_cluster": 0.2231,
+  "spearman_equal_weights_baseline": 0.1773,
+  "dominant_resume_id": "5eac9e08-bbe2-4f14-8faf-75a3bf99a261"
+}

@@ -1,0 +1,15 @@
+{
+  "n_log_events": 607,
+  "n_unique_pairs_in_log": 137,
+  "n_labels_total": 136,
+  "n_labels_with_valid_value": 136,
+  "n_joined": 136,
+  "n_lost_to_missing_log": 0,
+  "joined_label_mix": {
+    "bad": 106,
+    "ok": 6,
+    "good": 24
+  },
+  "weights_active_n_rows": 132,
+  "weights_active_spearman": 0.3052
+}

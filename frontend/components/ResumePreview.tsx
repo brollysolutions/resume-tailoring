@@ -13,8 +13,10 @@ interface ResumePreviewProps {
   newProjects?: NewProject[];
   /** Tailored resume after accepted suggestions — used to attribute overflow to sections. */
   resume?: ResumeData | null;
-  onDownload?: (format: "pdf" | "docx") => void;
+  onDownload?: (format: "pdf" | "docx", layoutDensity?: string) => void;
   isDownloading?: "pdf" | "docx" | null;
+  /** Increments on every accepted edit to guarantee the preview re-fetches. */
+  previewKey?: number;
 }
 
 const BASE_WIDTH = 816;   // 8.5in @ 96dpi
@@ -33,11 +35,12 @@ const CHARS_PER_LINE = 95;
  * (816×1056); a transform stage handles zoom + pan. Mouse-wheel + Ctrl/⌘
  * zooms; drag pans. Toolbar exposes fit-width / fit-page / 100%.
  */
-export function ResumePreview({ resumeId, templateId = "modern", approvedSuggestions, newProjects, resume, onDownload, isDownloading }: ResumePreviewProps) {
+export function ResumePreview({ resumeId, templateId = "standard", approvedSuggestions, newProjects, resume, onDownload, isDownloading, previewKey }: ResumePreviewProps) {
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [html, setHtml] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [layoutDensity, setLayoutDensity] = useState<string>("auto");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -101,6 +104,7 @@ export function ResumePreview({ resumeId, templateId = "modern", approvedSuggest
           body: JSON.stringify({
             resume_id: resumeId,
             template_id: templateId,
+            layout_density: layoutDensity === "auto" ? undefined : layoutDensity,
             suggestions: approvedSuggestions.map((s) => ({
               id: s.id,
               section: s.section,
@@ -111,6 +115,7 @@ export function ResumePreview({ resumeId, templateId = "modern", approvedSuggest
               skill: s.skill,
               target_category: s.target_category,
               is_new_category: s.is_new_category,
+              new_skills: s.new_skills,
             })),
             ...(newProjects && newProjects.length > 0 ? { new_projects: newProjects } : {}),
           }),
@@ -130,33 +135,41 @@ export function ResumePreview({ resumeId, templateId = "modern", approvedSuggest
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [resumeId, templateId, approvedSuggestions, newProjects]);
+  }, [resumeId, templateId, layoutDensity, approvedSuggestions, newProjects, previewKey]);
 
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      const el = canvasRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      const factor = e.deltaY < 0 ? 1.1 : 0.9;
-      setZoom((prevZoom) => {
-        const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prevZoom * factor));
-        // Anchor zoom at cursor.
-        setPan((prevPan) => {
-          const ratio = next / prevZoom;
-          return {
-            x: mouseX - (mouseX - prevPan.x) * ratio,
-            y: mouseY - (mouseY - prevPan.y) * ratio,
-          };
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+
+    const onWheelNative = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const rect = el.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const factor = e.deltaY < 0 ? 1.1 : 0.9;
+        setZoom((prevZoom) => {
+          const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prevZoom * factor));
+          // Anchor zoom at cursor.
+          setPan((prevPan) => {
+            const ratio = next / prevZoom;
+            return {
+              x: mouseX - (mouseX - prevPan.x) * ratio,
+              y: mouseY - (mouseY - prevPan.y) * ratio,
+            };
+          });
+          return next;
         });
-        return next;
-      });
-    } else {
-      // Plain scroll → pan vertically.
-      setPan((prev) => ({ x: prev.x, y: prev.y - e.deltaY }));
-    }
+      } else {
+        // Plain scroll → pan vertically.
+        setPan((prev) => ({ x: prev.x, y: prev.y - e.deltaY }));
+      }
+    };
+
+    el.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheelNative);
+    };
   }, []);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -293,6 +306,18 @@ export function ResumePreview({ resumeId, templateId = "modern", approvedSuggest
           Preview
         </span>
         <div className="flex items-center gap-1">
+          <select
+            value={layoutDensity}
+            onChange={(e) => setLayoutDensity(e.target.value)}
+            className="text-[11px] h-7 px-2 py-1 mr-1 rounded border border-border bg-white text-muted hover:text-foreground transition-colors outline-none focus:ring-1 focus:ring-primary/20"
+            title="Adjust layout density to fit on one page"
+          >
+            <option value="auto">Density: Auto</option>
+            <option value="expanded">Expanded</option>
+            <option value="standard">Standard</option>
+            <option value="compact">Compact</option>
+            <option value="latex-tight">Tight</option>
+          </select>
           <button
             onClick={() => setZoomClamped(zoom * 0.9)}
             className="btn-ghost p-1.5"
@@ -330,7 +355,7 @@ export function ResumePreview({ resumeId, templateId = "modern", approvedSuggest
             <FileText className="w-3.5 h-3.5" />
           </button>
           {onDownload && (
-            <div className="relative">
+            <div className="relative ml-1">
               <button
                 onClick={() => setShowDownloadMenu((v) => !v)}
                 disabled={isDownloading != null}
@@ -350,14 +375,14 @@ export function ResumePreview({ resumeId, templateId = "modern", approvedSuggest
                   <div className="fixed inset-0 z-10" onClick={() => setShowDownloadMenu(false)} />
                   <div className="absolute right-0 top-full mt-1 z-20 w-32 card shadow-xl py-1">
                     <button
-                      onClick={() => { setShowDownloadMenu(false); onDownload("pdf"); }}
+                      onClick={() => { setShowDownloadMenu(false); onDownload("pdf", layoutDensity === "auto" ? undefined : layoutDensity); }}
                       disabled={isDownloading != null}
                       className="w-full text-left px-3 py-1.5 text-xs hover:bg-subtle transition-colors flex items-center gap-2"
                     >
                       <Download className="w-3 h-3" /> PDF
                     </button>
                     <button
-                      onClick={() => { setShowDownloadMenu(false); onDownload("docx"); }}
+                      onClick={() => { setShowDownloadMenu(false); onDownload("docx", layoutDensity === "auto" ? undefined : layoutDensity); }}
                       disabled={isDownloading != null}
                       className="w-full text-left px-3 py-1.5 text-xs hover:bg-subtle transition-colors flex items-center gap-2"
                     >
@@ -410,7 +435,6 @@ export function ResumePreview({ resumeId, templateId = "modern", approvedSuggest
       {/* Canvas */}
       <div
         ref={canvasRef}
-        onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -421,9 +445,12 @@ export function ResumePreview({ resumeId, templateId = "modern", approvedSuggest
           minHeight: "60vh",
         }}
       >
-        {isLoading && (
-          <div className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 text-[11px] text-muted bg-white/80 backdrop-blur px-2 py-1 rounded shadow-sm">
-            <Loader2 className="w-3 h-3 animate-spin" />
+        {isLoading && html && (
+          <div className="absolute top-3 right-3 z-10 inline-flex items-center gap-1.5 text-[11px] text-muted bg-white/80 backdrop-blur px-2.5 py-1 rounded-full shadow-sm">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+            </span>
             Updating preview…
           </div>
         )}
@@ -449,21 +476,66 @@ export function ResumePreview({ resumeId, templateId = "modern", approvedSuggest
               background: "white",
             }}
           >
-            <iframe
-              ref={iframeRef}
-              srcDoc={html}
-              title="Resume preview"
-              onLoad={onIframeLoad}
-              scrolling="no"
-              style={{
-                width: BASE_WIDTH,
-                height: pageHeight,
-                border: 0,
-                background: "white",
-                display: "block",
-                pointerEvents: "none",
-              }}
-            />
+            {!html ? (
+              <div className="w-full h-full p-16 space-y-8 animate-pulse bg-white select-none">
+                {/* Header */}
+                <div className="space-y-3 text-center">
+                  <div className="h-6 bg-muted/30 rounded w-1/3 mx-auto" />
+                  <div className="h-4 bg-muted/20 rounded w-1/2 mx-auto" />
+                  <div className="h-3.5 bg-muted/20 rounded w-3/4 mx-auto" />
+                </div>
+                <hr className="border-border/60" />
+                {/* Summary */}
+                <div className="space-y-3">
+                  <div className="h-4 bg-muted/25 rounded w-1/4" />
+                  <div className="space-y-2">
+                    <div className="h-3 bg-muted/15 rounded w-full" />
+                    <div className="h-3 bg-muted/15 rounded w-11/12" />
+                  </div>
+                </div>
+                {/* Experience */}
+                <div className="space-y-5">
+                  <div className="h-4 bg-muted/25 rounded w-1/4" />
+                  {[1, 2].map((i) => (
+                    <div key={i} className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="h-3.5 bg-muted/20 rounded w-1/3" />
+                        <div className="h-3 bg-muted/15 rounded w-1/6" />
+                      </div>
+                      <div className="space-y-2 pl-4">
+                        <div className="h-3 bg-muted/15 rounded w-11/12" />
+                        <div className="h-3 bg-muted/15 rounded w-full" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Skills */}
+                <div className="space-y-3">
+                  <div className="h-4 bg-muted/25 rounded w-1/4" />
+                  <div className="flex gap-2 flex-wrap">
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                      <div key={i} className="h-6 bg-muted/15 rounded w-16" />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <iframe
+                ref={iframeRef}
+                srcDoc={html}
+                title="Resume preview"
+                onLoad={onIframeLoad}
+                scrolling="no"
+                style={{
+                  width: BASE_WIDTH,
+                  height: pageHeight,
+                  border: 0,
+                  background: "white",
+                  display: "block",
+                  pointerEvents: "none",
+                }}
+              />
+            )}
             {/* Page boundary lines — one dashed red line per page break */}
             {Array.from({ length: Math.floor(pageHeight / BASE_HEIGHT) }, (_, i) => i + 1).map((page) => (
               <div

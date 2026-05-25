@@ -1,0 +1,29 @@
+{
+  "n_joined_snapshot": 136,
+  "active_rho_on_snapshot": 0.3431,
+  "defaults_rho_on_snapshot": 0.2265,
+  "equal_weight_baseline_rho": 0.1773,
+  "top_grid_on_snapshot_rho": 0.3103,
+  "top_grid_weights": {
+    "w_kw": 0.4,
+    "w_skill": 0.25,
+    "w_ngram": 0.05,
+    "w_edu": 0.1,
+    "w_sen": 0.0,
+    "w_cos": 0.2
+  },
+  "grid_status": "ok",
+  "grid_label_distribution": {
+    "bad": 106,
+    "ok": 6,
+    "good": 24
+  },
+  "defaults_used_for_baseline": {
+    "w_kw": 0.3,
+    "w_skill": 0.2,
+    "w_ngram": 0.1,
+    "w_edu": 0.05,
+    "w_sen": 0.1,
+    "w_cos": 0.25
+  }
+}

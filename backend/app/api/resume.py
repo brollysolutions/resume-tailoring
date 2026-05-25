@@ -7,7 +7,9 @@ import json
 import fitz
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional, List
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from pydantic import BaseModel
 
 from app.core.vector_db import get_embedding, init_qdrant
 from app.core.llm_helpers import generate_keywords
@@ -93,7 +95,7 @@ async def upload_resume(file: UploadFile = File(...)):
     async def safe_extract():
         try:
             return await extract_resume(raw_text)
-        except Exception as e:
+        except Exception:
             logger.exception("Resume extraction failed")
             from app.models.resume_schema import Resume
             return Resume(summary=raw_text[:1500])
@@ -152,6 +154,64 @@ async def upload_resume(file: UploadFile = File(...)):
     }
 
 
+class ScaffoldRequest(BaseModel):
+    template_id: Optional[str] = None
+
+
+@router.post("/scaffold")
+async def scaffold_resume(body: ScaffoldRequest):
+    """Create a Qdrant point seeded with a John Doe Resume so the user can
+    proceed through /job-search → /tailor without uploading a file."""
+    from app.core.sample_resume import build_sample_resume
+    from app.core.renderer import resume_to_plaintext
+
+    resume_id = str(uuid.uuid4())
+    resume_obj = build_sample_resume()
+    canonical_text = resume_to_plaintext(resume_obj)
+
+    try:
+        embedding = await get_embedding(canonical_text)
+    except Exception:
+        logger.exception("Embedding generation failed for scaffold")
+        embedding = None
+
+    if embedding is not None:
+        try:
+            q_client = init_qdrant("resumes")
+            from qdrant_client.http.models import PointStruct
+            q_client.upsert(
+                collection_name="resumes",
+                points=[
+                    PointStruct(
+                        id=resume_id,
+                        vector=embedding,
+                        payload={
+                            "text": canonical_text,
+                            "resume_json": resume_obj.model_dump_json(),
+                            "original_path": "",
+                            "file_ext": "",
+                            "original_filename": "sample_resume",
+                        },
+                    )
+                ],
+            )
+        except Exception:
+            logger.exception("Vector storage failed for scaffold")
+            raise HTTPException(status_code=500, detail="Failed to store scaffold resume.")
+    else:
+        raise HTTPException(status_code=500, detail="Failed to embed scaffold resume.")
+
+    _log_upload_event(resume_id)
+
+    keywords = ["Software Engineer", "Backend Engineer", "Full Stack Engineer"]
+    return {
+        "message": "Scaffold resume created.",
+        "resume_id": resume_id,
+        "keywords": keywords,
+        "template_id": body.template_id,
+    }
+
+
 @router.get("/{resume_id}/text")
 async def get_resume_text(resume_id: str):
     try:
@@ -186,10 +246,6 @@ async def get_resume_json(resume_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-from pydantic import BaseModel
-from typing import Optional, List
 
 
 class SectionsPatch(BaseModel):

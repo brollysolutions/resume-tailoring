@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        * { box-sizing: border-box; }
+        @page {
+            size: letter;
+            margin: 0;
+        }
+
+        body {
+            font-family: "Liberation Serif", "Times New Roman", "Nimbus Roman", "Tinos", serif;
+            font-size: {{ density.font_size_pt or 10.5 }}pt;
+            line-height: {{ density.line_height or 1.3 }};
+            margin: 0;
+            padding: {{ density.margin or '0.55in' }};
+            color: #000;
+            background: #fff;
+        }
+
+        h1 {
+            font-size: 18pt;
+            margin: 0 0 2pt 0;
+            color: #000;
+            text-align: center;
+            letter-spacing: 0.02em;
+        }
+
+        .contact-line {
+            font-size: 9.5pt;
+            margin-bottom: 6pt;
+            color: #000;
+            text-align: center;
+        }
+
+        h2 {
+            font-size: 11pt;
+            font-variant: small-caps;
+            letter-spacing: 0.04em;
+            margin: {{ density.section_gap_pt or 11 }}pt 0 3pt 0;
+            color: #000;
+            border-bottom: 1px solid #000;
+            padding-bottom: 1pt;
+        }
+
+        .entry { margin-bottom: {{ density.entry_gap_pt or 5 }}pt; }
+        .entry-header {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            line-height: 1.1;
+        }
+        .entry-subheader {
+            display: flex;
+            justify-content: space-between;
+            font-style: italic;
+            font-size: 0.95em;
+            margin-top: 1pt;
+        }
+
+        ul {
+            margin: 2pt 0;
+            padding-left: 1.2em;
+            list-style: none;
+        }
+        li { margin-bottom: 1pt; position: relative; padding-left: 0.2em; }
+        li::before {
+            content: "•";
+            position: absolute;
+            left: -0.9em;
+        }
+        li.no-bullet {
+            padding-left: 0;
+        }
+        li.no-bullet::before {
+            content: none;
+        }
+
+        .skill-line { margin: 0 0 2pt 0; }
+
+        @media print {
+            body { padding: {{ density.margin or '0.55in' }}; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>{{ resume.name }}</h1>
+        <div class="contact-line">
+            {% set c = resume.contact %}
+            {{ [c.phone, c.email, c.linkedin, c.github, c.location, c.website] | select | join('  |  ') }}
+        </div>
+    </header>
+
+    {% set hidden = resume.hidden_sections or [] %}
+    {% for sec in resume.section_order %}
+        {% if sec not in hidden %}
+
+            {% if sec == 'summary' and resume.summary %}
+                <section>
+                    <h2>Summary</h2>
+                    <p>{{ resume.summary }}</p>
+                </section>
+
+            {% elif sec == 'experience' and resume.experience %}
+                <section>
+                    <h2>Experience</h2>
+                    {% for e in resume.experience %}
+                        <div class="entry">
+                            <div class="entry-header">
+                                <span>{{ e.title }}</span>
+                                <span>{{ e.start_date or "" }}{% if e.start_date and e.end_date %} – {% endif %}{{ e.end_date or "" }}</span>
+                            </div>
+                            <div class="entry-subheader">
+                                <span>{{ e.company }}</span>
+                                <span>{{ e.location or "" }}</span>
+                            </div>
+                            <ul>
+                                {% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}
+                            </ul>
+                        </div>
+                    {% endfor %}
+                </section>
+
+            {% elif sec == 'projects' and resume.projects %}
+                <section>
+                    <h2>Projects</h2>
+                    {% for p in resume.projects %}
+                        <div class="entry">
+                            <div class="entry-header">
+                                <span>{{ p.name }}</span>
+                            </div>
+                            {% if p.tech or p.date %}
+                            <div class="entry-subheader">
+                                <span>{{ p.tech or "" }}</span>
+                                <span>{{ p.date or "" }}</span>
+                            </div>
+                            {% endif %}
+                            <ul>
+                                {% for b in p.bullets %}<li>{{ b }}</li>{% endfor %}
+                            </ul>
+                        </div>
+                    {% endfor %}
+                </section>
+
+            {% elif sec == 'education' and resume.education %}
+                <section>
+                    <h2>Education</h2>
+                    {% for ed in resume.education %}
+                        <div class="entry">
+                            <div class="entry-header">
+                                <span>{{ ed.institution }}</span>
+                                <span>{{ ed.location or "" }}</span>
+                            </div>
+                            <div class="entry-subheader">
+                                <span>{{ ed.degree or "" }}{% if ed.degree and ed.field %} in {% endif %}{{ ed.field or "" }}</span>
+                                <span>{{ ed.start_date or "" }}{% if ed.start_date and ed.end_date %} – {% endif %}{{ ed.end_date or "" }}{% if ed.gpa %} · GPA: {{ ed.gpa }}{% endif %}</span>
+                            </div>
+                            <ul>
+                                {% for d in ed.details %}
+                                    {% if ':' in d and d.index(':') < 30 %}
+                                        {% set parts = d.split(':', 1) %}
+                                        <li class="no-bullet"><strong>{{ parts[0] }}:</strong>{{ parts[1] }}</li>
+                                    {% else %}
+                                        <li>{{ d }}</li>
+                                    {% endif %}
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    {% endfor %}
+                </section>
+
+            {% elif sec == 'skills' and resume.skills %}
+                <section>
+                    <h2>Technical Skills</h2>
+                    {% for s in resume.skills %}
+                        <p class="skill-line"><strong>{{ s.category }}:</strong> {{ s.skills | join(', ') }}</p>
+                    {% endfor %}
+                </section>
+
+            {% elif sec == 'certifications' and resume.certifications %}
+                <section>
+                    <h2>Certifications</h2>
+                    <ul>
+                        {% for c in resume.certifications %}<li>{{ c }}</li>{% endfor %}
+                    </ul>
+                </section>
+
+            {% elif sec == 'publications' and resume.publications %}
+                <section>
+                    <h2>Publications</h2>
+                    {% for p in resume.publications %}
+                        <div class="entry">
+                            <div class="entry-header">
+                                <span>{{ p.title }}</span>
+                                <span>{{ p.year or "" }}</span>
+                            </div>
+                            {% if p.authors or p.venue or p.doi or p.url %}
+                                <div class="entry-subheader">
+                                    <span>{{ p.authors or "" }}{% if p.authors and p.venue %} · {% endif %}{{ p.venue or "" }}</span>
+                                    <span>{% if p.doi %}DOI: {{ p.doi }}{% elif p.url %}{{ p.url }}{% endif %}</span>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </section>
+
+            {% elif sec == 'awards' and resume.awards %}
+                <section>
+                    <h2>Honors &amp; Awards</h2>
+                    <ul>
+                        {% for a in resume.awards %}
+                            <li>
+                                <strong>{{ a.title }}</strong>{% if a.issuer %} — {{ a.issuer }}{% endif %}{% if a.date %} ({{ a.date }}){% endif %}
+                                {% if a.description %}<br>{{ a.description }}{% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </section>
+
+            {% elif sec == 'languages' and resume.languages %}
+                <section>
+                    <h2>Languages</h2>
+                    <p>{% for l in resume.languages %}{{ l.name }}{% if l.proficiency %} ({{ l.proficiency }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+                </section>
+
+            {% elif sec == 'volunteer' and resume.volunteer %}
+                <section>
+                    <h2>Volunteer Experience</h2>
+                    {% for v in resume.volunteer %}
+                        <div class="entry">
+                            <div class="entry-header">
+                                <span>{{ v.role }}{% if v.role and v.organization %} — {% endif %}{{ v.organization }}</span>
+                                <span>{{ v.start_date or "" }}{% if v.start_date and v.end_date %} – {% endif %}{{ v.end_date or "" }}</span>
+                            </div>
+                            {% if v.location %}<div class="entry-subheader"><span></span><span>{{ v.location }}</span></div>{% endif %}
+                            {% if v.bullets %}<ul>{% for b in v.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+                        </div>
+                    {% endfor %}
+                </section>
+
+            {% elif sec == 'patents' and resume.patents %}
+                <section>
+                    <h2>Patents</h2>
+                    <ul>
+                        {% for p in resume.patents %}
+                            <li><strong>{{ p.title }}</strong>{% if p.number %} — {{ p.number }}{% endif %}{% if p.status %} ({{ p.status }}){% endif %}{% if p.date %} · {{ p.date }}{% endif %}</li>
+                        {% endfor %}
+                    </ul>
+                </section>
+
+            {% elif sec == 'talks' and resume.talks %}
+                <section>
+                    <h2>Talks &amp; Presentations</h2>
+                    <ul>
+                        {% for t in resume.talks %}
+                            <li><strong>{{ t.title }}</strong>{% if t.venue %} — {{ t.venue }}{% endif %}{% if t.type %} ({{ t.type }}){% endif %}{% if t.date %} · {{ t.date }}{% endif %}</li>
+                        {% endfor %}
+                    </ul>
+                </section>
+
+            {% elif sec.startswith('extra:') %}
+                {% set title = sec[6:] %}
+                {% for extra in resume.extra_sections %}
+                    {% if extra.title == title %}
+                        <section>
+                            <h2>{{ extra.title }}</h2>
+                            {% for item in extra.items %}
+                                <div class="entry">
+                                    {% if item.header %}
+                                        <div class="entry-header">
+                                            <span>{{ item.header }}</span>
+                                            <span>{{ item.subheader }}</span>
+                                        </div>
+                                    {% endif %}
+                                    {% if item.text %}<p>{{ item.text }}</p>{% endif %}
+                                    {% if item.bullets %}
+                                        <ul>{% for b in item.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </section>
+                    {% endif %}
+                {% endfor %}
+
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+</body>
+</html>

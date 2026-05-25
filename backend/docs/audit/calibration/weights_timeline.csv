@@ -1,0 +1,5 @@
+snapshot,calibrated_at,source,n_rows,reported_spearman,w_kw,w_skill,w_ngram,w_edu,w_sen,w_cos
+weights_active.json,2026-05-19T09:59:57.490385+00:00,auto_calibrator,132,0.3052,0.4,0.2,0.05,0.1,0.15,0.1
+weights_2026-05-17T10-22-57.239574+00-00.json,2026-05-17T10:22:57.239574+00:00,auto_calibrator,121,0.2847,0.4,0.15,0.05,0.1,0.05,0.25
+weights_2026-05-17T14-20-11.007573+00-00.json,2026-05-17T14:20:11.007573+00:00,auto_calibrator,125,0.3332,0.4,0.15,0.05,0.1,0.05,0.25
+weights_2026-05-19T09-59-57.490385+00-00.json,2026-05-19T09:59:57.490385+00:00,auto_calibrator,132,0.3052,0.4,0.2,0.05,0.1,0.15,0.1

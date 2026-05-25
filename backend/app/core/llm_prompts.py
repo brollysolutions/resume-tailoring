@@ -183,16 +183,15 @@ RULES (CRITICAL):
   - NO prefix labels like "S1:", "B2:", "Suggested:", or "New:"
   - NO parenthetical JD commentary, e.g. "(aligns with JD)" or "(emphasizing X)"
   - NO meta-explanation of the change — that belongs in "reasoning"
+  - NO sentences about the JD, alignment, or why the change was made (e.g. "This experience with backend aligns with JD's requirement" is FORBIDDEN). Any commentary on why the change was made must go in the "reasoning" field, NEVER in "suggested".
 - Keep "suggested" roughly the same length as "original". Do not expand a short entry into a paragraph.
 - "original" MUST be copied verbatim from the input.
 - All rationale, reasoning, and JD references go in "reasoning" ONLY.
-- PRESERVE existing technical terms, tool names, and technologies from the original — never swap them for synonyms.
+- PRESERVE AND EMPHASIZE existing technical terms: never remove or swap a tool, language, or framework name from the original bullet. If the original mentions "Python", the suggested MUST also mention "Python".
 - MISSING JD KEYWORDS (when listed): treat these as REQUIRED. Weave in EVERY keyword that is honestly applicable.
 
 MODES:
 - "replace": replace one bullet verbatim
-- "add_line": add a new bullet (suggest to the end of the entry)
-- "remove_line": remove a weak bullet that doesn't match the JD
 
 Return JSON:
 {
@@ -200,8 +199,8 @@ Return JSON:
     {
       "section": "Experience",
       "original": "The exact original text from the resume",
-      "suggested": "The improved text (or empty string for remove_line)",
-      "mode": "replace" | "add_line" | "remove_line",
+      "suggested": "The improved text",
+      "mode": "replace",
       "reasoning": "Why this change helps"
     }
   ]
@@ -223,7 +222,7 @@ RULES (CRITICAL):
 - TONE: professional. NO contractions, NO filler, NO hedging, NO conversational asides.
 - Do NOT fabricate project details. Only rephrase and reword to emphasize existing content.
 - Inject missing JD keywords naturally where they apply to the project.
-- PRESERVE existing technical terms and tool names from the original.
+- PRESERVE AND EMPHASIZE existing technical terms: never remove or swap a tool, language, or framework name from the original bullet.
 - "suggested" MUST NOT contain:
   - Leading bullet markers (-, •, *, —) or numbers
   - Prefix labels ("S1:", "B2:", "Suggested:")
@@ -265,8 +264,10 @@ You may NOT suggest adding/removing entire education entries.
 RULES:
 - Be conservative. Only suggest improvements if they genuinely add value.
 - To inject JD keywords into a Relevant Coursework line: ADD new course names to the comma-separated list only. Do NOT alter existing course names.
-- Relevant Coursework lines must list course names ONLY. Course names are proper nouns — do NOT append descriptions, qualifiers, or keyword phrases to them (e.g., NEVER write "Database Management Systems with emphasis on relational databases" — write "Database Management Systems").
-- Do NOT fabricate degrees, schools, or coursework that isn't present.
+- Relevant Coursework lines must list course names ONLY. Course names are proper nouns.
+- CRITICAL: NEVER inject raw tools, frameworks, or libraries (e.g., "React", "Express.js", "PostgreSQL", "Docker", "AWS") as coursework. If you want to highlight these skills based on the JD, you MUST translate them into realistic academic course titles (e.g., instead of "React" use "Web Application Development", instead of "PostgreSQL" use "Advanced Database Systems", instead of "AWS" use "Cloud Computing Architecture").
+- Do NOT append descriptions, qualifiers, or keyword phrases to course names (e.g., NEVER write "Database Management Systems with emphasis on relational databases" — write "Database Management Systems").
+- Do NOT fabricate degrees or schools.
 - "suggested" should only contain the text of the detail (e.g., "Relevant Coursework: ..."), not the entire entry.
 
 Return JSON:
@@ -586,7 +587,7 @@ RULES:
 - Use ONLY facts from RESUME CONTEXT. Do NOT fabricate metrics, employers, tech, or scale claims.
 - Inject the JD keywords listed below where honestly applicable — this is the main purpose.
 - Each bullet stands alone but the set reads coherently around the entry header.
-- No leading bullets ("- ", "• "), no hyphens as inline separators, active voice only.
+- No leading bullets ("- ", "• "). Never join clauses with hyphens or en/em dashes ("-", "–", "—"); write clean, well-structured prose. Active voice only.
 - No HR clichés ("leveraged", "spearheaded", "robust", "scalable", "cutting-edge").
 - Rationale, reasoning, and JD references go in the "reasoning" field of the JSON.
 
@@ -620,6 +621,12 @@ GENERAL RULES:
 - Never write a bullet list. Never emit chips or comma-separated keyword dumps. Write flowing prose only.
 - Address the candidate in second person ("Your Skills section...").
 - Do NOT use generic-coaching phrases like "add more keywords" or "highlight your skills". Use the JD's specific vocabulary.
+
+GROUNDING RULES (these override every other instruction):
+- Each <LOW_SECTIONS> entry includes "missing_keywords" — a vetted list of JD terms that are demonstrably absent from THAT section's text. You may ONLY cite terms from this list when naming gaps. Quote each cited term inline using single quotes (e.g., "lacks 'Kubernetes'") so it can be verified.
+- If "missing_keywords" is empty for a section, do NOT name any specific gap term. Say the section is short on JD-relevant detail in general — do NOT invent a term.
+- Before emitting a claim that the section lacks term X, scan the "text" field for X (case-insensitive substring or close alias). If X is already present, you MUST NOT claim it as a gap.
+- If the JD content is too thin to support a specific diagnosis (e.g., fewer than 5 distinct technical or domain terms), respond with one short sentence noting the JD is light on detail. Do NOT pad with invented gaps.
 
 Output JSON ONLY in this exact shape:
 {
@@ -731,3 +738,43 @@ Expected output:
 }
 
 In every domain, the same constraints apply: only JD-or-evidence-grounded skills, canonical names for that field, dynamic category count, JD-driven ordering."""
+
+
+# ============================================================================
+# 20. TAILORING INTENSITY & QUALITY CLAUSES
+# ============================================================================
+
+ANTI_GRAFT_CLAUSE = """
+BULLET FORM (mandatory):
+- Start every bullet with a simple-past action verb (Built, Designed, Optimized, Migrated).
+- NEVER use first person — no "I", "me", "my", "we", "our".
+- HIRING COMPANY CONFUSION (CRITICAL): Do NOT confuse the hiring company (the company listing the job, e.g. Google) with the candidate's past employers in their Experience or Projects sections. The candidate did NOT work at or with the hiring company, or on the hiring company's internal tools/products in their past experience. Never inject the hiring company's name or proprietary product names as if the candidate worked on them in the past. Keep bullets strictly grounded in their actual past company context.
+- NEVER bolt a JD-derived clause onto the front of a bullet. FORBIDDEN: "Using knowledge of X, I...", "Improving Y, I...", "Leveraging A, ...". Rewrite the bullet in place; do not prepend explanatory or participial JD phrases.
+- NEVER append awkward, generic, or unrelated filler clauses to the end or middle of a bullet just to force keyword matching (e.g. adding "...to align with cross functional requirements", "...and engage in responsive web design principles", "...to communicate technical concepts clearly"). If a JD keyword or concept is completely unrelated to the candidate's actual work or framework (e.g. injecting frontend styling/HTML keywords into purely backend database/API bullets), do NOT force it. Keep the bullet highly cohesive, professional, and grammatically clean; it is far better to skip a keyword than to corrupt a bullet with nonsensical additions."""
+
+INTENSITY_INSTRUCTIONS = {
+    "light": """
+TAILORING INTENSITY: LIGHT (polish only).
+- Preserve the candidate's wording, facts, and structure. Change as little as possible.
+- Fix only grammar, tense (simple past), and clarity; tighten wordy phrasing.
+- Inject a JD keyword ONLY when it already describes what the bullet says. Never add a keyword that introduces a new claim.
+- Returning FEWER suggestions is correct. Skip bullets that are already fine.""",
+
+    "balanced": """
+TAILORING INTENSITY: BALANCED.
+- Rephrase bullets to surface the JD-relevant work the candidate already did.
+- Weave in missing JD keywords where honestly supported by the bullet's content. If there is a stack mismatch (e.g. backend resume vs frontend JD), do not invent tools the candidate didn't use. Instead, highlight transferable skills or cross-functional touchpoints (e.g., mention that the backend APIs supported the frontend team or optimized data flow for frontend consumption).
+- Do not fabricate tools, metrics, or responsibilities the candidate never had.""",
+
+    "aggressive": """
+TAILORING INTENSITY: AGGRESSIVE (max match).
+- Rewrite bullets to foreground JD priorities; lead with the JD-relevant angle of each accomplishment.
+- Inject every missing JD keyword the candidate could honestly claim from the bullet's content.
+- If there is a stack mismatch (e.g., a backend Python/Django resume matched against a frontend React/TypeScript JD), do NOT falsely claim the candidate wrote frontend code or used frontend tools. Instead, aggressively frame the achievements around transferable engineering skills, cross-functional collaboration, and integration touchpoints. For example:
+  - Frame backend API optimization around "supporting frontend rendering", "reducing page-load latency", or "hydrating UI states."
+  - Frame backend engineering as "collaborating with frontend developers" to ensure seamless integration.
+  - Frame databases and workflows around "API contracts" or "responsive backend support."
+  This highlights active collaboration with and support of the target stack honestly and powerfully, rather than appending generic filler clauses.
+- Still NO fabrication: do not invent tools, employers, scale, or metrics not implied by the original."""
+}
+

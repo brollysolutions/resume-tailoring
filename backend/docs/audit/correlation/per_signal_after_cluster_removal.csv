@@ -1,0 +1,7 @@
+signal,spearman,ci_low,ci_high,kendall_tau,point_biserial_good_vs_bad,n,excluded_resume_id
+kw_raw,0.385,0.215,0.54,0.487,0.408,108,5eac9e08-bbe2-4f14-8faf-75a3bf99a261
+skill_raw,0.172,-0.003,0.339,0.217,0.171,108,5eac9e08-bbe2-4f14-8faf-75a3bf99a261
+ngram_raw,-0.284,-0.512,-0.062,-0.541,-0.294,108,5eac9e08-bbe2-4f14-8faf-75a3bf99a261
+edu_raw,0.158,0.008,0.267,0.636,0.118,108,5eac9e08-bbe2-4f14-8faf-75a3bf99a261
+seniority_raw,0.0,0.0,0.0,0.0,0.0,108,5eac9e08-bbe2-4f14-8faf-75a3bf99a261
+cosine_blended,-0.097,-0.298,0.095,-0.175,-0.101,108,5eac9e08-bbe2-4f14-8faf-75a3bf99a261

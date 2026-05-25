@@ -37,6 +37,8 @@ _SCORE_LOG = _DATA / "score_log.jsonl"
 BAD_LABEL_DELAY_HOURS = 2
 FAST_CLICK_SEC = 120  # < 2min = strong "good" signal
 SESSION_WINDOW_MIN = 30  # group matches within 30min as one session
+QUICK_ABANDON_MIN = 20   # low-score + no tailor after this → "bad" without waiting 2h
+LOW_SCORE_THRESHOLD = 40 # final_score below this is clearly bad
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -102,7 +104,7 @@ def derive_labels() -> dict:
             "new_labels": 0,
             "skipped_existing": 0,
             "skipped_too_recent": 0,
-            "by_signal": {"tailor_clicked": 0, "no_tailor_2h": 0, "ceiling_hit": 0, "session_pairwise": 0},
+            "by_signal": {"tailor_clicked": 0, "no_tailor_2h": 0, "ceiling_hit": 0, "session_pairwise": 0, "quick_abandon": 0},
         }
 
     # Build indices from events
@@ -141,7 +143,7 @@ def derive_labels() -> dict:
     # Generate labels: first pass — individual signals
     labels_to_write: dict[tuple[str, str], dict] = {}  # (rid, jdh) → label_dict
     now = datetime.now(timezone.utc)
-    signal_counts = {"tailor_clicked": 0, "no_tailor_2h": 0, "ceiling_hit": 0, "session_pairwise": 0}
+    signal_counts = {"tailor_clicked": 0, "no_tailor_2h": 0, "ceiling_hit": 0, "session_pairwise": 0, "quick_abandon": 0}
 
     for row in score_log:
         rid = row.get("resume_id") or ""
@@ -191,6 +193,29 @@ def derive_labels() -> dict:
             }
             signal_counts["tailor_clicked"] += 1
             continue
+
+        # Signal 2a: Quick abandon — low score, no tailor, short wait
+        # Closes selection-bias gap: users who see a bad score and leave
+        # without tailoring are invisible until 2h passes. At score < 40
+        # the signal is clear enough to label after only 20 min.
+        if key not in suggestions_ts:
+            try:
+                final_score = float(row.get("final_score") or 0)
+                score_ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                age_min = (now - score_ts).total_seconds() / 60
+                if final_score < LOW_SCORE_THRESHOLD and age_min > QUICK_ABANDON_MIN:
+                    labels_to_write[key] = {
+                        "resume_id": rid,
+                        "jd_hash": jdh,
+                        "label": "bad",
+                        "source": "implicit",
+                        "signal": "quick_abandon",
+                        "final_score": final_score,
+                    }
+                    signal_counts["quick_abandon"] += 1
+                    continue
+            except (ValueError, AttributeError):
+                pass
 
         # Signal 2: No-tailor, old enough
         try:

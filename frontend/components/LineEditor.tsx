@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pencil, Trash2, Plus, Sparkles, Loader2, Check, X } from "lucide-react";
+import { Pencil, Trash2, Plus, Check, X, Wand2 } from "lucide-react";
 
 export interface LineEditorProps {
   /** Section name used by the suggestion pipeline (Experience, Projects, Education, Certifications, Summary). */
@@ -19,14 +19,14 @@ export interface LineEditorProps {
   /** Set true to render an "edited" accent — this line is the result of an accepted suggestion. */
   wasEdited?: boolean;
   badge?: React.ReactNode;
-  /** Async fetcher for the chat-line endpoint. Returns rewritten text. */
-  onAiChat: (instruction: string) => Promise<string>;
   /** Commit an edit — `newText` may equal `text` (no-op). */
   onEdit: (newText: string) => void;
   /** Remove this line. */
   onDelete: () => void;
   /** Insert a new empty line after this one. Receives the new line's text after the user types it. */
-  onAddBelow: (newText: string) => void;
+  onAddBelow?: (newText: string) => void;
+  /** Open the Copilot chat focused on this line ("what do you want to change?"). */
+  onCopilot?: () => void;
 }
 
 export function LineEditor({
@@ -38,21 +38,16 @@ export function LineEditor({
   hideDelete,
   wasEdited,
   badge,
-  onAiChat,
   onEdit,
   onDelete,
   onAddBelow,
+  onCopilot,
 }: LineEditorProps) {
-  const [mode, setMode] = useState<"view" | "edit" | "ai" | "ai-pending" | "ai-result" | "add-new">("view");
+  const [mode, setMode] = useState<"view" | "edit" | "add-new">("view");
   const [draft, setDraft] = useState(text);
-  const [instruction, setInstruction] = useState("");
-  const [aiResult, setAiResult] = useState("");
-  const [aiError, setAiError] = useState<string | null>(null);
   const [newDraft, setNewDraft] = useState("");
   const editRef = useRef<HTMLTextAreaElement>(null);
-  const instructionRef = useRef<HTMLTextAreaElement>(null);
   const addRef = useRef<HTMLTextAreaElement>(null);
-  const lastInstructionRef = useRef("");
 
   // Keep local draft in sync if parent text changes (e.g. AI suggestion accepted elsewhere).
   useEffect(() => {
@@ -77,43 +72,6 @@ export function LineEditor({
     setMode("view");
   };
 
-  const enterAi = () => {
-    setInstruction("");
-    setAiResult("");
-    setAiError(null);
-    setMode("ai");
-    setTimeout(() => instructionRef.current?.focus(), 0);
-  };
-
-  const submitAi = async (retry = false) => {
-    const prompt = retry ? lastInstructionRef.current : instruction.trim();
-    if (!prompt) return;
-    lastInstructionRef.current = prompt;
-    setMode("ai-pending");
-    setAiError(null);
-    try {
-      const rewritten = await onAiChat(prompt);
-      setAiResult(rewritten);
-      setMode("ai-result");
-    } catch (e: unknown) {
-      setAiError(e instanceof Error ? e.message : "AI request failed.");
-      setMode("ai");
-    }
-  };
-
-  const applyAi = () => {
-    if (aiResult && aiResult.trim() !== text.trim()) {
-      onEdit(aiResult.trim());
-    }
-    setMode("view");
-  };
-
-  const discardAi = () => {
-    setAiResult("");
-    setInstruction("");
-    setMode("view");
-  };
-
   const enterAdd = () => {
     setNewDraft("");
     setMode("add-new");
@@ -121,7 +79,7 @@ export function LineEditor({
   };
 
   const commitAdd = () => {
-    if (newDraft.trim()) {
+    if (newDraft.trim() && onAddBelow) {
       onAddBelow(newDraft.trim());
     }
     setNewDraft("");
@@ -175,19 +133,21 @@ export function LineEditor({
           {badge}
           {mode === "view" && (
             <>
+              {onCopilot && (
+                <button
+                  onClick={onCopilot}
+                  title="Ask Copilot to change this line"
+                  className="p-1 rounded hover:bg-primary/10 text-primary"
+                >
+                  <Wand2 className="w-3 h-3" />
+                </button>
+              )}
               <button
                 onClick={enterEdit}
                 title="Edit"
                 className="p-1 rounded hover:bg-subtle text-muted hover:text-foreground"
               >
                 <Pencil className="w-3 h-3" />
-              </button>
-              <button
-                onClick={enterAi}
-                title="AI chat — improve this line"
-                className="p-1 rounded hover:bg-primary/10 text-primary"
-              >
-                <Sparkles className="w-3 h-3" />
               </button>
               {!hideDelete && (
                 <button
@@ -212,75 +172,6 @@ export function LineEditor({
         </div>
       </div>
 
-      {/* AI chat panel */}
-      {(mode === "ai" || mode === "ai-pending" || mode === "ai-result") && (
-        <div className="mt-1.5 ml-5 mr-1 border border-primary/30 bg-primary/5 rounded p-2 space-y-1.5">
-          {mode === "ai" && (
-            <>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">
-                AI chat — improve this {section.toLowerCase()} line
-              </p>
-              <textarea
-                ref={instructionRef}
-                value={instruction}
-                onChange={(e) => setInstruction(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") { e.preventDefault(); discardAi(); }
-                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitAi(false); }
-                }}
-                rows={2}
-                placeholder="e.g. 'add a throughput metric and mention the auth flow'"
-                className="w-full bg-white border border-border rounded px-2 py-1 text-xs resize-none focus:outline-none focus:border-primary"
-              />
-              {aiError && <p className="text-[11px] text-danger">{aiError}</p>}
-              <div className="flex items-center justify-end gap-2">
-                <button onClick={discardAi} className="text-[11px] text-muted hover:text-foreground">
-                  Cancel
-                </button>
-                <button
-                  onClick={() => submitAi(false)}
-                  disabled={!instruction.trim()}
-                  className="btn-primary py-1 px-2.5 text-[11px] disabled:opacity-40"
-                >
-                  Ask
-                </button>
-              </div>
-            </>
-          )}
-          {mode === "ai-pending" && (
-            <div className="flex items-center gap-2 text-[11px] text-muted py-1">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Rewriting line with the resume + JD as context…
-            </div>
-          )}
-          {mode === "ai-result" && (
-            <>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">
-                AI rewrite
-              </p>
-              <p className="text-xs leading-relaxed bg-white border border-border rounded px-2 py-1.5">
-                {aiResult}
-              </p>
-              <div className="flex items-center justify-between gap-2">
-                <button
-                  onClick={() => submitAi(true)}
-                  className="text-[11px] text-muted hover:text-foreground inline-flex items-center gap-1"
-                >
-                  <Loader2 className="w-3 h-3" /> Try again
-                </button>
-                <div className="flex items-center gap-2">
-                  <button onClick={discardAi} className="btn-ghost py-1 px-2.5 text-[11px]">
-                    <X className="w-3 h-3" /> Discard
-                  </button>
-                  <button onClick={applyAi} className="btn-primary py-1 px-2.5 text-[11px]">
-                    <Check className="w-3 h-3" /> Apply
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
 
       {/* Add-new line input */}
       {mode === "add-new" && (

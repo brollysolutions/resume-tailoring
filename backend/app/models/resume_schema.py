@@ -17,16 +17,24 @@ class ContactInfo(BaseModel):
     github: Optional[str] = None
     website: Optional[str] = None
 
+    @field_validator("email", "phone", "location", "linkedin", "github", "website", mode="before")
+    @classmethod
+    def _strip_nulls(cls, v): return _coerce_optional_str(v)
+
+
+import re
 
 def _coerce_str_list(v: Any) -> Any:
     """Pre-validation coercion for List[str] fields. The LLM occasionally
     returns null, a single string, or a list containing null/empty values —
-    normalize to a clean list of non-empty stripped strings."""
+    normalize to a clean list of non-empty stripped strings.
+    Also strips leading bullet characters (- , * , • , —) to prevent double bullets."""
     if v is None:
         return []
     if isinstance(v, str):
-        # Single string where a list was expected — wrap it.
         v = v.strip()
+        # Strip leading bullet chars
+        v = re.sub(r"^[•\-\*—]\s*", "", v)
         return [v] if v else []
     if not isinstance(v, list):
         return v
@@ -37,6 +45,8 @@ def _coerce_str_list(v: Any) -> Any:
         if not isinstance(s, str):
             s = str(s)
         s = s.strip()
+        # Strip leading bullet chars
+        s = re.sub(r"^[•\-\*—]\s*", "", s)
         if s:
             cleaned.append(s)
     return cleaned
@@ -52,15 +62,23 @@ def _coerce_obj_list(v: Any) -> Any:
     return v
 
 
+_NULL_SENTINEL_STRINGS = {"", "null", "none", "n/a", "na", "undefined", "nan"}
+
+
 def _coerce_optional_str(v: Any) -> Any:
-    """If the LLM returns a list/dict where a string is expected, coerce it."""
+    """If the LLM returns a list/dict where a string is expected, coerce it.
+    Also collapse literal null-sentinel strings ("null", "None", "N/A", "") → None
+    so downstream templates don't render them as text."""
     if v is None:
         return None
     if isinstance(v, list):
-        return " ".join(str(x) for x in v if x)
-    if not isinstance(v, str):
-        return str(v)
-    return v
+        v = " ".join(str(x) for x in v if x)
+    elif not isinstance(v, str):
+        v = str(v)
+    stripped = v.strip()
+    if stripped.lower() in _NULL_SENTINEL_STRINGS:
+        return None
+    return stripped
 
 
 class ExperienceEntry(BaseModel):
@@ -74,6 +92,10 @@ class ExperienceEntry(BaseModel):
     @field_validator("title", "company", mode="before")
     @classmethod
     def normalize_str_fields(cls, v): return _coerce_optional_str(v) or ""
+
+    @field_validator("location", "start_date", "end_date", mode="before")
+    @classmethod
+    def _strip_nulls(cls, v): return _coerce_optional_str(v)
 
     @field_validator("bullets", mode="before")
     @classmethod
@@ -94,6 +116,10 @@ class EducationEntry(BaseModel):
     @classmethod
     def normalize_institution(cls, v): return _coerce_optional_str(v) or ""
 
+    @field_validator("degree", "field", "location", "start_date", "end_date", "gpa", mode="before")
+    @classmethod
+    def _strip_nulls(cls, v): return _coerce_optional_str(v)
+
     @field_validator("details", mode="before")
     @classmethod
     def normalize_details(cls, v): return _coerce_str_list(v)
@@ -102,6 +128,7 @@ class EducationEntry(BaseModel):
 class ProjectEntry(BaseModel):
     name: str = ""
     tech: Optional[str] = None
+    date: Optional[str] = None
     bullets: List[str] = Field(default_factory=list)
 
     @field_validator("name", mode="before")
@@ -112,8 +139,12 @@ class ProjectEntry(BaseModel):
     @classmethod
     def normalize_tech(cls, v):
         if isinstance(v, list):
-            return ", ".join(str(x) for x in v if x)
-        return v
+            v = ", ".join(str(x) for x in v if x)
+        return _coerce_optional_str(v)
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def _strip_date_null(cls, v): return _coerce_optional_str(v)
 
     @field_validator("bullets", mode="before")
     @classmethod
@@ -126,7 +157,9 @@ class SkillCategory(BaseModel):
 
     @field_validator("category", mode="before")
     @classmethod
-    def normalize_category(cls, v): return _coerce_optional_str(v) or ""
+    def normalize_category(cls, v):
+        s = _coerce_optional_str(v) or ""
+        return s.rstrip(": ").rstrip()
 
     @field_validator("skills", mode="before")
     @classmethod

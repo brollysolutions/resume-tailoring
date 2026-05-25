@@ -19,10 +19,11 @@ from __future__ import annotations
 import json as _json
 import hashlib as _hashlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _replace
 from datetime import datetime as _datetime, timezone as _timezone
 from pathlib import Path as _Path
 from typing import Optional
+from app.models.resume_schema import Resume
 
 from app.core.keyword_utils import (
     parse_jd_required_preferred,
@@ -30,7 +31,7 @@ from app.core.keyword_utils import (
     extract_resume_ngrams,
 )
 from app.core.skill_taxonomy import domain_alignment_score
-from app.core.weights_store import get_weights
+from app.core.weights_store import get_weights, Weights
 from .nlp_utils import keyword_coverage, extract_skills
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,12 @@ logger = logging.getLogger(__name__)
 # Degree hierarchy for education fit scoring
 # ---------------------------------------------------------------------------
 _DEGREE_LEVEL = {"associate": 1, "bachelor": 2, "master": 3, "phd": 4}
+
+# R5: section weights for section-weighted cosine (replaces whole-doc cosine).
+# Must match section names in section_scorer._SECTIONS.
+_SECTION_COS_WEIGHTS: dict[str, float] = {
+    "Skills": 0.40, "Experience": 0.35, "Projects": 0.20, "Summary": 0.05,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +62,8 @@ class ScoreInputs:
     section_cosine: Optional[float] = None       # per-block max cosine (pre-remap)
     exp_section_cosine: Optional[float] = None   # experience section vs JD (pre-remap)
     resume_id: Optional[str] = None
+    section_cosines: Optional[dict] = None       # R5: {section: raw_cosine} pre-remap
+    resume_obj: Optional[Resume] = None          # Optional pre-parsed Resume object to avoid redundant validation
 
 
 @dataclass
@@ -66,11 +75,15 @@ class RawSignals:
     domain_align: float
     skill: float        # 0.6 * skill_cov + 0.4 * domain_align
     ngram: float
+    ngram_active: bool  # False when JD has no _NGRAM_SKILLS phrases (R4)
     edu: float
     seniority: float
     whole_doc_cos: float
     exp_cos: float
-    cosine: float       # blended cosine signal (post-remap)
+    cosine: float                              # primary cosine signal (post-remap)
+    section_weighted_cos_raw: Optional[float]  # R5: pre-remap section-weighted avg (None = fallback)
+    raw_whole_doc_cos: float
+    raw_exp_cos: Optional[float]
     final_score: int
 
 
@@ -139,17 +152,22 @@ def _skill_signal(resume_json: dict, jd_text: str) -> tuple[float, float, float]
     return taxonomy_cov, domain_align, blended
 
 
-def _ngram_signal(jd_text: str, resume_text: str) -> float:
-    """Fraction of multi-word JD skills found in resume. 1.0 when JD has none."""
+def _ngram_signal(jd_text: str, resume_text: str) -> tuple[float, bool]:
+    """(coverage, active). Fraction of multi-word JD skills found in resume.
+
+    active=False when the JD contains no _NGRAM_SKILLS phrases. Callers must
+    redistribute w_ngram into another weight rather than rewarding the row
+    with a sentinel 1.0 (R4 — see findings_summary.md).
+    """
     jd_ngrams = extract_jd_ngrams(jd_text)
     if not jd_ngrams:
-        return 1.0
+        return 0.0, False
     resume_ngrams = extract_resume_ngrams(resume_text)
     matched = jd_ngrams & resume_ngrams
-    return len(matched) / len(jd_ngrams)
+    return len(matched) / len(jd_ngrams), True
 
 
-def _edu_signal(resume_json: dict, jd_text: str) -> float:
+def _edu_signal(resume_json: dict, jd_text: str, resume_obj: Optional[Resume] = None) -> float:
     """[0, 1] education fit. 1.0 when JD states no degree requirement."""
     from app.api.match_logic.ceiling_detector import parse_jd_hard_requirements, resume_has_degree
     from app.models.resume_schema import Resume
@@ -159,10 +177,11 @@ def _edu_signal(resume_json: dict, jd_text: str) -> float:
     if not required:
         return 1.0
 
-    try:
-        resume_obj = Resume.model_validate(resume_json)
-    except Exception:
-        return 0.7
+    if resume_obj is None:
+        try:
+            resume_obj = Resume.model_validate(resume_json)
+        except Exception:
+            return 0.7
 
     if resume_has_degree(resume_obj, required):
         return 1.0
@@ -182,95 +201,155 @@ def _edu_signal(resume_json: dict, jd_text: str) -> float:
     return max(0.3, 1.0 - gap * 0.25)
 
 
-def _seniority_signal(resume_json: dict, jd_text: str) -> float:
-    """[0, 1] seniority fit. 1.0 when JD states no years requirement.
+def _seniority_signal(resume_json: dict, jd_text: str, resume_obj: Optional[Resume] = None) -> float:
+    """[0, 1] seniority fit. 1.0 when JD states no requirements.
 
-    Uses ceiling_detector.estimate_years_experience() which correctly merges
-    overlapping experience spans (handles concurrent roles).
+    Blends years-of-experience and seniority title matching.
     """
-    from app.api.match_logic.ceiling_detector import parse_jd_hard_requirements, estimate_years_experience
+    from app.api.match_logic.ceiling_detector import (
+        parse_jd_hard_requirements,
+        estimate_years_experience,
+        infer_seniority,
+        _SENIORITY_ORDER,
+    )
     from app.models.resume_schema import Resume
 
     hard_reqs = parse_jd_hard_requirements(jd_text)
     jd_years = hard_reqs.get("min_years_experience")
-    if not jd_years:
+    jd_level = hard_reqs.get("seniority_level")
+
+    if not jd_years and not jd_level:
         return 1.0
 
-    try:
-        resume_obj = Resume.model_validate(resume_json)
-        resume_yrs = estimate_years_experience(resume_obj)
-    except Exception:
-        return 0.7
+    if resume_obj is None:
+        try:
+            resume_obj = Resume.model_validate(resume_json)
+        except Exception:
+            return 0.7
 
-    if resume_yrs is None:
+    scores = []
+
+    # Years-of-experience signal
+    if jd_years:
+        resume_yrs = estimate_years_experience(resume_obj)
+        if resume_yrs is not None:
+            scores.append(min(1.0, resume_yrs / jd_years))
+        else:
+            scores.append(0.5)  # neutral-low if years expected but none parsed
+
+    # Seniority title signal
+    if jd_level in _SENIORITY_ORDER:
+        candidate_level = infer_seniority(resume_obj)
+        req_idx = _SENIORITY_ORDER.index(jd_level)
+        candidate_idx = _SENIORITY_ORDER.index(candidate_level) if candidate_level in _SENIORITY_ORDER else 1  # default to mid
+        
+        # Calculate title penalty only when falling short
+        gap = max(0, req_idx - candidate_idx)
+        title_score = max(0.0, min(1.0, 1.0 - gap * 0.25))
+        scores.append(title_score)
+
+    if not scores:
         return 0.7
-    return min(1.0, resume_yrs / jd_years)
+    return sum(scores) / len(scores)
 
 
 def _cosine_signal(
     inputs: ScoreInputs,
     p_low: float,
     p_high: float,
-) -> tuple[float, float, float]:
-    """(whole_doc_cos, exp_cos, blended). All values post-remap [0, 1]."""
+) -> tuple[float, float, float, Optional[float], float, Optional[float]]:
+    """(whole_doc_cos, exp_cos, blended, section_weighted_raw, raw_whole_doc_cos, raw_exp_cos).
+
+    All cosines post-remap [0, 1] for first 3.
+    """
     remap_span = max(p_high - p_low, 1e-6)
 
+    # whole_doc preserved for logging backward compat
     whole_doc = 0.0
+    raw_whole_doc = 0.0
     if inputs.resume_embedding and inputs.jd_embedding:
         try:
-            raw = _cosine_similarity(inputs.resume_embedding, inputs.jd_embedding)
-            whole_doc = max(0.0, min(1.0, (raw - p_low) / remap_span))
+            raw_whole_doc = _cosine_similarity(inputs.resume_embedding, inputs.jd_embedding)
+            whole_doc = max(0.0, min(1.0, (raw_whole_doc - p_low) / remap_span))
         except Exception as e:
             logger.warning("Whole-doc cosine failed: %s", e)
 
-    # Section max cosine (per-block, kept for backward compat)
-    section_cos = 0.0
-    if inputs.section_cosine is not None:
-        section_cos = max(0.0, min(1.0, (inputs.section_cosine - p_low) / remap_span))
-
-    # Experience section cosine
+    # Experience cosine (kept for logging)
     exp_cos_remapped = 0.0
-    if inputs.exp_section_cosine is not None:
-        exp_cos_remapped = max(0.0, min(1.0, (inputs.exp_section_cosine - p_low) / remap_span))
+    raw_exp_cos = inputs.exp_section_cosine
+    if raw_exp_cos is not None:
+        exp_cos_remapped = max(0.0, min(1.0, (raw_exp_cos - p_low) / remap_span))
 
-    # Blend: prefer exp_section_cosine over section_max when available
-    if inputs.exp_section_cosine is not None and inputs.resume_embedding:
+    # R5: section-weighted cosine as primary signal
+    section_weighted_raw: Optional[float] = None
+    if inputs.section_cosines:
+        total_w = sum(
+            w for s, w in _SECTION_COS_WEIGHTS.items() if s in inputs.section_cosines
+        )
+        if total_w > 0:
+            section_weighted_raw = sum(
+                inputs.section_cosines[s] * w
+                for s, w in _SECTION_COS_WEIGHTS.items()
+                if s in inputs.section_cosines
+            ) / total_w
+
+    if section_weighted_raw is not None:
+        blended = max(0.0, min(1.0, (section_weighted_raw - p_low) / remap_span))
+    elif inputs.exp_section_cosine is not None and inputs.resume_embedding:
         blended = 0.5 * whole_doc + 0.5 * exp_cos_remapped
     elif inputs.section_cosine is not None and inputs.resume_embedding:
+        section_cos = max(0.0, min(1.0, (inputs.section_cosine - p_low) / remap_span))
         blended = 0.5 * whole_doc + 0.5 * section_cos
     elif inputs.exp_section_cosine is not None:
         blended = exp_cos_remapped
     elif inputs.section_cosine is not None:
-        blended = section_cos
+        blended = max(0.0, min(1.0, (inputs.section_cosine - p_low) / remap_span))
     else:
         blended = whole_doc
 
-    return whole_doc, exp_cos_remapped, blended
+    return whole_doc, exp_cos_remapped, blended, section_weighted_raw, raw_whole_doc, raw_exp_cos
 
 
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
-def compute_signals(inputs: ScoreInputs) -> RawSignals:
-    """Compute all 6 raw signals. Pure (no I/O, no side effects)."""
-    weights = get_weights()
+def compute_signals(inputs: ScoreInputs, weights: Optional[Weights] = None) -> RawSignals:
+    """Compute all 6 raw signals. Pure (no I/O, no side effects).
+
+    Accepts an optional weights override so per-section scoring can use a
+    different blend than the global calibrated weights.
+    """
+    if weights is None:
+        weights = get_weights()
 
     req_kw, pref_kw, kw = _kw_signal(inputs.jd_text, inputs.resume_text)
     skill_cov, domain_align, skill = _skill_signal(inputs.resume_json, inputs.jd_text)
-    ngram = _ngram_signal(inputs.jd_text, inputs.resume_text)
-    edu = _edu_signal(inputs.resume_json, inputs.jd_text)
-    seniority = _seniority_signal(inputs.resume_json, inputs.jd_text)
-    whole_doc_cos, exp_cos, cosine = _cosine_signal(inputs, weights.p_low, weights.p_high)
+    ngram, ngram_active = _ngram_signal(inputs.jd_text, inputs.resume_text)
+    edu = _edu_signal(inputs.resume_json, inputs.jd_text, inputs.resume_obj)
+    seniority = _seniority_signal(inputs.resume_json, inputs.jd_text, inputs.resume_obj)
+    whole_doc_cos, exp_cos, cosine, section_weighted_raw, raw_whole_doc_cos, raw_exp_cos = _cosine_signal(inputs, weights.p_low, weights.p_high)
 
-    raw = (
-        kw * weights.w_kw
-        + skill * weights.w_skill
-        + ngram * weights.w_ngram
-        + edu * weights.w_edu
-        + seniority * weights.w_sen
-        + cosine * weights.w_cos
-    )
+    if ngram_active:
+        raw = (
+            kw * weights.w_kw
+            + skill * weights.w_skill
+            + ngram * weights.w_ngram
+            + edu * weights.w_edu
+            + seniority * weights.w_sen
+            + cosine * weights.w_cos
+        )
+    else:
+        # R4: JD has no n-gram phrases — redistribute w_ngram into w_kw so the
+        # row isn't penalized for an unavailable signal AND isn't falsely
+        # boosted by the prior 1.0 sentinel.
+        raw = (
+            kw * (weights.w_kw + weights.w_ngram)
+            + skill * weights.w_skill
+            + edu * weights.w_edu
+            + seniority * weights.w_sen
+            + cosine * weights.w_cos
+        )
     final_score = int(round(max(0.0, min(1.0, raw)) * 100))
 
     return RawSignals(
@@ -281,11 +360,15 @@ def compute_signals(inputs: ScoreInputs) -> RawSignals:
         domain_align=domain_align,
         skill=skill,
         ngram=ngram,
+        ngram_active=ngram_active,
         edu=edu,
         seniority=seniority,
         whole_doc_cos=whole_doc_cos,
         exp_cos=exp_cos,
         cosine=cosine,
+        section_weighted_cos_raw=section_weighted_raw,
+        raw_whole_doc_cos=raw_whole_doc_cos,
+        raw_exp_cos=raw_exp_cos,
         final_score=final_score,
     )
 
@@ -303,12 +386,32 @@ def score_resume_against_jd(
     section_cosine: Optional[float] = None,
     exp_section_cosine: Optional[float] = None,
     resume_id: Optional[str] = None,
+    weights_override: Optional[dict] = None,
+    log_event: bool = True,
+    ceiling: Optional[dict] = None,
+    hard_reqs: Optional[dict] = None,
+    section_cosines: Optional[dict] = None,
+    resume_obj: Optional[Resume] = None,
 ) -> dict:
-    """Score a resume against a JD. Returns score + breakdown dict.
+    """Score a resume against a JD. Returns score + breakdown + feature_contributions.
 
     Backward-compatible signature — callers that only pass the first 3 args
     still work; new callers can pass exp_section_cosine for a richer signal.
+
+    weights_override: dict with any subset of w_kw/w_skill/w_ngram/w_edu/w_sen/w_cos
+        to override the active calibrated weights (used by per-section scoring).
+    log_event: when False, skip writing to score_log.jsonl (use for per-section
+        scoring so calibration is not polluted by partial-text events).
     """
+    weights = get_weights()
+    if weights_override:
+        overrides = {
+            k: float(v) for k, v in weights_override.items()
+            if k in ("w_kw", "w_skill", "w_ngram", "w_edu", "w_sen", "w_cos")
+        }
+        if overrides:
+            weights = _replace(weights, **overrides)
+
     inputs = ScoreInputs(
         resume_text=resume_text,
         resume_json=resume_json,
@@ -318,9 +421,12 @@ def score_resume_against_jd(
         section_cosine=section_cosine,
         exp_section_cosine=exp_section_cosine,
         resume_id=resume_id,
+        section_cosines=section_cosines,
+        resume_obj=resume_obj,
     )
-    signals = compute_signals(inputs)
-    _log_score_event(signals, resume_id, jd_text)
+    signals = compute_signals(inputs, weights)
+    if log_event:
+        _log_score_event(signals, resume_id, jd_text, ceiling=ceiling, hard_reqs=hard_reqs)
 
     return {
         "score": signals.final_score,
@@ -333,6 +439,27 @@ def score_resume_against_jd(
             "education": int(round(signals.edu * 100)),
             "seniority": int(round(signals.seniority * 100)),
         },
+        # Per-feature raw contributions (0-100). Useful for showing users
+        # *why* a section scored low (e.g., "kw=32, cosine=58, ngram=15").
+        "feature_contributions": {
+            "keyword": int(round(signals.kw * 100)),
+            "skill": int(round(signals.skill * 100)),
+            "ngram": int(round(signals.ngram * 100)),
+            "edu": int(round(signals.edu * 100)),
+            "seniority": int(round(signals.seniority * 100)),
+            "cosine": int(round(signals.cosine * 100)),
+        },
+        "weights_used": {
+            "w_kw": weights.w_kw,
+            "w_skill": weights.w_skill,
+            "w_ngram": weights.w_ngram,
+            "w_edu": weights.w_edu,
+            "w_sen": weights.w_sen,
+            "w_cos": weights.w_cos,
+        },
+        # R4: surface for section_scorer logging so per-section events can
+        # record ngram_active alongside ngram_coverage.
+        "ngram_active": signals.ngram_active,
     }
 
 
@@ -343,11 +470,25 @@ def score_resume_against_jd(
 _SCORE_LOG_PATH = _Path(__file__).resolve().parents[3] / "data" / "score_log.jsonl"
 
 
-def _log_score_event(signals: RawSignals, resume_id: Optional[str], jd_text: str) -> None:
+def _log_score_event(
+    signals: RawSignals,
+    resume_id: Optional[str],
+    jd_text: str,
+    ceiling: Optional[dict] = None,
+    hard_reqs: Optional[dict] = None,
+) -> None:
     """Best-effort append to score_log.jsonl. Never raises."""
     try:
         _SCORE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         excerpt = (jd_text or "")[:240].replace("\n", " ").strip()
+        c = ceiling or {}
+        hr = hard_reqs or {}
+        
+        # Log active calibration anchors at the time of matching
+        weights = get_weights()
+        p_low = weights.p_low
+        p_high = weights.p_high
+
         event = {
             "ts": _datetime.now(_timezone.utc).isoformat(),
             "resume_id": resume_id,
@@ -360,16 +501,37 @@ def _log_score_event(signals: RawSignals, resume_id: Optional[str], jd_text: str
             # Skill signals
             "skill_raw": round(signals.skill_cov, 4),
             "domain_raw": round(signals.domain_align, 4),
-            # N-gram signal
-            "ngram_raw": round(signals.ngram, 4),
+            # N-gram signal. R4 deprecation path: ngram_raw keeps the legacy
+            # 1.0-sentinel-when-inactive semantic so audit scripts (s2/s3/s4/s5/
+            # s7/s8/s9) keep producing identical numbers; ngram_coverage carries
+            # the corrected 0.0-when-inactive value; ngram_active gates which
+            # rows actually have a measurable signal.
+            "ngram_raw": round(1.0 if not signals.ngram_active else signals.ngram, 4),
+            "ngram_coverage": round(signals.ngram, 4),
+            "ngram_active": signals.ngram_active,
             # Education and seniority
             "edu_raw": round(signals.edu, 4),
             "seniority_raw": round(signals.seniority, 4),
-            # Cosine signals
-            "whole_doc_cos_raw": round(signals.whole_doc_cos, 4),
-            "exp_cos_raw": round(signals.exp_cos, 4),
+            # Cosine signals: write true raw whole-doc/exp values
+            "whole_doc_cos_raw": round(signals.raw_whole_doc_cos, 4),
+            "exp_cos_raw": round(signals.raw_exp_cos, 4) if signals.raw_exp_cos is not None else None,
             "cosine_blended": round(signals.cosine, 4),
+            "section_weighted_cos_raw": round(signals.section_weighted_cos_raw, 4) if signals.section_weighted_cos_raw is not None else None,
             "final_score": signals.final_score,
+            # Calibration anchors active at runtime
+            "p_low": round(p_low, 4),
+            "p_high": round(p_high, 4),
+            # Ceiling outcome (R2). Null when ceiling not computed (legacy
+            # callers, per-section log path).
+            "ceiling_score": c.get("score"),
+            "ceiling_reasons": c.get("reasons") or [],
+            "exp_required": c.get("exp_required"),
+            "exp_actual": c.get("exp_actual"),
+            # Raw JD hard-requirement extraction (R2). Lets audits avoid
+            # re-running parse_jd_hard_requirements on the truncated excerpt.
+            "extracted_min_years": hr.get("min_years_experience"),
+            "extracted_degrees": hr.get("required_degrees") or [],
+            "extracted_seniority": hr.get("seniority_level"),
         }
         with _SCORE_LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(_json.dumps(event) + "\n")
@@ -381,54 +543,109 @@ def _log_score_event(signals: RawSignals, resume_id: Optional[str], jd_text: str
 # Legacy diagnostic (kept for UI compatibility)
 # ---------------------------------------------------------------------------
 
-def diagnose_score(breakdown: dict, section_scores: dict, ceiling: dict) -> dict:
-    """Classify why a score is stuck and suggest a remedy."""
-    bm25 = breakdown.get("bm25", 0) / 100.0
-    semantic = breakdown.get("semantic", 0) / 100.0
-    skill_coverage = breakdown.get("skill_coverage", 0) / 100.0
+def diagnose_score(score: int, breakdown: dict, section_scores: dict, ceiling: dict) -> dict:
+    """Classify why a score is low or stuck and suggest a highly specific, actionable remedy."""
+    import re
 
-    w = get_weights()
-    score = int(round(
-        (bm25 * w.w_kw + skill_coverage * w.w_skill + semantic * w.w_cos
-         + 1.0 * w.w_ngram + 1.0 * w.w_edu + 1.0 * w.w_sen) * 100
-    ))
+    # 1. High match / good matches
+    if score >= 85:
+        return {
+            "code": "excellent",
+            "headline": "Outstanding Match!",
+            "detail": "Your resume is exceptionally well-aligned with this job description across experience, skills, and background."
+        }
+    elif score >= 75:
+        return {
+            "code": "good",
+            "headline": "Strong Match with High Potential",
+            "detail": "You have a very solid profile for this role. A few minor tweaks to your keywords or experience descriptions can push it even higher."
+        }
 
-    if score >= 75:
-        return {"code": "good", "headline": "", "detail": ""}
-
+    # 2. Extract ceiling reasons
+    reasons = ceiling.get("reasons") or []
+    
+    # Check Years of Experience gap
     exp_required = ceiling.get("exp_required")
     exp_actual = ceiling.get("exp_actual")
     if (
-        isinstance(exp_required, int) and exp_required > 0
+        isinstance(exp_required, (int, float)) and exp_required > 0
         and exp_actual is not None
         and exp_actual + 0.5 < exp_required
     ):
         return {
-            "code": "experience_gap_years",
-            "headline": f"This role requires {exp_required}+ years of experience",
+            "code": "experience_gap",
+            "headline": f"Experience Gap: JD requires {exp_required}+ years",
             "detail": (
-                f"Your resume shows ~{exp_actual:g} years. "
-                "Tailoring keywords and showcasing relevant projects "
-                "can still improve your score significantly."
-            ),
+                f"Your resume shows ~{exp_actual:g} years of experience. This experience gap is placing a ceiling on your match score. "
+                "Highlight transferable skills, intensive projects, or relevant training to offset this gap."
+            )
         }
 
-    if semantic < 0.55 and bm25 < 0.55:
+    # Check Seniority Mismatch
+    for r in reasons:
+        if r.startswith("targets "):
+            target_level = "Senior"
+            resume_level = "Mid"
+            m = re.search(r"targets ([a-z]+) level(?: \(resume reads ([a-z]+)\))?", r)
+            if m:
+                target_level = m.group(1).capitalize()
+                if m.group(2):
+                    resume_level = m.group(2).capitalize()
+                else:
+                    resume_level = "Junior/Mid"
+            return {
+                "code": "seniority_title_gap",
+                "headline": f"Seniority Mismatch: JD targets {target_level} level",
+                "detail": (
+                    f"Your resume's most recent job title is inferred at the {resume_level} level, which falls short of the target. "
+                    "Adjust your job titles or emphasize leadership, mentorship, and architecture responsibilities to align with this level."
+                )
+            }
+
+    # Check Required Degree Gap
+    for r in reasons:
+        if r.startswith("requires ") and "degree" in r:
+            degree_str = r.replace("requires ", "").replace(" degree", "")
+            degree_display = degree_str.capitalize()
+            return {
+                "code": "degree_gap",
+                "headline": f"Education Mismatch: Missing {degree_display} Degree",
+                "detail": (
+                    f"The job description specifies a required {degree_str} degree that isn't explicitly detected on your resume. "
+                    "If you have this degree or equivalent, make sure it is clearly listed in your Education section."
+                )
+            }
+
+    # 3. Soft deficits (Skills, Keywords, Semantics)
+    bm25 = breakdown.get("bm25", 0)
+    skill_coverage = breakdown.get("skill_coverage", 0)
+    semantic = breakdown.get("semantic", 0)
+
+    # Sort soft deficits to find the absolute lowest scoring area
+    soft_deficits = [
+        ("low_keywords", bm25, "Low Keyword Overlap", 
+         f"Your resume is missing several core keywords from the job description (keyword match is at {bm25}%). Use the 'Tailor' tab to accept suggestions and inject these missing terms seamlessly."),
+        ("low_skills", skill_coverage, "Skill Taxonomy Gap", 
+         f"Your profile lacks key technical or domain-specific skills required for this role (skill coverage is at {skill_coverage}%). Adding these specific skills to your Skills section will significantly improve alignment."),
+        ("low_semantic", semantic, "Low Semantic Alignment", 
+         f"The phrasing and overall focus of your experience descriptions don't closely align with the JD's theme (semantic match is at {semantic}%). Re-writing experience bullets to focus on the JD's primary outcomes will boost this.")
+    ]
+
+    lowest_deficit = min(soft_deficits, key=lambda x: x[1])
+    if lowest_deficit[1] < 60:
         return {
-            "code": "low_coverage",
-            "headline": "Low match — your resume needs more JD-relevant keywords",
-            "detail": (
-                "Your resume doesn't yet cover the key terms this role looks for. "
-                "Use the Tailor tab to accept suggestions and generate projects — "
-                "each accepted change directly moves your match score."
-            ),
+            "code": lowest_deficit[0],
+            "headline": lowest_deficit[2],
+            "detail": lowest_deficit[3]
         }
 
+    # 4. Fallback / General low score
     return {
-        "code": "low_coverage",
-        "headline": f"Score is {score}% — tailoring can push it higher",
+        "code": "low_general",
+        "headline": "General Tailoring Recommended",
         "detail": (
-            "Some JD keywords are missing from your resume. "
-            "Accept more suggestions or add relevant skills to improve coverage."
-        ),
+            f"Your current match score is {score}%. While you have a solid foundation, general tailoring of your resume "
+            "to match the job description will elevate your standing. Review the suggestions in the Tailor tab to begin."
+        )
     }
+

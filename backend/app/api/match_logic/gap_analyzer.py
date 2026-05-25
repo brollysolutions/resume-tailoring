@@ -51,12 +51,21 @@ def compute_gap_analysis(resume_obj, resume_text: str, jd_text: str, section_sco
         score = section_scores.get(section)
         if score is None or score >= 65:
             continue
+        
+        # Extract top 3 missing keywords for specific, helpful feedback
+        missing_terms = section_gaps.get(section, [])[:3]
+        term_hint = ""
+        if missing_terms:
+            joined_terms = ", ".join(f"'{t}'" for t in missing_terms)
+            term_hint = f" such as {joined_terms}"
+
         if score < 40:
-            reason = "Low keyword density — add more JD-relevant content to this section"
+            reason = f"Low keyword density — try adding more relevant terms{term_hint} to this section."
         elif score < 55:
-            reason = "Partial match — keywords present but lacking context and depth"
+            reason = f"Partial match — keywords present but lacking context. Strengthen mentions of relevant terms{term_hint}."
         else:
-            reason = "Close — a few more keyword mentions would push this section above threshold"
+            reason = f"Close — a few more mentions of relevant terms{term_hint} would push this section above threshold."
+            
         low_sections.append({
             "section": section,
             "score": score,

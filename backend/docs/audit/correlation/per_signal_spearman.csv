@@ -1,0 +1,7 @@
+signal,spearman,ci_low,ci_high,kendall_tau,point_biserial_good_vs_bad,n
+kw_raw,0.445,0.298,0.576,0.611,0.465,136
+skill_raw,0.311,0.175,0.441,0.418,0.294,136
+ngram_raw,-0.325,-0.51,-0.12,-0.642,-0.33,136
+edu_raw,0.152,0.023,0.24,0.664,0.123,136
+seniority_raw,0.0,0.0,0.0,0.0,0.0,136
+cosine_blended,-0.015,-0.199,0.176,-0.033,-0.087,136

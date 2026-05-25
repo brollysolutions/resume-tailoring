@@ -1,0 +1,42 @@
+{
+  "n_events_total": 607,
+  "buckets_by_final_score_step5": {
+    "5": 12,
+    "10": 3,
+    "15": 3,
+    "20": 22,
+    "25": 29,
+    "30": 14,
+    "35": 54,
+    "40": 141,
+    "45": 112,
+    "50": 48,
+    "55": 60,
+    "60": 38,
+    "65": 32,
+    "70": 14,
+    "75": 8,
+    "80": 11,
+    "85": 3,
+    "90": 3
+  },
+  "floor_buckets": {
+    "36-41": 132,
+    "42-50": 177,
+    "<=35": 89,
+    "51-65": 151,
+    ">65": 58
+  },
+  "n_jd_unique": 26,
+  "n_jd_with_extracted_year": 0,
+  "n_jd_with_extracted_degree": 0,
+  "n_jd_with_extracted_seniority": 10,
+  "extraction_combos_top10": {
+    "yrs=? / deg=? / sen=?": 16,
+    "yrs=? / deg=? / sen=mid": 3,
+    "yrs=? / deg=? / sen=lead": 3,
+    "yrs=? / deg=? / sen=senior": 2,
+    "yrs=? / deg=? / sen=junior": 2
+  },
+  "n_anomalies_high_cosine_zero_kw": 185
+}

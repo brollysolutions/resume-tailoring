@@ -1,0 +1,13 @@
+{
+  "dominant_resume_id": "5eac9e08-bbe2-4f14-8faf-75a3bf99a261",
+  "dominant_n_joined": 28,
+  "dominant_label_mix": {
+    "bad": 28
+  },
+  "dominant_share_of_joined": 0.206,
+  "spearman_all": 0.3431,
+  "spearman_without_dominant": 0.2231,
+  "spearman_delta": 0.12,
+  "n_joined_all": 136,
+  "n_joined_no_cluster": 108
+}

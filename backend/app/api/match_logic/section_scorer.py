@@ -1,16 +1,41 @@
 """
 Per-section scoring: Match each resume section separately against JD.
 
+Each section uses its own weight blend (calibrated if available, hand-tuned
+defaults otherwise) since the global 6-feature formula produces noise floors
+when applied to short isolated section text (e.g., seniority defaulting to 0.7
+for a Skills section that has no dates).
+
 Returns breakdown by Summary, Experience, Projects, Skills for granular feedback.
+Also logs per-section raw signals to section_score_log.jsonl so per-section
+weights can be calibrated offline.
 """
 
 import asyncio
+import hashlib
+import json
 import logging
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 _SECTIONS = ("Summary", "Experience", "Projects", "Skills")
+
+# Hand-tuned fallback per-section weights. Each section emphasizes the features
+# that actually apply to its content. Sums to 1.0 per section.
+# Override via weights_active.json.section_weights once calibration produces
+# better numbers (see tune_section_weights.py).
+DEFAULT_SECTION_WEIGHTS: dict[str, dict[str, float]] = {
+    "summary":    {"w_kw": 0.40, "w_skill": 0.10, "w_ngram": 0.00, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.50},
+    "experience": {"w_kw": 0.35, "w_skill": 0.15, "w_ngram": 0.15, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.35},
+    "projects":   {"w_kw": 0.35, "w_skill": 0.15, "w_ngram": 0.15, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.35},
+    "skills":     {"w_kw": 0.40, "w_skill": 0.55, "w_ngram": 0.00, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.05},
+}
+
+_BACKEND = Path(__file__).resolve().parents[3]
+_SECTION_LOG_PATH = _BACKEND / "data" / "section_score_log.jsonl"
 
 
 def _section_text(resume, section: str) -> str:
@@ -51,20 +76,75 @@ def _section_text(resume, section: str) -> str:
     return "\n".join(filter(None, lines))
 
 
+def _resolve_section_weights(section_name: str) -> dict:
+    """Look up calibrated weights for this section, fall back to defaults."""
+    from app.core.weights_store import get_section_weights
+    sw = get_section_weights(section_name)
+    if sw and all(k in sw for k in ("w_kw", "w_skill", "w_ngram", "w_edu", "w_sen", "w_cos")):
+        return {k: float(sw[k]) for k in ("w_kw", "w_skill", "w_ngram", "w_edu", "w_sen", "w_cos")}
+    return dict(DEFAULT_SECTION_WEIGHTS[section_name.lower()])
+
+
+def _log_section_event(
+    resume_id: Optional[str],
+    jd_text: str,
+    section_name: str,
+    result: dict,
+) -> None:
+    """Append per-section raw signals to section_score_log.jsonl.
+
+    Best-effort: never raises. Used by tune_section_weights.py offline calibrator.
+    """
+    if not resume_id:
+        return
+    try:
+        _SECTION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        bd = result.get("breakdown") or {}
+        fc = result.get("feature_contributions") or {}
+        # R4: ngram_active travels via the result dict. Default True for any
+        # legacy caller that doesn't set it (preserves pre-R4 behavior).
+        ngram_active = bool(result.get("ngram_active", True))
+        ngram_cov = fc.get("ngram", 0) / 100.0
+        event = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "resume_id": resume_id,
+            "jd_hash": hashlib.sha256(jd_text.encode("utf-8", errors="ignore")).hexdigest()[:16],
+            "section": section_name.lower(),
+            # Raw signal contributions (0-100 ints) — same shape per section so
+            # tune_section_weights can grid-search uniformly.
+            "kw_raw": fc.get("keyword", 0) / 100.0,
+            "skill_raw": (bd.get("skill_coverage", 0)) / 100.0,
+            # Legacy 1.0-sentinel-when-inactive (R4 back-compat).
+            "ngram_raw": (1.0 if not ngram_active else ngram_cov),
+            "ngram_coverage": ngram_cov,
+            "ngram_active": ngram_active,
+            "edu_raw": fc.get("edu", 100) / 100.0,
+            "seniority_raw": fc.get("seniority", 70) / 100.0,
+            "cosine_blended": fc.get("cosine", 0) / 100.0,
+            "section_score": result.get("score", 0),
+        }
+        with _SECTION_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event) + "\n")
+    except Exception as e:
+        logger.debug("section_score_log write failed: %s", e)
+
+
 async def compute_section_scores(
     resume,
     resume_json: dict,
     jd_text: str,
     jd_embedding: Optional[list[float]] = None,
+    resume_id: Optional[str] = None,
 ) -> dict:
-    """Score each non-empty resume section against JD independently.
+    """Score each non-empty resume section against JD independently using
+    per-section weight presets (calibrated or hand-tuned defaults).
 
     Returns:
         {
-            "Summary": int or None,
-            "Experience": int or None,
-            "Projects": int or None,
-            "Skills": int or None
+            "Summary": {"score": int, "features": {...}, "weights_used": {...}} | None,
+            "Experience": ...,
+            "Projects": ...,
+            "Skills": ...,
         }
     """
     from .hybrid_scorer import score_resume_against_jd
@@ -98,16 +178,36 @@ async def compute_section_scores(
     out: dict = {s: None for s in _SECTIONS}
 
     for section, text in non_empty:
-        section_json = {}
         if section == "Skills":
             section_json = {"skills": resume_json.get("skills", [])}
+        elif section == "Experience":
+            section_json = {"experience": resume_json.get("experience", [])}
+        elif section == "Projects":
+            section_json = {"projects": resume_json.get("projects", [])}
+        elif section == "Summary":
+            section_json = {"summary": resume_json.get("summary", "")}
+        else:
+            section_json = {}
+
+        weights_override = _resolve_section_weights(section)
 
         result = score_resume_against_jd(
             text, section_json, jd_text,
             resume_embedding=section_embeddings.get(section),
             jd_embedding=jd_embedding,
+            weights_override=weights_override,
+            log_event=False,  # per-section uses section_score_log instead
+            resume_id=resume_id,
+            resume_obj=None,
         )
-        out[section] = result["score"]
+
+        _log_section_event(resume_id, jd_text, section, result)
+
+        out[section] = {
+            "score": result["score"],
+            "features": result.get("feature_contributions", {}),
+            "weights_used": result.get("weights_used", {}),
+        }
 
     return out
 
@@ -136,3 +236,31 @@ async def compute_experience_cosine(
     except Exception as e:
         logger.warning("compute_experience_cosine failed: %s", e)
         return None
+
+
+async def compute_section_cosines(
+    resume_obj,
+    jd_embedding: Optional[list[float]],
+    get_embedding_fn,
+) -> dict:
+    """Raw pre-remap cosines per section (R5 section-weighted cosine).
+
+    Returns {section: cosine} only for sections with non-empty text.
+    Caller passes this dict to score_resume_against_jd which computes
+    the weighted average using _SECTION_COS_WEIGHTS in hybrid_scorer.
+    """
+    if not jd_embedding:
+        return {}
+    result: dict = {}
+    for section in _SECTIONS:
+        text = _section_text(resume_obj, section)
+        if not text.strip():
+            continue
+        try:
+            emb = await get_embedding_fn(text)
+            if emb:
+                from app.api.match_logic.hybrid_scorer import _cosine_similarity
+                result[section] = _cosine_similarity(emb, jd_embedding)
+        except Exception as e:
+            logger.warning("compute_section_cosines %s failed: %s", section, e)
+    return result

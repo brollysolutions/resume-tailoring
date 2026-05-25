@@ -1,0 +1,206 @@
+{
+  "summary": {
+    "status": "insufficient_data",
+    "n_rows": 0,
+    "best": null,
+    "top5": []
+  },
+  "experience": {
+    "status": "weak_signal",
+    "n_rows": 28,
+    "best": {
+      "w_kw": 0.35,
+      "w_skill": 0.1,
+      "w_ngram": 0.2,
+      "w_edu": 0.0,
+      "w_sen": 0.1,
+      "w_cos": 0.25,
+      "spearman": 0.1642,
+      "kendall_tau": 0.152
+    },
+    "top5": [
+      {
+        "w_kw": 0.35,
+        "w_skill": 0.1,
+        "w_ngram": 0.2,
+        "w_edu": 0.0,
+        "w_sen": 0.1,
+        "w_cos": 0.25,
+        "spearman": 0.1642,
+        "kendall_tau": 0.152
+      },
+      {
+        "w_kw": 0.25,
+        "w_skill": 0.1,
+        "w_ngram": 0.2,
+        "w_edu": 0.0,
+        "w_sen": 0.1,
+        "w_cos": 0.35,
+        "spearman": 0.1451,
+        "kendall_tau": 0.144
+      },
+      {
+        "w_kw": 0.35,
+        "w_skill": 0.1,
+        "w_ngram": 0.2,
+        "w_edu": 0.0,
+        "w_sen": 0.05,
+        "w_cos": 0.3,
+        "spearman": 0.1442,
+        "kendall_tau": 0.1325
+      },
+      {
+        "w_kw": 0.35,
+        "w_skill": 0.15,
+        "w_ngram": 0.2,
+        "w_edu": 0.0,
+        "w_sen": 0.1,
+        "w_cos": 0.2,
+        "spearman": 0.1413,
+        "kendall_tau": 0.128
+      },
+      {
+        "w_kw": 0.3,
+        "w_skill": 0.1,
+        "w_ngram": 0.2,
+        "w_edu": 0.0,
+        "w_sen": 0.1,
+        "w_cos": 0.3,
+        "spearman": 0.1403,
+        "kendall_tau": 0.1371
+      }
+    ]
+  },
+  "projects": {
+    "status": "ok",
+    "n_rows": 28,
+    "best": {
+      "w_kw": 0.4,
+      "w_skill": 0.2,
+      "w_ngram": 0.05,
+      "w_edu": 0.0,
+      "w_sen": 0.05,
+      "w_cos": 0.3,
+      "spearman": 0.3383,
+      "kendall_tau": 0.3306
+    },
+    "top5": [
+      {
+        "w_kw": 0.4,
+        "w_skill": 0.2,
+        "w_ngram": 0.05,
+        "w_edu": 0.0,
+        "w_sen": 0.05,
+        "w_cos": 0.3,
+        "spearman": 0.3383,
+        "kendall_tau": 0.3306
+      },
+      {
+        "w_kw": 0.4,
+        "w_skill": 0.2,
+        "w_ngram": 0.05,
+        "w_edu": 0.0,
+        "w_sen": 0.0,
+        "w_cos": 0.35,
+        "spearman": 0.3271,
+        "kendall_tau": 0.3306
+      },
+      {
+        "w_kw": 0.35,
+        "w_skill": 0.2,
+        "w_ngram": 0.1,
+        "w_edu": 0.0,
+        "w_sen": 0.05,
+        "w_cos": 0.3,
+        "spearman": 0.3236,
+        "kendall_tau": 0.3387
+      },
+      {
+        "w_kw": 0.4,
+        "w_skill": 0.2,
+        "w_ngram": 0.05,
+        "w_edu": 0.0,
+        "w_sen": 0.1,
+        "w_cos": 0.25,
+        "spearman": 0.321,
+        "kendall_tau": 0.3145
+      },
+      {
+        "w_kw": 0.35,
+        "w_skill": 0.15,
+        "w_ngram": 0.1,
+        "w_edu": 0.0,
+        "w_sen": 0.0,
+        "w_cos": 0.4,
+        "spearman": 0.3192,
+        "kendall_tau": 0.3306
+      }
+    ]
+  },
+  "skills": {
+    "status": "weak_signal",
+    "n_rows": 28,
+    "best": {
+      "w_kw": 0.3,
+      "w_skill": 0.15,
+      "w_ngram": 0.2,
+      "w_edu": 0.0,
+      "w_sen": 0.1,
+      "w_cos": 0.25,
+      "spearman": 0.1029,
+      "kendall_tau": 0.0902
+    },
+    "top5": [
+      {
+        "w_kw": 0.3,
+        "w_skill": 0.15,
+        "w_ngram": 0.2,
+        "w_edu": 0.0,
+        "w_sen": 0.1,
+        "w_cos": 0.25,
+        "spearman": 0.1029,
+        "kendall_tau": 0.0902
+      },
+      {
+        "w_kw": 0.35,
+        "w_skill": 0.15,
+        "w_ngram": 0.15,
+        "w_edu": 0.0,
+        "w_sen": 0.1,
+        "w_cos": 0.25,
+        "spearman": 0.1029,
+        "kendall_tau": 0.0902
+      },
+      {
+        "w_kw": 0.25,
+        "w_skill": 0.2,
+        "w_ngram": 0.15,
+        "w_edu": 0.0,
+        "w_sen": 0.1,
+        "w_cos": 0.3,
+        "spearman": 0.0917,
+        "kendall_tau": 0.0738
+      },
+      {
+        "w_kw": 0.4,
+        "w_skill": 0.15,
+        "w_ngram": 0.1,
+        "w_edu": 0.0,
+        "w_sen": 0.1,
+        "w_cos": 0.25,
+        "spearman": 0.0906,
+        "kendall_tau": 0.0738
+      },
+      {
+        "w_kw": 0.2,
+        "w_skill": 0.2,
+        "w_ngram": 0.2,
+        "w_edu": 0.0,
+        "w_sen": 0.1,
+        "w_cos": 0.3,
+        "spearman": 0.0831,
+        "kendall_tau": 0.0661
+      }
+    ]
+  }
+}

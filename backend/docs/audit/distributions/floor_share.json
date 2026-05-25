@@ -1,0 +1,9 @@
+{
+  "n_total": 607,
+  "final_score_eq_35_share": 0.0099,
+  "final_score_lt_45_share": 0.458,
+  "final_score_ge_95_share": 0.0,
+  "kw_raw_eq_0_share": 0.2636,
+  "cosine_blended_gt_0.85_share": 0.5305,
+  "cosine_high_kw_zero_share": 0.3048
+}

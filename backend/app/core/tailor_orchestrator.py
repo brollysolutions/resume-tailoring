@@ -4,6 +4,7 @@ Skills is deliberately excluded — it is regenerated wholesale post-tailoring v
 /api/tailor/generate-skills (see PROMPT_GENERATE_SKILLS_GOLDMINE_SYSTEM).
 """
 import logging
+import asyncio
 from app.models.resume_schema import Resume
 from app.core.llm_helpers import (
     tailor_summary,
@@ -14,13 +15,7 @@ from app.core.llm_helpers import (
 
 logger = logging.getLogger(__name__)
 from app.core.renderer import resume_to_plaintext
-from app.core.keyword_utils import _STOPWORDS, _ALIASES, _significant_tokens, _top_jd_tokens
-
-
-def _drop_fragments(tokens: list[str]) -> list[str]:
-    """Defense-in-depth: drop fragment-of-compound tokens that may slip past
-    the alias / compound rewrite pass."""
-    return [t for t in tokens if t.lower() not in _STOPWORDS]
+from app.core.keyword_utils import _STOPWORDS, _ALIASES, _significant_tokens, _top_jd_tokens, _drop_fragments
 
 
 # Canonical token → display-name lookup (inverts the alias map).
@@ -194,45 +189,26 @@ async def generate_section_suggestions(resume: Resume, jd_text: str) -> dict:
     # the user triggers via /api/tailor/generate-skills once the other section
     # edits are accepted — see PROMPT_GENERATE_SKILLS_GOLDMINE_SYSTEM.
 
-    try:
-        exp_r = await tailor_experience(
-            [e.model_dump() for e in resume.experience],
-            jd_text,
-            keywords_to_inject=top_missing,
-        )
-    except Exception as e:
-        logger.warning(f"[tailor_orchestrator] Experience tailor failed: {e}")
-        exp_r = []
+    # Parallelize LLM calls
+    tasks = [
+        tailor_experience([e.model_dump() for e in resume.experience], jd_text, keywords_to_inject=top_missing),
+        tailor_projects([p.model_dump() for p in resume.projects], jd_text, keywords_to_inject=top_missing),
+        tailor_summary(resume.summary, jd_text, keywords_to_inject=top_missing),
+        tailor_education([e.model_dump() for e in resume.education], jd_text, keywords_to_inject=top_missing)
+    ]
 
-    try:
-        proj_r = await tailor_projects(
-            [p.model_dump() for p in resume.projects],
-            jd_text,
-            keywords_to_inject=top_missing,
-        )
-    except Exception as e:
-        logger.warning(f"[tailor_orchestrator] Projects tailor failed: {e}")
-        proj_r = []
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    try:
-        summary_r = await tailor_summary(
-            resume.summary,
-            jd_text,
-            keywords_to_inject=top_missing,
-        )
-    except Exception as e:
-        logger.warning(f"[tailor_orchestrator] Summary tailor failed: {e}")
-        summary_r = []
+    exp_r = results[0] if not isinstance(results[0], Exception) else []
+    proj_r = results[1] if not isinstance(results[1], Exception) else []
+    summary_r = results[2] if not isinstance(results[2], Exception) else []
+    edu_r = results[3] if not isinstance(results[3], Exception) else []
 
-    try:
-        edu_r = await tailor_education(
-            [e.model_dump() for e in resume.education],
-            jd_text,
-            keywords_to_inject=top_missing,
-        )
-    except Exception as e:
-        logger.warning(f"[tailor_orchestrator] Education tailor failed: {e}")
-        edu_r = []
+    if any(isinstance(r, Exception) for r in results):
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                labels = ["Experience", "Projects", "Summary", "Education"]
+                logger.warning(f"[tailor_orchestrator] {labels[i]} tailor failed: {r}")
 
     raw = {
         "Summary": summary_r,

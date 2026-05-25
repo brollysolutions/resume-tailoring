@@ -1,0 +1,26 @@
+phrase,jd_hits,resume_hits,dead_in_jd,dead_in_resume
+computer vision,1,1,False,False
+continuous delivery,1,0,False,True
+continuous deployment,1,0,False,True
+continuous integration,2,0,False,True
+convolutional neural,1,0,False,True
+data analysis,0,2,True,False
+data engineering,1,0,False,True
+data pipeline,2,1,False,False
+data science,1,0,False,True
+data warehouse,2,0,False,True
+deep learning,1,2,False,False
+design patterns,2,0,False,True
+distributed systems,1,0,False,True
+infrastructure as code,1,0,False,True
+large language models,1,0,False,True
+machine learning,2,4,False,False
+microservices architecture,0,1,True,False
+natural language processing,1,1,False,False
+neural networks,1,0,False,True
+reinforcement learning,0,1,True,False
+rest api,1,1,False,False
+restful api,3,1,False,False
+service mesh,1,0,False,True
+site reliability,1,0,False,True
+stream processing,1,0,False,True

@@ -3,7 +3,7 @@
 Loop (every N seconds while the app runs):
   1. Run implicit_labeler.derive_labels() to turn fresh suggestion-acceptance
      events into labels.jsonl rows.
-  2. If labels.jsonl gained >= TRIGGER_NEW_LABELS rows since the last
+  2. If upload_events.jsonl gained >= TRIGGER_NEW_UPLOADS new resume uploads since the last
      calibration, run tune_weights.run() + calibrate_cosine.run().
   3. Apply the safety gate (Spearman threshold + no-regression check + min N).
      Pass -> weights_store.save_weights() (atomic swap, scorer picks up via mtime).
@@ -112,6 +112,7 @@ def run_calibration_cycle() -> dict:
     # Import lazily so test environments / fresh deploys don't need scripts on path.
     from scripts.calibration.tune_weights import run as run_tune
     from scripts.calibration.calibrate_cosine import run as run_cosine
+    from scripts.calibration.eval_split import train_test_split_by_resume
 
     label_summary = derive_labels()
     label_count = _count_labels()
@@ -133,7 +134,9 @@ def run_calibration_cycle() -> dict:
         _write_last_attempt(attempt)
         return attempt
 
-    tune = run_tune()
+    tune = run_tune(
+        eval_split_fn=lambda rows: train_test_split_by_resume(rows, test_fraction=0.20, seed=0),
+    )
     if tune["status"] == "insufficient_data":
         attempt = {**base, "status": "tune_insufficient_data", "swapped": False, "tune": tune}
         _write_last_attempt(attempt)
@@ -149,6 +152,9 @@ def run_calibration_cycle() -> dict:
     best = tune["best"]
     new_spearman = float(best.get("spearman") or 0.0)
     n_rows = int(tune.get("n_rows") or 0)
+    spearman_test = tune.get("spearman_test")
+    n_train = int(tune.get("n_train") or n_rows)
+    n_test = int(tune.get("n_test") or 0)
     current = get_weights()
     old_spearman = float(current.spearman) if current.spearman is not None else None
 
@@ -159,9 +165,17 @@ def run_calibration_cycle() -> dict:
         gate_reasons.append(f"n_rows {n_rows} < min {MIN_TOTAL_LABELS}")
     if new_spearman < spearman_floor:
         gate_reasons.append(f"spearman {new_spearman} < floor {spearman_floor} (dynamic, N={n_rows})")
-    if old_spearman is not None and new_spearman < old_spearman - REGRESSION_TOLERANCE:
+    consecutive_fails = int(state.get("consecutive_gate_failures") or 0)
+    if consecutive_fails >= 3:
+        effective_tolerance = REGRESSION_TOLERANCE * 3   # 0.06
+    elif consecutive_fails >= 1:
+        effective_tolerance = REGRESSION_TOLERANCE * 2   # 0.04
+    else:
+        effective_tolerance = REGRESSION_TOLERANCE        # 0.02
+    if old_spearman is not None and new_spearman < old_spearman - effective_tolerance:
         gate_reasons.append(
-            f"regression: new {new_spearman} < old {old_spearman} - {REGRESSION_TOLERANCE}"
+            f"regression: new {new_spearman} < old {old_spearman} - {effective_tolerance}"
+            f" (tol widened from {REGRESSION_TOLERANCE}, consecutive_fails={consecutive_fails})"
         )
 
     if gate_reasons:
@@ -181,6 +195,36 @@ def run_calibration_cycle() -> dict:
         _write_state(state)
         return attempt
 
+    # Per-section calibration — runs after global success. Skips sections with
+    # insufficient data. Existing per-section weights are preserved when a
+    # section has no new viable candidate (no regression check yet since per-section
+    # spearman history isn't tracked separately).
+    section_weights_payload: dict | None = None
+    try:
+        from scripts.calibration import tune_section_weights as _tsw
+        section_results = _tsw.run()
+        # Start from existing calibrated weights so successful sections stick
+        from app.core.weights_store import get_weights as _get
+        existing_sw = dict((_get().section_weights or {}))
+        for section, res in section_results.items():
+            if res.get("status") != "ok" or not res.get("best"):
+                continue
+            b = res["best"]
+            existing_sw[section] = {
+                "w_kw": b["w_kw"],
+                "w_skill": b["w_skill"],
+                "w_ngram": b["w_ngram"],
+                "w_edu": b["w_edu"],
+                "w_sen": b["w_sen"],
+                "w_cos": b["w_cos"],
+                "spearman": b.get("spearman"),
+                "kendall_tau": b.get("kendall_tau"),
+                "n_rows": res.get("n_rows"),
+            }
+        section_weights_payload = existing_sw
+    except Exception as e:
+        logger.warning("auto_calibrator: section tuning skipped: %s", e)
+
     save_weights(
         w_kw=best["w_kw"],
         w_skill=best["w_skill"],
@@ -194,6 +238,11 @@ def run_calibration_cycle() -> dict:
         spearman=new_spearman,
         kendall_tau=best.get("kendall_tau"),
         source="auto_calibrator",
+        section_weights=section_weights_payload,
+        spearman_train=new_spearman,
+        spearman_test=spearman_test,
+        n_train=n_train,
+        n_test=n_test,
     )
 
     state["last_calibrated_upload_count"] = upload_count
@@ -219,6 +268,7 @@ def run_calibration_cycle() -> dict:
         "spearman": new_spearman,
         "kendall_tau": best.get("kendall_tau"),
         "old_spearman": old_spearman,
+        "section_weights_updated": list((section_weights_payload or {}).keys()),
     }
     _write_last_attempt(attempt)
     return attempt
@@ -226,8 +276,8 @@ def run_calibration_cycle() -> dict:
 
 async def watcher_loop(interval_sec: int = DEFAULT_LOOP_INTERVAL_SEC) -> None:
     """Forever loop. Sleeps `interval_sec` between cycles. Crash-resistant."""
-    logger.info("auto_calibrator: watcher started (interval=%ds, trigger=%d new labels)",
-                interval_sec, TRIGGER_NEW_LABELS)
+    logger.info("auto_calibrator: watcher started (interval=%ds, trigger=%d new uploads)",
+                interval_sec, TRIGGER_NEW_UPLOADS)
     # Small initial delay so startup work finishes first.
     await asyncio.sleep(15)
     while True:

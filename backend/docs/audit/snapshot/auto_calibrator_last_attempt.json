@@ -1,0 +1,21 @@
+{
+  "label_count": 136,
+  "upload_count": 61,
+  "new_since_last": 4,
+  "implicit_labels_added": {
+    "new_labels": 2,
+    "skipped_existing": 0,
+    "skipped_too_recent": 0,
+    "by_signal": {
+      "tailor_clicked": 1,
+      "no_tailor_2h": 1,
+      "ceiling_hit": 0,
+      "session_pairwise": 0,
+      "quick_abandon": 0
+    }
+  },
+  "trigger_threshold": 5,
+  "status": "below_threshold",
+  "swapped": false,
+  "recorded_at": "2026-05-19T13:42:17.903312+00:00"
+}

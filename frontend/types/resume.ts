@@ -11,7 +11,9 @@ export type SuggestionMode =
   | "rename_category"
   | "delete_category"
   | "move_skill"
-  | "replace_section";
+  | "replace_section"
+  | "replace_bullets"
+  | "reorder_sections";
 
 export interface Suggestion {
   id: number;

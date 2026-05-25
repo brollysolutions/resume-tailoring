@@ -105,6 +105,29 @@ function applyAddLine(data: ResumeData, ownerSpec: string, line: string) {
   }
 }
 
+function applyReplaceBullets(data: ResumeData, spec: string, bulletsJson: string) {
+  const parts = spec.split("::");
+  if (parts.length !== 2) return;
+  const [sec, idxStr] = parts;
+  const idx = parseInt(idxStr, 10);
+  if (Number.isNaN(idx)) return;
+  let bullets: string[];
+  try {
+    bullets = JSON.parse(bulletsJson);
+  } catch {
+    return;
+  }
+  if (!Array.isArray(bullets)) return;
+  const secLower = sec.toLowerCase();
+  if (secLower === "experience" && data.experience?.[idx]) {
+    data.experience[idx].bullets = bullets;
+  } else if (secLower === "projects" && data.projects?.[idx]) {
+    data.projects[idx].bullets = bullets;
+  } else if (secLower === "education" && data.education?.[idx]) {
+    data.education[idx].details = bullets;
+  }
+}
+
 function applyReplaceField(data: ResumeData, spec: string, value: string) {
   const parts = spec.split("::");
   if (parts.length !== 3) return;
@@ -141,10 +164,10 @@ function applySkillsMode(data: ResumeData, sg: Suggestion) {
   const isNewCategory = !!sg.is_new_category;
 
   if (mode === "replace_section") {
-    const next = (sg.new_skills || []).filter((c) => c && c.category);
+    const next = sg.new_skills || [];
     data.skills = next.map((c) => ({
-      category: c.category,
-      skills: [...(c.skills || [])],
+      category: c.category || "Skills",
+      skills: Array.isArray(c.skills) ? [...c.skills] : [],
     }));
     return;
   }
@@ -217,6 +240,18 @@ export function applySuggestionsClient(
     const original = (sg.original || "").trim();
     const suggested = (sg.suggested || "").trim();
 
+    if (mode === "reorder_sections") {
+      try {
+        const nextOrder = JSON.parse(suggested);
+        if (Array.isArray(nextOrder)) {
+          data.section_order = nextOrder;
+        }
+      } catch {
+        // ignore parse error
+      }
+      continue;
+    }
+
     if (mode === "replace") {
       if (!original || !suggested) continue;
       applyReplace(data, original, suggested);
@@ -230,24 +265,8 @@ export function applySuggestionsClient(
       if (!original) continue;
       applyReplaceField(data, original, suggested);
     } else if (mode === "replace_bullets") {
-      const parts = original.split("::");
-      if (parts.length === 2) {
-        const [sec, idxStr] = parts;
-        const idx = parseInt(idxStr, 10);
-        try {
-          const newBullets = JSON.parse(suggested);
-          if (!Number.isNaN(idx)) {
-            const secLower = sec.toLowerCase();
-            if (secLower === "experience" && data.experience?.[idx]) {
-              data.experience[idx].bullets = newBullets;
-            } else if (secLower === "projects" && data.projects?.[idx]) {
-              data.projects[idx].bullets = newBullets;
-            }
-          }
-        } catch (e) {
-          console.warn("applySuggestionsClient: replace_bullets parse failed", e);
-        }
-      }
+      if (!original || !suggested) continue;
+      applyReplaceBullets(data, original, suggested);
     } else if (mode === "delete_project") {
       if (!original) continue;
       if (data.projects) {

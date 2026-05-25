@@ -27,6 +27,7 @@ _LOG = _DATA / "score_log.jsonl"
 _LABELS = _DATA / "labels.jsonl"
 
 _MIN_BAD = 5
+_MIN_GOOD = 5
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -61,10 +62,24 @@ def _join(log: list[dict], labels: list[dict]) -> list[dict]:
         ev = by_key.get((rid, jdh))
         if ev is None or label is None:
             continue
-        cos = ev.get("whole_doc_cos_raw")
-        if cos is None:
-            continue
-        out.append({"label": label, "cos": float(cos), "resume_id": rid, "jd_hash": jdh})
+            
+        cos = ev.get("section_weighted_cos_raw")
+        if cos is not None:
+            cos_val = float(cos)
+        else:
+            whole_cos = ev.get("whole_doc_cos_raw")
+            if whole_cos is None:
+                continue
+            whole_cos = float(whole_cos)
+            
+            # Check if this is a legacy log event (does not contain "p_low" anchor)
+            if "p_low" not in ev:
+                # Reconstruct raw cosine from old remap scale: raw = remapped * 0.7 + 0.3
+                cos_val = whole_cos * 0.7 + 0.3
+            else:
+                cos_val = whole_cos
+                
+        out.append({"label": label, "cos": cos_val, "resume_id": rid, "jd_hash": jdh})
     return out
 
 
@@ -87,7 +102,8 @@ def run(log_path: Path = _LOG, labels_path: Path = _LABELS) -> dict:
     status:
       - "ok": anchors fit, p_low/p_high returned
       - "insufficient_bad": fewer than _MIN_BAD bad-labeled rows
-      - "narrow_spread": p95 - p5 < 0.05
+      - "insufficient_good": fewer than _MIN_GOOD good-labeled rows
+      - "narrow_spread": p_high - p_low < 0.05
     """
     log = _load_jsonl(log_path)
     labels = _load_jsonl(labels_path)
@@ -101,10 +117,15 @@ def run(log_path: Path = _LOG, labels_path: Path = _LABELS) -> dict:
 
     if len(bad) < _MIN_BAD:
         return {"status": "insufficient_bad", "counts": counts, "min_bad": _MIN_BAD}
+    if len(good) < _MIN_GOOD:
+        return {"status": "insufficient_good", "counts": counts, "min_good": _MIN_GOOD}
 
     bad_cos = sorted(r["cos"] for r in bad)
-    p_low = _percentile(bad_cos, 5)
-    p_high = _percentile(bad_cos, 95)
+    good_cos = sorted(r["cos"] for r in good)
+    
+    # Calibrate floor on bad matches (10th percentile) and ceiling on good matches (90th percentile)
+    p_low = _percentile(bad_cos, 10)
+    p_high = _percentile(good_cos, 90)
 
     if p_high - p_low < 0.05:
         return {"status": "narrow_spread", "counts": counts, "p_low": p_low, "p_high": p_high}
@@ -125,8 +146,11 @@ def main() -> int:
     if out["status"] == "insufficient_bad":
         print(f"need at least {out['min_bad']} bad-labeled rows to fit a cosine floor. label more bad pairs first.")
         return 1
+    if out["status"] == "insufficient_good":
+        print(f"need at least {out['min_good']} good-labeled rows to fit a cosine ceiling. label more good pairs first.")
+        return 1
     if out["status"] == "narrow_spread":
-        print(f"bad-cosine spread too narrow (p5={out['p_low']:.4f}, p95={out['p_high']:.4f}). label more diverse bad pairs.")
+        print(f"cosine spread too narrow (p_low={out['p_low']:.4f}, p_high={out['p_high']:.4f}). label more diverse pairs.")
         return 1
 
     p_low, p_high = out["p_low"], out["p_high"]

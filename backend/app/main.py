@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
         logger.info("Skipping embedding preload (lazy-load on first request).")
 
     # Background auto-calibrator: derives labels from acceptance events and
-    # re-fits scoring weights when ≥ TRIGGER_NEW_LABELS new labels accumulate.
+    # re-fits scoring weights when ≥ TRIGGER_NEW_UPLOADS new resume uploads accumulate.
     calibrator_task: asyncio.Task | None = None
     try:
         from app.core.auto_calibrator import watcher_loop

@@ -1,11 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Plus, Sparkles, Trash2, FolderPlus, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Sparkles, Trash2, FolderPlus, Loader2, GripVertical, Check, Wand2 } from "lucide-react";
 import type { GeneratedProject } from "@/types/resume";
 import { LineEditor } from "@/components/LineEditor";
-import { EntryAiChat } from "@/components/EntryAiChat";
 import { SkillsRegenStep } from "@/components/SkillsRegenStep";
+import { IntensitySelector } from "@/components/IntensitySelector";
+
+/** Payload describing what the Copilot should focus on. */
+export type CopilotFocusPayload = {
+  section: string;
+  targetType: "line" | "entry" | "section";
+  original?: string;
+  entryIndex?: number;
+  label?: string;
+};
 
 // Types live in types/resume.ts — re-exported here for backward compat.
 export type {
@@ -35,16 +44,12 @@ interface ResumeEditorProps {
   accepted: Suggestion[];
   /** Submit a new suggestion (CRUD action emits one). Parent is responsible for assigning an id. */
   onEmit: (s: Omit<Suggestion, "id">) => void;
-  /** Emit a batch of new suggestions at once (entry-level AI chat). Parent assigns ids. */
-  onEmitBatch?: (suggestions: Array<Omit<Suggestion, "id">>) => void;
   /** Undo a previously accepted suggestion. */
   onRevert: (id: number) => void;
   /** Accept a pending LLM suggestion. */
   onAcceptPending: (id: number, edited: string) => void;
   /** Reject a pending LLM suggestion. */
   onRejectPending: (id: number) => void;
-  /** RAG-style chat fetcher — returns rewritten line text. */
-  onAiChat: (section: string, originalLine: string, instruction: string) => Promise<string>;
   /** Context for entry-level AI chat (subsection rewrites). Optional — if omitted, the affordance is hidden. */
   apiUrl?: string;
   resumeId?: string | null;
@@ -59,9 +64,12 @@ interface ResumeEditorProps {
   projectCount?: number;
   projectNames?: string[];
   onKeptChange?: (projects: GeneratedProject[]) => void;
+  onReorderSections?: (newOrder: string[]) => void;
+  /** Open the Copilot chat focused on a section / entry / line. */
+  onCopilotFocus?: (payload: CopilotFocusPayload) => void;
 }
 
-const SECTION_ORDER: Array<keyof ResumeData | "contact"> = [
+const DEFAULT_SECTION_ORDER: string[] = [
   "summary",
   "experience",
   "projects",
@@ -70,25 +78,14 @@ const SECTION_ORDER: Array<keyof ResumeData | "contact"> = [
   "certifications",
 ];
 
-const SECTION_LABEL: Record<string, string> = {
-  summary: "Summary",
-  experience: "Experience",
-  projects: "Projects",
-  education: "Education",
-  skills: "Skills",
-  certifications: "Certifications",
-};
-
 export function ResumeEditor({
   resume,
   pendingSuggestions,
   accepted,
   onEmit,
-  onEmitBatch,
   onRevert,
   onAcceptPending,
   onRejectPending,
-  onAiChat,
   apiUrl,
   resumeId,
   jdText,
@@ -99,10 +96,66 @@ export function ResumeEditor({
   projectCount = 0,
   projectNames = [],
   onKeptChange,
+  onReorderSections,
+  onCopilotFocus,
 }: ResumeEditorProps) {
-  const entryChatReady =
-    !!onEmitBatch && !!apiUrl && !!resumeId && !!jdText;
+  const skillsReady = !!apiUrl && !!resumeId && !!jdText;
   const [acceptedOpen, setAcceptedOpen] = useState(false);
+
+  // Filter out reorder_sections from history
+  const visibleAccepted = useMemo(() => {
+    return accepted.filter(a => a.mode !== "reorder_sections");
+  }, [accepted]);
+
+  // Local section order state for drag and drop
+  const [localOrder, setLocalOrder] = useState<string[]>(() => 
+    resume.section_order?.length ? resume.section_order : DEFAULT_SECTION_ORDER
+  );
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Sync localOrder if resume.section_order changes from external source (like Apply)
+  useMemo(() => {
+    if (resume.section_order?.length) {
+      setLocalOrder(resume.section_order);
+    }
+  }, [resume.section_order]);
+
+  const hasOrderChanged = useMemo(() => {
+    const current = resume.section_order?.length ? resume.section_order : DEFAULT_SECTION_ORDER;
+    return JSON.stringify(localOrder) !== JSON.stringify(current);
+  }, [localOrder, resume.section_order]);
+
+  const onDragStart = (e: React.DragEvent, idx: number) => {
+    setDragIndex(idx);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+    }
+  };
+
+  const onDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    setDragOverIndex(idx);
+  };
+
+  const onDrop = (e: React.DragEvent, idx: number) => {
+    if (dragIndex === null || dragIndex === idx) {
+      setDragIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+    const next = [...localOrder];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(idx, 0, moved);
+    setLocalOrder(next);
+    setDragIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const onDragEnd = () => {
+    setDragIndex(null);
+    setDragOverIndex(null);
+  };
 
   // Map normalised line text → pending Suggestion (for the ✨ AI badge).
   const pendingByLine = useMemo(() => {
@@ -142,32 +195,62 @@ export function ResumeEditor({
 
   return (
     <div className="space-y-3">
+      {/* Apply Order Button */}
+      {hasOrderChanged && onReorderSections && (
+        <div className="sticky top-[52px] z-20 flex justify-center pointer-events-none">
+          <button
+            onClick={() => onReorderSections(localOrder)}
+            className="pointer-events-auto btn-primary shadow-lg ring-4 ring-background flex items-center gap-2 py-2 px-4 text-xs font-bold animate-in fade-in slide-in-from-top-2"
+          >
+            <Check className="w-4 h-4" />
+            Apply Section Order to Preview
+          </button>
+        </div>
+      )}
+
       {/* Accepted-edits banner with collapsible undo list */}
-      {accepted.length > 0 && (
+      {visibleAccepted.length > 0 && (
         <div className="card p-2.5 border-success/20 bg-success/5">
           <button
             onClick={() => setAcceptedOpen((v) => !v)}
             className="w-full flex items-center justify-between text-xs"
           >
-            <span className="font-semibold text-success">
-              {accepted.length} edit{accepted.length !== 1 ? "s" : ""} applied
-            </span>
-            {acceptedOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded-full bg-success/10 text-success flex items-center justify-center">
+                <Sparkles className="w-3 h-3" />
+              </div>
+              <span className="font-medium text-success">
+                {visibleAccepted.length} tailoring suggestion{visibleAccepted.length !== 1 ? "s" : ""} applied
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-muted hover:text-foreground transition-colors px-1">
+              <span className="text-[10px] uppercase font-semibold tracking-wider">
+                {acceptedOpen ? "Hide History" : "View & Undo"}
+              </span>
+              {acceptedOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </div>
           </button>
+
           {acceptedOpen && (
-            <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto scrollbar-thin">
-              {accepted.map((s) => (
-                <div key={s.id} className="flex items-start justify-between gap-2 text-[11px]">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-muted">{s.section} · {s.mode || "replace"}</p>
-                    <p className="truncate text-muted line-through">{s.original}</p>
-                    {s.suggested && <p className="truncate">{s.suggested}</p>}
+            <div className="mt-2.5 pt-2.5 border-t border-success/20 space-y-1.5 max-h-60 overflow-y-auto scrollbar-thin pr-1">
+              {visibleAccepted.slice().reverse().map((a) => (
+                <div key={a.id} className="flex items-start justify-between gap-3 text-[11px] py-1 px-1.5 rounded hover:bg-success/10 transition-colors group">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground/80 leading-tight mb-0.5">
+                      {a.section}: {a.mode === "replace" ? "Edited line" : a.mode?.replace("_", " ")}
+                    </p>
+                    {a.suggested && (
+                      <p className="text-muted italic truncate" title={a.suggested}>
+                        "{a.suggested}"
+                      </p>
+                    )}
                   </div>
                   <button
-                    onClick={() => onRevert(s.id)}
-                    className="shrink-0 text-[10px] text-muted hover:text-danger border border-border rounded px-1.5 py-0.5"
+                    onClick={() => onRevert(a.id)}
+                    className="shrink-0 text-success hover:text-danger hover:bg-danger/5 p-1 rounded transition-colors opacity-0 group-hover:opacity-100"
+                    title="Undo this change"
                   >
-                    Undo
+                    <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
               ))}
@@ -176,363 +259,462 @@ export function ResumeEditor({
         </div>
       )}
 
-      {/* SECTION: Summary */}
-      {resume.summary && resume.summary.trim() && (
-        <SectionCard title="Summary" editCount={editCountBySection["Summary"] || 0} sectionScore={sectionScores?.["Summary"]}>
-          <LineEditor
-            section="Summary"
-            marker=""
-            text={resume.summary}
-            hideAdd
-            hideDelete
-            wasEdited={wasEdited(resume.summary)}
-            onAiChat={(prompt) => onAiChat("Summary", resume.summary || "", prompt)}
-            onEdit={(newText) => onEmit({
-              section: "Summary",
-              mode: "replace",
-              original: resume.summary || "",
-              suggested: newText,
-            })}
-            onDelete={() => { /* hidden */ }}
-            onAddBelow={() => { /* hidden */ }}
-            badge={lineSuggestion(resume.summary) && (
-              <AiPendingActions
-                s={lineSuggestion(resume.summary)!}
-                onAccept={onAcceptPending}
-                onReject={onRejectPending}
-              />
-            )}
-          />
-        </SectionCard>
-      )}
+      {localOrder.map((sectionKey, index) => {
+        const isDraggingThis = dragIndex === index;
+        const isOver = dragOverIndex === index && dragIndex !== index;
+        
+        const dragHandle = (
+          <div 
+            draggable 
+            onDragStart={(e) => onDragStart(e, index)}
+            onDragOver={(e) => onDragOver(e, index)}
+            onDrop={(e) => onDrop(e, index)}
+            onDragEnd={onDragEnd}
+            className="p-1 rounded hover:bg-subtle cursor-grab active:cursor-grabbing text-muted hover:text-foreground transition-colors" 
+            title="Drag to reorder"
+          >
+            <GripVertical className="w-3.5 h-3.5" />
+          </div>
+        );
 
-      {/* SECTION: Experience */}
-      {resume.experience && resume.experience.length > 0 && (
-        <SectionCard title="Experience" editCount={editCountBySection["Experience"] || 0} sectionScore={sectionScores?.["Experience"]}>
-          {resume.experience.map((exp, i) => (
-            <EntryBlock
-              key={`Experience::${i}`}
-              header={
-                <>
-                  <span className="font-semibold">{exp.title || "(role)"}</span>
-                  {exp.company && <span className="text-muted"> @ {exp.company}</span>}
-                  {(exp.start_date || exp.end_date) && (
-                    <span className="text-muted text-[11px] ml-1">
-                      · {exp.start_date || ""}{exp.end_date ? ` – ${exp.end_date}` : ""}
-                    </span>
-                  )}
-                  {exp.location && <span className="text-muted text-[11px] ml-1">· {exp.location}</span>}
-                </>
-              }
-              actions={
-                entryChatReady && (exp.bullets || []).length > 0 ? (
-                  <EntryAiChat
-                    section="Experience"
-                    entryIndex={i}
-                    originalBullets={exp.bullets || []}
-                    headerContext={{
-                      title: exp.title,
-                      company: exp.company,
-                      start_date: exp.start_date,
-                      end_date: exp.end_date,
-                    }}
-                    apiUrl={apiUrl!}
-                    resumeId={resumeId!}
-                    jdText={jdText!}
-                    acceptedSuggestions={accepted}
-                    newProjects={newProjects}
-                    onEmitBatch={onEmitBatch!}
-                  />
-                ) : undefined
-              }
-            >
-              {(exp.bullets || []).map((b, j) => (
+        const cardClasses = `transition-all ${isDraggingThis ? "opacity-40" : ""} ${isOver ? "border-t-4 border-primary pt-1" : ""}`;
+
+        if (sectionKey === "summary" && resume.summary) {
+          return (
+            <div key="summary" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Summary"
+                editCount={editCountBySection["Summary"] || 0}
+                sectionScore={sectionScores?.["Summary"]}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    <IntensitySelector sectionKey="summary" />
+                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor the Summary" onClick={() => onCopilotFocus({ section: "Summary", targetType: "section", label: "Summary" })} />}
+                    {dragHandle}
+                  </div>
+                }
+              >
                 <LineEditor
-                  key={`Experience::${i}::${j}`}
-                  section="Experience"
-                  ownerId={`Experience::${i}`}
-                  text={b}
-                  wasEdited={wasEdited(b)}
-                  onAiChat={(prompt) => onAiChat("Experience", b, prompt)}
+                  section="Summary"
+                  text={resume.summary}
+                  wasEdited={wasEdited(resume.summary)}
+                  onCopilot={onCopilotFocus ? () => onCopilotFocus({ section: "Summary", targetType: "line", original: resume.summary || "" }) : undefined}
                   onEdit={(newText) => onEmit({
-                    section: "Experience",
+                    section: "Summary",
                     mode: "replace",
-                    original: b,
+                    original: resume.summary || "",
                     suggested: newText,
                   })}
                   onDelete={() => onEmit({
-                    section: "Experience",
+                    section: "Summary",
                     mode: "remove_line",
-                    original: b,
+                    original: resume.summary || "",
                     suggested: "",
                   })}
-                  onAddBelow={(newText) => onEmit({
-                    section: "Experience",
-                    mode: "add_line",
-                    original: `Experience::${i}`,
-                    suggested: newText,
-                  })}
-                  badge={lineSuggestion(b) && (
+                  badge={lineSuggestion(resume.summary) && (
                     <AiPendingActions
-                      s={lineSuggestion(b)!}
+                      s={lineSuggestion(resume.summary)!}
                       onAccept={onAcceptPending}
                       onReject={onRejectPending}
                     />
                   )}
                 />
-              ))}
-              {(!exp.bullets || exp.bullets.length === 0) && (
-                <AddFirstLine
-                  label="bullet"
-                  onAdd={(t) => onEmit({
-                    section: "Experience",
-                    mode: "add_line",
-                    original: `Experience::${i}`,
-                    suggested: t,
-                  })}
-                />
-              )}
-            </EntryBlock>
-          ))}
-        </SectionCard>
-      )}
+              </SectionCard>
+            </div>
+          );
+        }
 
-      {/* SECTION: Projects */}
-      {(resume.projects && resume.projects.length > 0) || onKeptChange ? (
-        <SectionCard
-          title="Projects"
-          editCount={editCountBySection["Projects"] || 0}
-          sectionScore={sectionScores?.["Projects"]}
-          headerExtras={
-            onKeptChange && apiUrl && resumeId && jdText ? (
-              <GenerateProjectsInlineButton
+        if (sectionKey === "experience" && resume.experience && resume.experience.length > 0) {
+          return (
+            <div key="experience" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Experience"
+                editCount={editCountBySection["Experience"] || 0}
+                sectionScore={sectionScores?.["Experience"]}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    <IntensitySelector sectionKey="experience" />
+                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Experience" onClick={() => onCopilotFocus({ section: "Experience", targetType: "section", label: "Experience" })} />}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {resume.experience.map((exp, i) => (
+                  <EntryBlock
+                    key={`Experience::${i}`}
+                    header={
+                      <>
+                        <span className="font-semibold">{exp.title || "(role)"}</span>
+                        {exp.company && <span className="text-muted"> @ {exp.company}</span>}
+                        {(exp.start_date || exp.end_date) && (
+                          <span className="text-muted text-[11px] ml-1">
+                            · {exp.start_date || ""}{exp.end_date ? ` – ${exp.end_date}` : ""}
+                          </span>
+                        )}
+                        {exp.location && <span className="text-muted text-[11px] ml-1">· {exp.location}</span>}
+                      </>
+                    }
+                    actions={
+                      onCopilotFocus && (exp.bullets || []).length > 0 ? (
+                        <SectionWand
+                          title="Ask Copilot to rewrite this role"
+                          onClick={() => onCopilotFocus({
+                            section: "Experience",
+                            targetType: "entry",
+                            entryIndex: i,
+                            label: `${exp.title || "(role)"}${exp.company ? ` @ ${exp.company}` : ""}`,
+                          })}
+                        />
+                      ) : undefined
+                    }
+                  >
+                    {(exp.bullets || []).map((b, j) => (
+                      <LineEditor
+                        key={`Experience::${i}::${j}`}
+                        section="Experience"
+                        ownerId={`Experience::${i}`}
+                        text={b}
+                        wasEdited={wasEdited(b)}
+                        onCopilot={onCopilotFocus ? () => onCopilotFocus({ section: "Experience", targetType: "line", original: b }) : undefined}
+                        onEdit={(newText) => onEmit({
+                          section: "Experience",
+                          mode: "replace",
+                          original: b,
+                          suggested: newText,
+                        })}
+                        onDelete={() => onEmit({
+                          section: "Experience",
+                          mode: "remove_line",
+                          original: b,
+                          suggested: "",
+                        })}
+                        onAddBelow={(newText) => onEmit({
+                          section: "Experience",
+                          mode: "add_line",
+                          original: `Experience::${i}`,
+                          suggested: newText,
+                        })}
+                        badge={lineSuggestion(b) && (
+                          <AiPendingActions
+                            s={lineSuggestion(b)!}
+                            onAccept={onAcceptPending}
+                            onReject={onRejectPending}
+                          />
+                        )}
+                      />
+                    ))}
+                    {(!exp.bullets || exp.bullets.length === 0) && (
+                      <AddFirstLine
+                        label="bullet"
+                        onAdd={(t) => onEmit({
+                          section: "Experience",
+                          mode: "add_line",
+                          original: `Experience::${i}`,
+                          suggested: t,
+                        })}
+                      />
+                    )}
+                  </EntryBlock>
+                ))}
+              </SectionCard>
+            </div>
+          );
+        }
+
+        if (sectionKey === "projects") {
+          const hasProjects = (resume.projects && resume.projects.length > 0) || onKeptChange;
+          if (!hasProjects) return null;
+          return (
+            <div key="projects" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Projects"
+                editCount={editCountBySection["Projects"] || 0}
+                sectionScore={sectionScores?.["Projects"]}
+                headerExtras={
+                  <div className="flex items-center gap-2">
+                    <IntensitySelector sectionKey="projects" />
+                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Projects" onClick={() => onCopilotFocus({ section: "Projects", targetType: "section", label: "Projects" })} />}
+                    {onKeptChange && apiUrl && resumeId && jdText && (
+                      <GenerateProjectsInlineButton
+                        resumeId={resumeId!}
+                        jdText={jdText!}
+                        apiUrl={apiUrl!}
+                        keptProjects={keptProjects}
+                        projectCount={projectCount}
+                        projectNames={projectNames}
+                        onKeptChange={onKeptChange}
+                        nextSuggestionId={nextSuggestionId ?? 1}
+                        projectScore={sectionScores?.["Projects"]}
+                      />
+                    )}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {(resume.projects || []).map((p, i) => (
+                  <EntryBlock
+                    key={`Projects::${i}`}
+                    header={
+                      <>
+                        <span className="font-semibold">{p.name || "(project)"}</span>
+                        {p.tech && <span className="text-muted text-[11px] ml-1">· {p.tech}</span>}
+                      </>
+                    }
+                    actions={
+                      <div className="flex items-center gap-2">
+                        {onCopilotFocus && (p.bullets || []).length > 0 && (
+                          <SectionWand
+                            title="Ask Copilot to rewrite this project"
+                            onClick={() => onCopilotFocus({
+                              section: "Projects",
+                              targetType: "entry",
+                              entryIndex: i,
+                              label: p.name || "(project)",
+                            })}
+                          />
+                        )}
+                        <button
+                          onClick={() => onEmit({
+                            section: "Projects",
+                            mode: "delete_project",
+                            original: p.name || "",
+                            suggested: "",
+                          })}
+                          title="Delete this project"
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-danger border border-danger/30 hover:bg-danger/10 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" /> Delete
+                        </button>
+                      </div>
+                    }
+                  >
+                    {(p.bullets || []).map((b, j) => (
+                      <LineEditor
+                        key={`Projects::${i}::${j}`}
+                        section="Projects"
+                        ownerId={`Projects::${i}`}
+                        text={b}
+                        wasEdited={wasEdited(b)}
+                        onCopilot={onCopilotFocus ? () => onCopilotFocus({ section: "Projects", targetType: "line", original: b }) : undefined}
+                        onEdit={(newText) => onEmit({
+                          section: "Projects",
+                          mode: "replace",
+                          original: b,
+                          suggested: newText,
+                        })}
+                        onDelete={() => onEmit({
+                          section: "Projects",
+                          mode: "remove_line",
+                          original: b,
+                          suggested: "",
+                        })}
+                        onAddBelow={(newText) => onEmit({
+                          section: "Projects",
+                          mode: "add_line",
+                          original: `Projects::${i}`,
+                          suggested: newText,
+                        })}
+                        badge={lineSuggestion(b) && (
+                          <AiPendingActions
+                            s={lineSuggestion(b)!}
+                            onAccept={onAcceptPending}
+                            onReject={onRejectPending}
+                          />
+                        )}
+                      />
+                    ))}
+                    {(!p.bullets || p.bullets.length === 0) && (
+                      <AddFirstLine
+                        label="bullet"
+                        onAdd={(t) => onEmit({
+                          section: "Projects",
+                          mode: "add_line",
+                          original: `Projects::${i}`,
+                          suggested: t,
+                        })}
+                      />
+                    )}
+                  </EntryBlock>
+                ))}
+                {(!resume.projects || resume.projects.length === 0) && (
+                  <EmptyHint text="No projects yet — generate some below." />
+                )}
+              </SectionCard>
+            </div>
+          );
+        }
+
+        if (sectionKey === "education" && resume.education && resume.education.length > 0) {
+          return (
+            <div key="education" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Education"
+                editCount={editCountBySection["Education"] || 0}
+                sectionScore={sectionScores?.["Education"]}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    <IntensitySelector sectionKey="education" />
+                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Education" onClick={() => onCopilotFocus({ section: "Education", targetType: "section", label: "Education" })} />}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {resume.education.map((ed, i) => (
+                  <EntryBlock
+                    key={`Education::${i}`}
+                    header={
+                      <>
+                        <span className="font-semibold">
+                          {ed.degree || ""}{ed.field ? ` in ${ed.field}` : ""}
+                        </span>
+                        {ed.institution && <span className="text-muted"> @ {ed.institution}</span>}
+                        {(ed.start_date || ed.end_date) && (
+                          <span className="text-muted text-[11px] ml-1">
+                            · {ed.start_date || ""}{ed.end_date ? ` – ${ed.end_date}` : ""}
+                          </span>
+                        )}
+                        {ed.gpa && <span className="text-muted text-[11px] ml-1">· GPA {ed.gpa}</span>}
+                      </>
+                    }
+                  >
+                    {(ed.details || []).map((d, j) => (
+                      <LineEditor
+                        key={`Education::${i}::${j}`}
+                        section="Education"
+                        ownerId={`Education::${i}`}
+                        text={d}
+                        wasEdited={wasEdited(d)}
+                        onCopilot={onCopilotFocus ? () => onCopilotFocus({ section: "Education", targetType: "line", original: d }) : undefined}
+                        onEdit={(newText) => onEmit({
+                          section: "Education",
+                          mode: "replace",
+                          original: d,
+                          suggested: newText,
+                        })}
+                        onDelete={() => onEmit({
+                          section: "Education",
+                          mode: "remove_line",
+                          original: d,
+                          suggested: "",
+                        })}
+                        onAddBelow={(newText) => onEmit({
+                          section: "Education",
+                          mode: "add_line",
+                          original: `Education::${i}`,
+                          suggested: newText,
+                        })}
+                        badge={lineSuggestion(d) && (
+                          <AiPendingActions
+                            s={lineSuggestion(d)!}
+                            onAccept={onAcceptPending}
+                            onReject={onRejectPending}
+                          />
+                        )}
+                      />
+                    ))}
+                    {(!ed.details || ed.details.length === 0) && (
+                      <AddFirstLine
+                        label="coursework / detail line"
+                        onAdd={(t) => onEmit({
+                          section: "Education",
+                          mode: "add_line",
+                          original: `Education::${i}`,
+                          suggested: t,
+                        })}
+                      />
+                    )}
+                  </EntryBlock>
+                ))}
+              </SectionCard>
+            </div>
+          );
+        }
+
+        if (sectionKey === "skills" && skillsReady) {
+          return (
+            <div key="skills" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SkillsRegenStep
+                resume={resume}
+                apiUrl={apiUrl!}
                 resumeId={resumeId!}
                 jdText={jdText!}
-                apiUrl={apiUrl!}
-                keptProjects={keptProjects}
-                projectCount={projectCount}
-                projectNames={projectNames}
-                onKeptChange={onKeptChange}
-                nextSuggestionId={nextSuggestionId ?? 1}
-                projectScore={sectionScores?.["Projects"]}
+                newProjects={newProjects}
+                onEmit={onEmit}
+                sectionScore={sectionScores?.["Skills"]}
+                editCount={editCountBySection["Skills"] || 0}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    <IntensitySelector sectionKey="skills" />
+                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Skills" onClick={() => onCopilotFocus({ section: "Skills", targetType: "section", label: "Skills" })} />}
+                    {dragHandle}
+                  </div>
+                }
               />
-            ) : null
-          }
-        >
-          {(resume.projects || []).map((p, i) => (
-            <EntryBlock
-              key={`Projects::${i}`}
-              header={
-                <>
-                  <span className="font-semibold">{p.name || "(project)"}</span>
-                  {p.tech && <span className="text-muted text-[11px] ml-1">· {p.tech}</span>}
-                </>
-              }
-              actions={
-                <div className="flex items-center gap-2">
-                  {entryChatReady && (p.bullets || []).length > 0 && (
-                    <EntryAiChat
-                      section="Projects"
-                      entryIndex={i}
-                      originalBullets={p.bullets || []}
-                      headerContext={{ name: p.name, tech: p.tech }}
-                      apiUrl={apiUrl!}
-                      resumeId={resumeId!}
-                      jdText={jdText!}
-                      acceptedSuggestions={accepted}
-                      newProjects={newProjects}
-                      onEmitBatch={onEmitBatch!}
-                    />
-                  )}
-                  <button
-                    onClick={() => onEmit({
-                      section: "Projects",
-                      mode: "delete_project",
-                      original: p.name || "",
+            </div>
+          );
+        }
+
+        if (sectionKey === "certifications" && resume.certifications && resume.certifications.length > 0) {
+          return (
+            <div key="certifications" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Certifications"
+                editCount={editCountBySection["Certifications"] || 0}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Certifications" onClick={() => onCopilotFocus({ section: "Certifications", targetType: "section", label: "Certifications" })} />}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {resume.certifications.map((c, i) => (
+                  <LineEditor
+                    key={`Certifications::${i}`}
+                    section="Certifications"
+                    ownerId={`Certifications::${i}`}
+                    text={c}
+                    wasEdited={wasEdited(c)}
+                    onCopilot={onCopilotFocus ? () => onCopilotFocus({ section: "Certifications", targetType: "line", original: c }) : undefined}
+                    onEdit={(newText) => onEmit({
+                      section: "Certifications",
+                      mode: "replace",
+                      original: c,
+                      suggested: newText,
+                    })}
+                    onDelete={() => onEmit({
+                      section: "Certifications",
+                      mode: "remove_line",
+                      original: c,
                       suggested: "",
                     })}
-                    title="Delete this project"
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-danger border border-danger/30 hover:bg-danger/10 transition-colors"
-                  >
-                    <Trash2 className="w-3 h-3" /> Delete
-                  </button>
-                </div>
-              }
-            >
-              {(p.bullets || []).map((b, j) => (
-                <LineEditor
-                  key={`Projects::${i}::${j}`}
-                  section="Projects"
-                  ownerId={`Projects::${i}`}
-                  text={b}
-                  wasEdited={wasEdited(b)}
-                  onAiChat={(prompt) => onAiChat("Projects", b, prompt)}
-                  onEdit={(newText) => onEmit({
-                    section: "Projects",
-                    mode: "replace",
-                    original: b,
-                    suggested: newText,
-                  })}
-                  onDelete={() => onEmit({
-                    section: "Projects",
-                    mode: "remove_line",
-                    original: b,
-                    suggested: "",
-                  })}
-                  onAddBelow={(newText) => onEmit({
-                    section: "Projects",
-                    mode: "add_line",
-                    original: `Projects::${i}`,
-                    suggested: newText,
-                  })}
-                  badge={lineSuggestion(b) && (
-                    <AiPendingActions
-                      s={lineSuggestion(b)!}
-                      onAccept={onAcceptPending}
-                      onReject={onRejectPending}
-                    />
-                  )}
-                />
-              ))}
-              {(!p.bullets || p.bullets.length === 0) && (
-                <AddFirstLine
-                  label="bullet"
-                  onAdd={(t) => onEmit({
-                    section: "Projects",
-                    mode: "add_line",
-                    original: `Projects::${i}`,
-                    suggested: t,
-                  })}
-                />
-              )}
-            </EntryBlock>
-          ))}
-          {(!resume.projects || resume.projects.length === 0) && (
-            <EmptyHint text="No projects yet — generate some below." />
-          )}
-        </SectionCard>
-      ) : null}
+                    onAddBelow={(newText) => onEmit({
+                      section: "Certifications",
+                      mode: "add_line",
+                      original: `Certifications::${i}`,
+                      suggested: newText,
+                    })}
+                  />
+                ))}
+              </SectionCard>
+            </div>
+          );
+        }
 
-      {/* SECTION: Education */}
-      {resume.education && resume.education.length > 0 && (
-        <SectionCard title="Education" editCount={editCountBySection["Education"] || 0} sectionScore={sectionScores?.["Education"]}>
-          {resume.education.map((ed, i) => (
-            <EntryBlock
-              key={`Education::${i}`}
-              header={
-                <>
-                  <span className="font-semibold">
-                    {ed.degree || ""}{ed.field ? ` in ${ed.field}` : ""}
-                  </span>
-                  {ed.institution && <span className="text-muted"> @ {ed.institution}</span>}
-                  {(ed.start_date || ed.end_date) && (
-                    <span className="text-muted text-[11px] ml-1">
-                      · {ed.start_date || ""}{ed.end_date ? ` – ${ed.end_date}` : ""}
-                    </span>
-                  )}
-                  {ed.gpa && <span className="text-muted text-[11px] ml-1">· GPA {ed.gpa}</span>}
-                </>
-              }
-            >
-              {(ed.details || []).map((d, j) => (
-                <LineEditor
-                  key={`Education::${i}::${j}`}
-                  section="Education"
-                  ownerId={`Education::${i}`}
-                  text={d}
-                  wasEdited={wasEdited(d)}
-                  onAiChat={(prompt) => onAiChat("Education", d, prompt)}
-                  onEdit={(newText) => onEmit({
-                    section: "Education",
-                    mode: "replace",
-                    original: d,
-                    suggested: newText,
-                  })}
-                  onDelete={() => onEmit({
-                    section: "Education",
-                    mode: "remove_line",
-                    original: d,
-                    suggested: "",
-                  })}
-                  onAddBelow={(newText) => onEmit({
-                    section: "Education",
-                    mode: "add_line",
-                    original: `Education::${i}`,
-                    suggested: newText,
-                  })}
-                  badge={lineSuggestion(d) && (
-                    <AiPendingActions
-                      s={lineSuggestion(d)!}
-                      onAccept={onAcceptPending}
-                      onReject={onRejectPending}
-                    />
-                  )}
-                />
-              ))}
-              {(!ed.details || ed.details.length === 0) && (
-                <AddFirstLine
-                  label="coursework / detail line"
-                  onAdd={(t) => onEmit({
-                    section: "Education",
-                    mode: "add_line",
-                    original: `Education::${i}`,
-                    suggested: t,
-                  })}
-                />
-              )}
-            </EntryBlock>
-          ))}
-        </SectionCard>
-      )}
-
-      {/* SECTION: Skills — regen-first flow with full manual CRUD */}
-      {entryChatReady && (
-        <SkillsRegenStep
-          resume={resume}
-          apiUrl={apiUrl!}
-          resumeId={resumeId!}
-          jdText={jdText!}
-          newProjects={newProjects}
-          onEmit={onEmit}
-          sectionScore={sectionScores?.["Skills"]}
-          editCount={editCountBySection["Skills"] || 0}
-        />
-      )}
-
-      {/* SECTION: Certifications */}
-      {resume.certifications && resume.certifications.length > 0 && (
-        <SectionCard title="Certifications" editCount={editCountBySection["Certifications"] || 0}>
-          {resume.certifications.map((c, i) => (
-            <LineEditor
-              key={`Certifications::${i}`}
-              section="Certifications"
-              ownerId={`Certifications::${i}`}
-              text={c}
-              wasEdited={wasEdited(c)}
-              onAiChat={(prompt) => onAiChat("Certifications", c, prompt)}
-              onEdit={(newText) => onEmit({
-                section: "Certifications",
-                mode: "replace",
-                original: c,
-                suggested: newText,
-              })}
-              onDelete={() => onEmit({
-                section: "Certifications",
-                mode: "remove_line",
-                original: c,
-                suggested: "",
-              })}
-              onAddBelow={(newText) => onEmit({
-                section: "Certifications",
-                mode: "add_line",
-                original: `Certifications::${i}`,
-                suggested: newText,
-              })}
-            />
-          ))}
-        </SectionCard>
-      )}
+        return null;
+      })}
     </div>
+  );
+}
+
+function SectionWand({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="p-1 rounded hover:bg-primary/10 text-primary"
+    >
+      <Wand2 className="w-3.5 h-3.5" />
+    </button>
   );
 }
 
@@ -550,7 +732,6 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(true);
-  const scoreColor = sectionScore == null ? "" : sectionScore >= 70 ? "text-success" : sectionScore >= 40 ? "text-amber-600" : "text-danger";
 
   return (
     <div className="card p-3 space-y-2">
@@ -565,9 +746,6 @@ function SectionCard({
             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success/10 text-success border border-success/30">
               {editCount} edited
             </span>
-          )}
-          {sectionScore != null && (
-            <span className={`text-[10px] font-medium tabular-nums ${scoreColor}`}>{sectionScore}%</span>
           )}
         </button>
         {headerExtras}
@@ -589,7 +767,7 @@ function EntryBlock({
   return (
     <div className="group/entry border-l-2 border-border pl-3 py-1 space-y-0.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm min-w-0 flex-1">{header}</p>
+        <div className="text-sm min-w-0 flex-1">{header}</div>
         {actions && (
           <div className="shrink-0 opacity-0 group-hover/entry:opacity-100 transition-opacity">
             {actions}
@@ -709,7 +887,6 @@ function GenerateProjectsInlineButton({
   projectScore?: number;
 }) {
   const [isGenerating, setIsGenerating] = useState(false);
-  const scoreColor = projectScore == null ? "" : projectScore >= 70 ? "text-success" : projectScore >= 40 ? "text-amber-600" : "text-danger";
 
   const handleGenerate = async () => {
     if (!resumeId || !jdText.trim()) return;
@@ -757,8 +934,7 @@ function GenerateProjectsInlineButton({
           ) : (
             <>
               <FolderPlus className="w-3 h-3" />
-              <span className={`font-medium ${scoreColor}`}>{projectScore}%</span>
-              — Generate projects to improve
+              <span>Generate projects to improve</span>
             </>
           )}
         </button>

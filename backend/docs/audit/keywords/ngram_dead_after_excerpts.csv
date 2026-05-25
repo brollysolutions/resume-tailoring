@@ -1,0 +1,48 @@
+phrase,jd_corpus_hits,resume_corpus_hits,jd_excerpt_hits,dead_in_all_three
+agile methodology,0,0,0,True
+api gateway,0,0,0,True
+batch processing,0,0,0,True
+behavior driven development,0,0,0,True
+ci cd,0,0,0,True
+cloud computing,0,0,0,True
+cloud native,0,0,0,True
+computer vision,1,1,0,False
+continuous delivery,1,0,0,False
+continuous deployment,1,0,0,False
+continuous integration,2,0,0,False
+convolutional neural,1,0,0,False
+data analysis,0,2,0,False
+data engineering,1,0,0,False
+data lake,0,0,0,True
+data pipeline,2,1,0,False
+data science,1,0,0,False
+data warehouse,2,0,0,False
+deep learning,1,2,0,False
+design patterns,2,0,0,False
+distributed systems,1,0,0,False
+domain driven design,0,0,0,True
+etl pipeline,0,0,0,True
+event driven architecture,0,0,0,True
+fault tolerance,0,0,0,True
+feature engineering,0,0,0,True
+foundation model,0,0,0,True
+generative ai,0,0,0,True
+high availability,0,0,0,True
+infrastructure as code,1,0,0,False
+large language models,1,0,0,False
+machine learning,2,4,1,False
+microservices architecture,0,1,0,False
+natural language processing,1,1,0,False
+neural networks,1,0,0,False
+object oriented programming,0,0,0,True
+real time processing,0,0,0,True
+reinforcement learning,0,1,0,False
+rest api,1,1,0,False
+restful api,3,1,0,False
+service mesh,1,0,0,False
+site reliability,1,0,0,False
+stream processing,1,0,0,False
+system design,0,0,0,True
+test driven development,0,0,0,True
+transfer learning,0,0,0,True
+transformer model,0,0,0,True

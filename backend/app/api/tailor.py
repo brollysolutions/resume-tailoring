@@ -19,6 +19,7 @@ from app.core.llm_helpers import (
     extract_jd_hard_requirements,
     generate_skills_from_tailored,
 )
+from app.core.tailor_graph import compiled_tailor_graph
 from app.core.llm_synthesis import (
     humanize_project_bullets,
 )
@@ -36,6 +37,9 @@ from app.core.renderer import (
 from app.models.resume_schema import Resume
 
 router = APIRouter()
+
+_SUGGESTIONS_CACHE = {}
+_SUGGESTIONS_CACHE_MAX_SIZE = 100
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PDF_MEDIA_TYPE = "application/pdf"
@@ -90,12 +94,14 @@ def _fix_project_name(name: str) -> str:
 class TailorRequest(BaseModel):
     resume_id: str
     jd_text: str
+    intensity: Literal["light", "balanced", "aggressive"] = "balanced"
+    section_intensities: Optional[dict[str, str]] = None
 
 
 class PreviewRequest(BaseModel):
     resume_id: str
     suggestions: list = []
-    template_id: Optional[str] = "modern"
+    template_id: Optional[str] = "standard"
     new_projects: Optional[list] = None
     layout_density: Optional[str] = None  # latex-tight | compact | standard | expanded | None
     target_pages: Optional[int] = None  # 1, 2, 3 — picks density to fit
@@ -105,7 +111,7 @@ class ApplyRequest(BaseModel):
     resume_id: str
     suggestions: list
     format: Literal["pdf", "docx"] = "pdf"
-    template_id: Optional[str] = "modern"
+    template_id: Optional[str] = "standard"
     new_projects: Optional[list] = None
     layout_density: Optional[str] = None
     target_pages: Optional[int] = None
@@ -133,6 +139,8 @@ class RefreshSkillsRequest(BaseModel):
     new_projects: Optional[list] = None
     next_id: int = 1
     user_prompt: Optional[str] = None
+    intensity: Literal["light", "balanced", "aggressive"] = "balanced"
+    section_intensities: Optional[dict[str, str]] = None
 
 
 class GenerateSkillsTailoredBlock(BaseModel):
@@ -146,6 +154,8 @@ class GenerateSkillsRequest(BaseModel):
     resume_id: str
     jd_text: str
     tailored: Optional[GenerateSkillsTailoredBlock] = None
+    intensity: Literal["light", "balanced", "aggressive"] = "balanced"
+    section_intensities: Optional[dict[str, str]] = None
 
 
 class ChatLineRequest(BaseModel):
@@ -172,6 +182,22 @@ class ChatEntryRequest(BaseModel):
     user_prompt: str
     accepted_suggestions: list = []
     new_projects: Optional[list] = None
+
+
+class CopilotChatRequest(BaseModel):
+    resume_id: str
+    jd_text: str
+    user_prompt: str
+    # Optional line/entry the user clicked in the editor — short-circuits routing.
+    focus: Optional[dict] = None
+    # Current tailored state for grounding (accepted edits + kept projects).
+    accepted_suggestions: list = []
+    new_projects: Optional[list] = None
+    # Id seed so returned suggestions don't collide with editor ids.
+    next_id: int = 20000
+    # Global intensity default + per-section overrides (keyed by lowercase section).
+    intensity: Literal["light", "balanced", "aggressive"] = "balanced"
+    section_intensities: Optional[dict[str, str]] = None
 
 
 def _replace_projects(resume: Resume, new_projects: list) -> Resume:
@@ -220,46 +246,186 @@ async def get_templates():
     return {"templates": list_templates()}
 
 
+@router.get("/sample-preview")
+async def sample_template_preview(template_id: str = "standard"):
+    from app.core.sample_resume import build_sample_resume
+    sample = build_sample_resume()
+    html = render_html(sample, template_id)
+    return {"html": html}
+
+
 @router.post("/suggestions")
 async def get_tailoring_suggestions(request: TailorRequest):
     if not request.jd_text.strip():
         raise HTTPException(status_code=400, detail="Job description cannot be empty.")
     t0 = time.perf_counter()
     try:
+        # Derive a stateful thread id for LangGraph persistence that includes the intensity configuration
+        import hashlib as _h
+        import json as _json
+        jd_hash = _h.sha256(request.jd_text.encode("utf-8", errors="ignore")).hexdigest()[:16]
+        intensities_str = _json.dumps({
+            "global": request.intensity,
+            "sections": request.section_intensities or {}
+        }, sort_keys=True)
+        config_hash = _h.sha256(f"{request.jd_text}_{intensities_str}".encode("utf-8", errors="ignore")).hexdigest()[:16]
+        thread_id = f"{request.resume_id}_{config_hash}"
+
+        # Bounded cache check
+        if thread_id in _SUGGESTIONS_CACHE:
+            logger.info("[CACHE HIT] suggestions: thread_id=%s, returned in %.3fs", thread_id, time.perf_counter() - t0)
+            return _SUGGESTIONS_CACHE[thread_id]
+
         t_load = time.perf_counter()
         resume, _ = _load_resume(request.resume_id)
         logger.info("[TIMING] suggestions: load_resume=%.3fs", time.perf_counter() - t_load)
 
         t_llm = time.perf_counter()
-        result = await generate_section_suggestions(resume, request.jd_text)
-        logger.info("[TIMING] suggestions: llm_sections=%.3fs", time.perf_counter() - t_llm)
+        config = {"configurable": {"thread_id": thread_id}}
 
-        logger.info("[TIMING] suggestions: TOTAL=%.3fs  returned=%d suggestions  missing_kw=%d",
-                    time.perf_counter() - t0, len(result.get("suggestions", [])),
-                    len(result.get("jd_missing_keywords", [])))
+        # Rerun critique loop only for Aggressive mode to save significant latency in Balanced/Light modes
+        max_iters = 2 if request.intensity == "aggressive" else 1
+
+        # Create initial state
+        initial_state = {
+            "resume_id": request.resume_id,
+            "jd_text": request.jd_text,
+            "original_resume": resume,
+            "current_resume": resume,
+            "suggestions": [],
+            "project_names": [],
+            "match_score": 0,
+            "section_scores": {},
+            "low_sections": [],
+            "critique_instructions": {},
+            "iteration": 0,
+            "max_iterations": max_iters,
+            "user_prompt": None,
+            "intensity": request.intensity,
+            "section_intensities": request.section_intensities,
+        }
+
+        # Run stateful LangGraph to completion
+        final_state = await compiled_tailor_graph.ainvoke(initial_state, config=config)
+        logger.info("[TIMING] suggestions: LangGraph pipeline=%.3fs", time.perf_counter() - t_llm)
 
         # Log total suggestions per (resume_id, jd_hash) — used by implicit_labeler
         # to compute acceptance ratio against the /apply event.
         try:
-            import hashlib as _h
             from app.core.implicit_labeler import log_suggestion_event
-            jd_hash = _h.sha256(request.jd_text.encode("utf-8", errors="ignore")).hexdigest()[:16]
             log_suggestion_event(
                 "suggestions_generated",
                 resume_id=request.resume_id,
                 jd_hash=jd_hash,
-                total=len(result.get("suggestions", [])),
+                total=len(final_state.get("suggestions", [])),
             )
         except Exception as e:
             logger.debug("suggestion event log failed (non-fatal): %s", e)
 
-        return {
-            "resume_id": request.resume_id,
-            "sections": result["sections"],
-            "suggestions": result["suggestions"],
-            "project_names": result.get("project_names", []),
-            "jd_missing_keywords": result.get("jd_missing_keywords", []),
+        sections = {
+            "Summary": [s for s in final_state.get("suggestions", []) if s.get("section") == "Summary"],
+            "Experience": [s for s in final_state.get("suggestions", []) if s.get("section") == "Experience"],
+            "Projects": [s for s in final_state.get("suggestions", []) if s.get("section") == "Projects"],
+            "Education": [s for s in final_state.get("suggestions", []) if s.get("section") == "Education"],
+            "Skills": [s for s in final_state.get("suggestions", []) if s.get("section") == "Skills"],
         }
+        # Only return sections that produced suggestions
+        non_empty_sections = {k: v for k, v in sections.items() if v}
+
+        result_payload = {
+            "resume_id": request.resume_id,
+            "sections": non_empty_sections,
+            "suggestions": final_state.get("suggestions", []),
+            "project_names": final_state.get("project_names", []),
+            "jd_missing_keywords": final_state.get("missing_keywords", []),
+        }
+
+        # Bounded cache eviction & storage
+        if len(_SUGGESTIONS_CACHE) >= _SUGGESTIONS_CACHE_MAX_SIZE:
+            first_key = next(iter(_SUGGESTIONS_CACHE))
+            _SUGGESTIONS_CACHE.pop(first_key, None)
+        _SUGGESTIONS_CACHE[thread_id] = result_payload
+
+        return result_payload
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat")
+async def copilot_chat(request: CopilotChatRequest):
+    """Conversational copilot — routes intent to scoped, grounded edits via LangGraph.
+
+    Returns reviewable PENDING suggestions (never mutates the resume wholesale)
+    plus optional directives (undo_last, generate_projects) and a chat reply.
+    Conversation memory is keyed per (resume_id, jd) thread."""
+    if not request.user_prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
+    t0 = time.perf_counter()
+    try:
+        import hashlib as _h
+        from app.core.tailor_chat_graph import compiled_tailor_chat_graph, active_sections
+        from app.core.llm_chat import _clean_suggested
+
+        # Load resume + fold in current tailored state so edits are grounded on
+        # what the user actually sees (accepted edits + kept projects).
+        resume, _ = _load_resume(request.resume_id)
+        if request.new_projects:
+            resume = _replace_projects(resume, request.new_projects)
+        if request.accepted_suggestions:
+            resume = apply_suggestions(resume, request.accepted_suggestions)
+
+        jd_hash = _h.sha256(request.jd_text.encode("utf-8", errors="ignore")).hexdigest()[:16]
+        thread_id = f"{request.resume_id}_{jd_hash}_chat"
+        config = {"configurable": {"thread_id": thread_id}}
+
+        # Per-turn channels are passed fresh; `messages` is omitted so the
+        # checkpointer's accumulated history is preserved across turns.
+        initial_state = {
+            "resume_id": request.resume_id,
+            "jd_text": request.jd_text,
+            "resume": resume,
+            "user_prompt": request.user_prompt,
+            "focus": request.focus,
+            "active_sections": active_sections(resume),
+            "next_id": int(request.next_id or 20000),
+            "intensity": request.intensity,
+            "section_intensities": request.section_intensities,
+            "route": {},
+            "suggestions": [],
+            "directives": [],
+            "response": "",
+        }
+
+        final_state = await compiled_tailor_chat_graph.ainvoke(initial_state, config=config)
+
+        suggestions = final_state.get("suggestions", []) or []
+        # Clean free-text suggestions (skip skills explicit-field + structured payloads).
+        for s in suggestions:
+            mode = s.get("mode")
+            if (
+                "suggested" in s
+                and not (s.get("section", "") or "").lower().startswith("skill")
+                and mode not in ("replace_bullets", "reorder_sections", "remove_line")
+            ):
+                s["suggested"] = _clean_suggested(s["suggested"])
+
+        logger.info(
+            "[TIMING] copilot-chat graph: TOTAL=%.3fs  op=%s  suggestions=%d  directives=%d",
+            time.perf_counter() - t0,
+            (final_state.get("route") or {}).get("operation"),
+            len(suggestions),
+            len(final_state.get("directives", []) or []),
+        )
+
+        return {
+            "suggestions": suggestions,
+            "directives": final_state.get("directives", []) or [],
+            "response": final_state.get("response") or "Done.",
+        }
+
     except HTTPException:
         raise
     except Exception as e:
@@ -473,12 +639,16 @@ async def generate_skills(request: GenerateSkillsRequest):
         projects = tailored.projects or [p.model_dump() for p in resume.projects]
         education = tailored.education or [e.model_dump() for e in resume.education]
 
+        section_intensities = request.section_intensities or {}
+        skills_intensity = section_intensities.get("skills", request.intensity)
+
         result = await generate_skills_from_tailored(
             jd_text=request.jd_text,
             tailored_summary=summary,
             tailored_experience=experience,
             tailored_projects=projects,
             tailored_education=education,
+            intensity=skills_intensity,
         )
 
         logger.info(
@@ -518,7 +688,10 @@ async def refresh_skills(request: RefreshSkillsRequest):
 
         experience_ctx, projects_ctx, certifications_ctx = build_skills_contexts(resume)
         from app.core.renderer import resume_to_plaintext
-        from app.core.tailor_orchestrator import _derive_skill_additions, _drop_fragments
+        from app.core.tailor_orchestrator import _derive_skill_additions
+
+        section_intensities = request.section_intensities or {}
+        skills_intensity = section_intensities.get("skills", request.intensity)
 
         # LLM: rename/delete/move only (no ADD mode — handled deterministically).
         lm_raw = await tailor_skills(
@@ -529,6 +702,7 @@ async def refresh_skills(request: RefreshSkillsRequest):
             projects_ctx=projects_ctx,
             certifications_ctx=certifications_ctx,
             user_prompt=request.user_prompt,
+            intensity=skills_intensity,
         )
         lm_non_add = [s for s in (lm_raw or []) if s.get("mode") != "add_skill"]
 
@@ -695,6 +869,25 @@ async def generate_projects(request: GenerateProjectsRequest):
         t_humanize = time.perf_counter()
         chosen = await humanize_project_bullets(chosen, avg_words=avg_words, seniority=seniority)
         logger.info("[TIMING] generate-projects: humanize=%.3fs", time.perf_counter() - t_humanize)
+
+        # Guarantee missing keywords survive in tech fields — LLM often paraphrases
+        # exact tokens (e.g. "event streaming" for "kafka"), breaking keyword_coverage.
+        if missing_keywords and chosen:
+            combined = " ".join(
+                " ".join(p.get("bullets", [])) + " " + (p.get("tech") or "")
+                for p in chosen
+            )
+            covered = _significant_tokens(combined)
+            still_missing = [kw for kw in missing_keywords if kw not in covered]
+            n = len(chosen)
+            for i, kw in enumerate(still_missing):
+                proj = chosen[i % n]
+                tech = proj.get("tech") or ""
+                if kw.lower() not in tech.lower():
+                    proj["tech"] = (tech + ", " + kw).lstrip(", ")
+            if still_missing:
+                logger.info("[generate-projects] keyword backstop: injected %d/%d missing tokens into tech fields",
+                            len(still_missing), len(missing_keywords))
 
         logger.info("[TIMING] generate-projects: TOTAL=%.3fs  returned=%d",
                     time.perf_counter() - t0, len(chosen))

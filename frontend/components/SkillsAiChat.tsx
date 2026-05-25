@@ -71,6 +71,17 @@ export function SkillsAiChat({
     setMode("pending");
     setError(null);
     try {
+      let intensity = "balanced";
+      let sectionIntensities = null;
+      if (typeof window !== "undefined") {
+        intensity = localStorage.getItem("tailor_intensity") || "balanced";
+        const saved = localStorage.getItem("tailor_section_intensities");
+        if (saved) {
+          try {
+            sectionIntensities = JSON.parse(saved);
+          } catch (e) {}
+        }
+      }
       const res = await fetch(`${apiUrl}/api/tailor/refresh-skills`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -89,10 +100,13 @@ export function SkillsAiChat({
             skill: s.skill,
             target_category: s.target_category,
             is_new_category: s.is_new_category,
+            new_skills: s.new_skills,
           })),
           ...(newProjects && newProjects.length > 0 ? { new_projects: newProjects } : {}),
           next_id: nextSuggestionId,
           user_prompt: prompt || null,
+          intensity,
+          section_intensities: sectionIntensities,
         }),
       });
       if (!res.ok) {
@@ -221,9 +235,19 @@ export function SkillsAiChat({
       )}
 
       {mode === "pending" && (
-        <div className="flex items-center gap-2 text-[11px] text-muted py-1">
-          <Loader2 className="w-3 h-3 animate-spin" />
-          Re-tailoring skills using tailored experience + projects as evidence…
+        <div className="space-y-2 py-1">
+          <div className="flex items-center gap-2 text-[11px] text-muted">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary animate-pulse"></span>
+            </span>
+            <span>Re-tailoring skills using tailored experience + projects as evidence…</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5 animate-pulse pl-3 select-none">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-6 bg-muted/30 rounded px-2.5 w-16" />
+            ))}
+          </div>
         </div>
       )}
 

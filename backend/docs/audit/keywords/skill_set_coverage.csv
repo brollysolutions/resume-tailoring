@@ -1,0 +1,13 @@
+jd_file,n_top_jd_tokens,n_nlp_extract_skills,n_in_taxonomy_SKILL_DOMAIN,union_all,in_top_jd_not_in_nlp,in_nlp_not_in_top_jd,in_taxonomy_not_in_top_jd,disagreement_share,skills_nlp_sample,skills_taxonomy_sample
+backend-python-fastapi-senior.txt,22,10,7,29,19,7,4,0.897,circleci|docker|fastapi|github|kafka|postgresql|python|rabbitmq|redis|sql,docker|fastapi|github|kafka|postgresql|python|redis
+data-analytics-sql-tableau-mid.txt,29,7,4,33,26,4,2,0.909,communication|leadership|numpy|pandas|python|snowflake|sql,numpy|pandas|python|snowflake
+data-eng-spark-aws-senior.txt,25,9,8,31,22,6,4,0.903,airflow|aws|kafka|kinesis|machine learning|python|scala|spark|sql,airflow|aws|kafka|kinesis|python|redshift|scala|spark
+design-product-figma-mid.txt,33,1,0,34,33,1,0,1.0,communication,
+devops-sre-terraform-kubernates-mid.txt,21,12,7,29,17,8,4,0.862,aws|bash|devops|elk|github|gitlab|go|grafana|kubernetes|prometheus,aws|github|gitlab|go|kubernetes|python|terraform
+finance-fpa-modelling-senior.txt,24,1,0,24,23,0,0,0.958,leadership,
+frontend-react-junior.txt,17,10,9,25,15,8,6,0.92,agile|git|github|gitlab|javascript|jest|jira|react|scrum|typescript,css|git|github|gitlab|javascript|jira|nextjs|react|typescript
+fullstack-node-react-mid.txt,24,8,7,28,20,4,2,0.857,aws|cypress|javascript|jest|mongodb|postgresql|react|typescript,aws|javascript|mongodb|nodejs|postgresql|react|typescript
+genai-rag-langchain-senior.txt,34,4,3,36,32,2,1,0.944,ai|llm|nlp|python,langchain|llm|python
+marketing-paid-growth-mid.txt,34,2,0,36,34,2,0,1.0,leadership|sql,
+ml-classical-pytorch-mid.txt,21,8,5,28,20,7,4,0.964,c++|deep learning|machine learning|numpy|python|pytorch|r|scikit-learn,c++|numpy|python|pytorch|scikit-learn
+mobile-ios-swift-junior.txt,23,3,2,25,22,2,2,0.96,git|sqlite|swift,git|sqlite

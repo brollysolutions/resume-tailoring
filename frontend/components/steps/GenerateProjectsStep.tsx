@@ -216,10 +216,23 @@ export function GenerateProjectsStep({
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted">Projects</h3>
         </div>
-        <div className="card p-12 flex flex-col items-center gap-3">
-          <Loader2 className="w-6 h-6 animate-spin text-muted" />
-          <p className="text-sm text-muted">Generating projects…</p>
-          <p className="text-xs text-muted/60">Usually 10–20 seconds</p>
+        <div className="space-y-3 animate-pulse select-none">
+          {[1, 2].map((i) => (
+            <div key={i} className="card p-4 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-2 w-1/2">
+                  <div className="h-4 bg-muted/60 rounded w-2/3" />
+                  <div className="h-3 bg-muted/40 rounded w-1/3" />
+                </div>
+                <div className="h-7 bg-muted/50 rounded w-24" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-2.5 bg-muted/30 rounded w-11/12" />
+                <div className="h-2.5 bg-muted/30 rounded w-full" />
+                <div className="h-2.5 bg-muted/30 rounded w-5/6" />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );

@@ -3,7 +3,7 @@ import json
 import logging
 import re
 from typing import List, Optional
-from app.core.llm_client import _chat
+from app.core.llm_client import _chat, get_smart_model
 from app.core.llm_prompts import (
     PROMPT_TAILOR_SUMMARY_SYSTEM as PROMPT_TAILOR_SUMMARY,
     PROMPT_TAILOR_EXPERIENCE_SYSTEM as PROMPT_TAILOR_EXPERIENCE,
@@ -14,6 +14,8 @@ from app.core.llm_prompts import (
     PROMPT_EXTRACT_JD_HARD_REQUIREMENTS_SYSTEM as PROMPT_EXTRACT_JD_HARD_REQUIREMENTS,
     PROMPT_SECTION_DIAGNOSIS_SYSTEM,
     PROMPT_GENERATE_SKILLS_GOLDMINE_SYSTEM,
+    ANTI_GRAFT_CLAUSE,
+    INTENSITY_INSTRUCTIONS,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,9 +23,43 @@ logger = logging.getLogger(__name__)
 # Clean suggested text: remove bullets, labels, JD commentary
 _LEADING_MARKER_RE = re.compile(r'^\s*(?:[-•*—‒–·]+|\d+[.)])\s+')
 _JD_PAREN_RE = re.compile(r'\s*\([^)]*\b(?:JD|Job Description|job description)\b[^)]*\)', re.IGNORECASE)
-_INLINE_DASH_RE = re.compile(r'\s+-\s+')
+_INLINE_DASH_RE = re.compile(r'\s*[–—]\s*|\s+-\s+')
 _COMPOUND_HYPHEN_RE = re.compile(r'(?<=\w)-(?=\w)')
 _LABEL_PREFIX_RE = re.compile(r'^\s*(?:[SBM]\d+|Suggested|Original|New|Bullet)\s*:\s*', re.IGNORECASE)
+
+_META_PHRASES = [
+    r"aligns\s+with",
+    r"job\s+description",
+    r"jd['’]?s?\s+requirement",
+    r"this\s+experience",
+    r"this\s+bullet",
+    r"suggested\s+to\s+include",
+    r"demonstrates\s+.*?\s+which\s+aligns",
+    r"supports\s+jd",
+]
+_META_RE = re.compile("|".join(_META_PHRASES), re.IGNORECASE)
+
+
+def _looks_like_meta(text: str) -> bool:
+    """Check if the text contains metalanguage/commentary about JD alignment."""
+    if not text:
+        return False
+    return bool(_META_RE.search(text))
+
+
+_GRAFT_FIRST_PERSON_RE = re.compile(r"\b(I|me|my|we|our)\b", re.IGNORECASE)
+_GRAFT_GERUND_RE = re.compile(r"^\s*\w+ing\b[^,]{0,80},\s", re.IGNORECASE)
+
+
+def _looks_like_graft(text: str) -> bool:
+    """True if first person pronouns exist or starts with a gerund-clause opener like 'Using ...,', 'Improving ...,'."""
+    if not text:
+        return False
+    if _GRAFT_FIRST_PERSON_RE.search(text):
+        return True
+    if _GRAFT_GERUND_RE.match(text):
+        return True
+    return False
 
 
 def _clean_suggested(text: str) -> str:
@@ -38,27 +74,37 @@ def _clean_suggested(text: str) -> str:
     text = _JD_PAREN_RE.sub('', text)
     text = _INLINE_DASH_RE.sub(' ', text)
     text = _COMPOUND_HYPHEN_RE.sub(' ', text)
+    text = re.sub(r'\s{2,}', ' ', text)
     return text.strip()
 
 
-def _keyword_injection_block(keywords: list) -> str:
+def _keyword_injection_block(keywords: list, intensity: str = "balanced") -> str:
     """Returns prompt appendix for keyword injection, or empty string."""
     if not keywords:
         return ""
+    
+    if intensity == "light":
+        prefix = "only if it already fits, never add a new claim:\n"
+    elif intensity == "aggressive":
+        prefix = "inject every keyword honestly claimable:\n"
+    else:
+        prefix = "weave each into existing content where honestly applicable:\n"
+
     return (
         "\n\nMISSING JD KEYWORDS — absent from resume, weighed heavily by match score. "
-        "Weave each into existing content where honestly applicable:\n"
+        + prefix
         + ", ".join(keywords[:20])
     )
 
 
-async def _tailor_section(system_prompt: str, user_content: str, cap: int) -> list:
+async def _tailor_section(system_prompt: str, user_content: str, cap: int, model: str | None = None, reject_first_person: bool = False) -> list:
     """Shared LLM call + clean + cap for all section tailors."""
     try:
         content = await _chat(
             [{"role": "system", "content": system_prompt},
              {"role": "user", "content": user_content}],
             json_mode=True,
+            model=model,
         )
         parsed = json.loads(content)
         suggestions = parsed.get("suggestions", [])
@@ -69,6 +115,7 @@ async def _tailor_section(system_prompt: str, user_content: str, cap: int) -> li
                 [{"role": "system", "content": system_prompt + "\nRespond ONLY with valid JSON."},
                  {"role": "user", "content": user_content}],
                 json_mode=False,
+                model=model,
             )
             start = content.find("{"); end = content.rfind("}") + 1
             suggestions = json.loads(content[start:end]).get("suggestions", []) if start != -1 and end > 0 else []
@@ -81,6 +128,12 @@ async def _tailor_section(system_prompt: str, user_content: str, cap: int) -> li
             continue
         s["suggested"] = _clean_suggested(s.get("suggested", ""))
         if not s.get("suggested"):
+            continue
+        if s.get("mode") == "add_line":
+            continue
+        if _looks_like_meta(s["suggested"]):
+            continue
+        if reject_first_person and _looks_like_graft(s["suggested"]):
             continue
         cleaned.append(s)
     return cleaned[:cap]
@@ -103,6 +156,7 @@ async def tailor_education(
     education: list,
     jd_text: str,
     keywords_to_inject: Optional[list] = None,
+    intensity: str = "balanced",
 ) -> list:
     """Tailor Education details (not headers) to match JD."""
     if not education:
@@ -122,13 +176,13 @@ async def tailor_education(
     if not has_any_details:
         return []
 
-    system = PROMPT_TAILOR_EDUCATION + _keyword_injection_block(keywords_to_inject or [])
+    system = PROMPT_TAILOR_EDUCATION + INTENSITY_INSTRUCTIONS[intensity] + _keyword_injection_block(keywords_to_inject or [], intensity)
     user = (
         "EDUCATION ENTRIES + DETAIL LINES:\n"
         + "\n".join(lines)
         + f"\n\nJOB DESCRIPTION:\n{jd_text[:2000]}"
     )
-    sugg = await _tailor_section(system, user, cap=6)
+    sugg = await _tailor_section(system, user, cap=6, model=get_smart_model(), reject_first_person=False)
     for s in sugg:
         s["section"] = "Education"
         s.setdefault("mode", "replace")
@@ -139,23 +193,25 @@ async def tailor_summary(
     summary: Optional[str],
     jd_text: str,
     keywords_to_inject: Optional[list] = None,
+    intensity: str = "balanced",
 ) -> list:
     """Tailor summary to match JD (0–1 suggestion)."""
     if not summary or not summary.strip():
         return []
 
-    system = PROMPT_TAILOR_SUMMARY + _keyword_injection_block(keywords_to_inject or [])
+    system = PROMPT_TAILOR_SUMMARY + INTENSITY_INSTRUCTIONS[intensity] + _keyword_injection_block(keywords_to_inject or [], intensity)
     user = (
         f"CURRENT SUMMARY:\n{summary}\n\n"
         f"JOB DESCRIPTION:\n{jd_text[:2000]}"
     )
-    return await _tailor_section(system, user, cap=1)
+    return await _tailor_section(system, user, cap=1, model=get_smart_model(), reject_first_person=False)
 
 
 async def tailor_experience(
     experience: list,
     jd_text: str,
     keywords_to_inject: Optional[list] = None,
+    intensity: str = "balanced",
 ) -> list:
     """Tailor experience bullets (3–8 suggestions)."""
     if not experience:
@@ -170,13 +226,14 @@ async def tailor_experience(
         for j, b in enumerate(exp.get("bullets", [])):
             lines.append(f"  B{j+1}: {b}")
 
-    system = PROMPT_TAILOR_EXPERIENCE + _keyword_injection_block(keywords_to_inject or [])
+    system = PROMPT_TAILOR_EXPERIENCE + ANTI_GRAFT_CLAUSE + INTENSITY_INSTRUCTIONS[intensity] + _keyword_injection_block(keywords_to_inject or [], intensity)
     user = (
         f"EXPERIENCE:\n{chr(10).join(lines)}\n\n"
         f"JOB DESCRIPTION:\n{jd_text[:2000]}"
     )
 
-    raw_suggestions = await _tailor_section(system, user, cap=8)
+    cap_val = {"light": 3, "balanced": 6, "aggressive": 8}.get(intensity, 6)
+    raw_suggestions = await _tailor_section(system, user, cap=cap_val, model=get_smart_model(), reject_first_person=True)
 
     # Deduplicate by original bullet
     seen = set()
@@ -193,6 +250,7 @@ async def tailor_projects(
     projects: list,
     jd_text: str,
     keywords_to_inject: Optional[list] = None,
+    intensity: str = "balanced",
 ) -> list:
     """Tailor project bullets with project_index tags."""
     if not projects:
@@ -208,12 +266,12 @@ async def tailor_projects(
         for j, b in enumerate(proj.get("bullets", [])):
             lines.append(f"  B{j+1}: {b}")
 
-    system = PROMPT_TAILOR_PROJECTS + _keyword_injection_block(keywords_to_inject or [])
+    system = PROMPT_TAILOR_PROJECTS + ANTI_GRAFT_CLAUSE + INTENSITY_INSTRUCTIONS[intensity] + _keyword_injection_block(keywords_to_inject or [], intensity)
     user = (
         f"PROJECTS:\n{chr(10).join(lines)}\n\n"
         f"JOB DESCRIPTION:\n{jd_text[:2000]}"
     )
-    suggestions = await _tailor_section(system, user, cap=20)
+    suggestions = await _tailor_section(system, user, cap=20, model=get_smart_model(), reject_first_person=True)
 
     # Validate / repair project_index
     n_projects = len(projects)
@@ -242,6 +300,7 @@ async def tailor_skills(
     projects_ctx: str = "",
     certifications_ctx: str = "",
     user_prompt: Optional[str] = None,
+    intensity: str = "balanced",
 ) -> list:
     """Tailor skills with add/delete modes grounded in evidence."""
     if not skills:
@@ -251,7 +310,7 @@ async def tailor_skills(
     categories = [sk.get("category", "") for sk in skills]
     cats_listing = ", ".join(categories) if categories else "(none)"
 
-    system = PROMPT_TAILOR_SKILLS
+    system = PROMPT_TAILOR_SKILLS + INTENSITY_INSTRUCTIONS[intensity]
 
     user_parts = []
     if user_prompt and user_prompt.strip():
@@ -283,7 +342,7 @@ async def tailor_skills(
         )
 
     user = "\n\n".join(user_parts)
-    suggestions = await _tailor_section(system, user, cap=20)
+    suggestions = await _tailor_section(system, user, cap=20, model=get_smart_model())
 
     # Validate the new explicit-field schema. Modes:
     #   add_skill        — needs skill + (category OR (target_category + is_new_category))
@@ -471,13 +530,54 @@ def _clean_diagnosis(text: str) -> str:
     return cleaned
 
 
-async def analyze_low_sections(jd_text: str, low_sections: list) -> dict:
+_DIAG_CITE_RE = re.compile(r"'([^']{2,40})'")
+
+
+def _verify_diagnosis(
+    explanation: str,
+    section_text: str,
+    missing_keywords: list,
+) -> str:
+    """Drop sentences that cite a term already present in the section text.
+    A cited term is legitimate only when it appears in the deterministic
+    missing_keywords list. This catches LLM hallucinations where the model
+    claims the resume lacks a term it actually contains."""
+    if not explanation:
+        return ""
+    hay = (section_text or "").lower()
+    allowed = {k.lower() for k in (missing_keywords or [])}
+    kept: list = []
+    tech_chars = r'[a-zA-Z0-9+#.\-]'
+    for sent in re.split(r"(?<=[.!?])\s+", explanation):
+        suspicious = False
+        for term in _DIAG_CITE_RE.findall(sent):
+            tl = term.lower().strip()
+            if not tl or tl in allowed:
+                continue
+            # Match word boundary with tech-friendly characters to prevent substring collisions
+            pattern = f'(?<!{tech_chars})' + re.escape(tl) + f'(?!{tech_chars})'
+            if re.search(pattern, hay) is not None:
+                suspicious = True
+                break
+        if not suspicious:
+            kept.append(sent)
+    return " ".join(kept).strip()
+
+
+async def analyze_low_sections(
+    jd_text: str,
+    low_sections: list,
+    section_gaps: dict | None = None,
+) -> dict:
     """Diagnose each low-scoring resume section in plain English.
 
     Args:
         jd_text: Job description text.
         low_sections: list of {"section": str, "score": int, "text": str}
             (text is the rendered plaintext of that resume section).
+        section_gaps: optional dict mapping section name → list of JD terms
+            that are demonstrably absent from THAT section. Passed to the
+            LLM as ground truth and used to validate the response.
 
     Returns:
         {section_name: explanation_text}. Empty dict on any failure — caller
@@ -490,12 +590,18 @@ async def analyze_low_sections(jd_text: str, low_sections: list) -> dict:
     if not valid_sections:
         return {}
 
-    # Cap inputs: max 4 sections, JD 2000, section text 1500.
+    # Map lowercase section name -> original section name to support case-insensitive checks
+    section_map = {s.lower(): s for s in valid_sections}
+
+    # Cap inputs: max 4 sections, JD 2000, section text 1500. Attach the
+    # deterministic per-section missing keywords so the LLM can only cite
+    # from a vetted list — not invent gaps from world knowledge.
     capped = [
         {
             "section": s["section"],
             "score": int(s.get("score", 0)),
             "text": (s.get("text") or "")[:1500],
+            "missing_keywords": (section_gaps or {}).get(s["section"], [])[:10],
         }
         for s in low_sections[:4]
         if s.get("section")
@@ -546,11 +652,18 @@ async def analyze_low_sections(jd_text: str, low_sections: list) -> dict:
         why = entry.get("why")
         if not isinstance(section, str) or not isinstance(why, str):
             continue
-        if section not in valid_sections or section in out:
+        sect_lower = section.lower()
+        if sect_lower not in section_map:
+            continue
+        orig_section = section_map[sect_lower]
+        if orig_section in out:
             continue
         cleaned = _clean_diagnosis(why)
+        section_text = next((s["text"] for s in capped if s["section"] == orig_section), "")
+        miss = (section_gaps or {}).get(orig_section, [])
+        cleaned = _verify_diagnosis(cleaned, section_text, miss)
         if cleaned:
-            out[section] = cleaned
+            out[orig_section] = cleaned
     return out
 
 
@@ -613,6 +726,7 @@ async def generate_skills_from_tailored(
     tailored_experience: list[dict],
     tailored_projects: list[dict],
     tailored_education: list[dict],
+    intensity: str = "balanced",
 ) -> dict:
     """Wholesale Skills section regen driven by JD + tailored evidence.
 
@@ -669,18 +783,20 @@ async def generate_skills_from_tailored(
     parsed: dict = {}
     try:
         content = await _chat(
-            [{"role": "system", "content": PROMPT_GENERATE_SKILLS_GOLDMINE_SYSTEM},
+            [{"role": "system", "content": PROMPT_GENERATE_SKILLS_GOLDMINE_SYSTEM + INTENSITY_INSTRUCTIONS[intensity]},
              {"role": "user", "content": user_content}],
             json_mode=True,
+            model=get_smart_model(),
         )
         parsed = json.loads(content)
     except Exception as e:
         logger.warning(f"[generate_skills_from_tailored] json_mode failed, retrying: {e}")
         try:
             content = await _chat(
-                [{"role": "system", "content": PROMPT_GENERATE_SKILLS_GOLDMINE_SYSTEM + "\nRespond ONLY with valid JSON."},
+                [{"role": "system", "content": PROMPT_GENERATE_SKILLS_GOLDMINE_SYSTEM + INTENSITY_INSTRUCTIONS[intensity] + "\nRespond ONLY with valid JSON."},
                  {"role": "user", "content": user_content}],
                 json_mode=False,
+                model=get_smart_model(),
             )
             start = content.find("{"); end = content.rfind("}") + 1
             if start == -1 or end <= 0:

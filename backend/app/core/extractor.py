@@ -14,40 +14,18 @@ from app.models.resume_schema import Resume
 logger = logging.getLogger(__name__)
 
 
-_EXTRACTION_SYSTEM = """You are a precise resume parser. Given a resume's raw text, extract its content into a JSON object that matches the schema below EXACTLY.
+_EXTRACTION_SYSTEM = """You are a precise resume parser. Your goal is 100% content retention. Extract every single word and detail from the raw text into the JSON schema below.
 
-ABSOLUTE FIDELITY RULES (these override every other instruction):
-- If the resume has NO Summary / Profile / Objective / About section, you MUST set "summary" to null. Do NOT generate one from the candidate's experience, education, or skills.
-- A heading like "Summary", "Profile", "About Me", or "Objective" must be literally present in the source for a non-null "summary" to be returned.
-- If the resume has no Projects section, "projects" MUST be [].
-- If the resume has no Certifications section, "certifications" MUST be [].
-- If the resume has no Publications section, "publications" MUST be [].
-- If the resume has no Awards/Honors section, "awards" MUST be [].
-- If the resume has no Languages section, "languages" MUST be [].
-- If the resume has no Volunteer Experience section, "volunteer" MUST be [].
-- If the resume has no Patents section, "patents" MUST be [].
-- If the resume has no Talks/Presentations section, "talks" MUST be [].
-- If the resume has no extra/non-standard sections (anything besides those listed above), "extra_sections" MUST be [].
-- Never invent dates, companies, titles, bullets, or skills that are not literally present in the source text.
-- NEVER fabricate contact fields. If the source does NOT show a phone number (digits in the contact area), "contact.phone" MUST be null. Same applies to email, location, linkedin, github, website — only populate them if literally present.
-- NEVER fabricate publication metadata. For each Publication entry, only populate authors / venue / year / doi / url if those values appear LITERALLY in the publication line. If you cannot see the field, set it to null. Do NOT infer publisher, venue, or year from book titles, topics, or world knowledge. If the source says only "Deep Learning on Web." then title="Deep Learning on Web" and ALL OTHER FIELDS = null.
-- NEVER fabricate award metadata. Only populate issuer / date / description if literally present. Same applies to talks (venue/date/type) and patents (number/date/status/authors) — fields not in the source MUST be null.
-
-Rules:
-- Use the candidate's exact wording — do not paraphrase, do not add information that isn't there.
-- If a field is missing from the resume, use null (for strings) or an empty array (for lists).
-- For dates, preserve original formatting (e.g., "Aug 2020", "Jun 2025 – Dec 2025", "Present", "May 2024 - Current").
-- Each bullet point becomes its own string. Strip leading bullet characters (•, -, –, *).
-- For skills: if the resume groups skills under category labels (e.g., "Backend:", "Programming:"), use those category names. Otherwise put everything under category "Skills". DO NOT lump spoken languages here — those go in "languages".
-- For publications: parse each entry into {title, authors, venue, year, doi, url}. Only fill a field if it appears LITERALLY in that publication line. If the entry is just a bare title (e.g., "Deep Learning on Web."), title="Deep Learning on Web" and authors/venue/year/doi/url MUST all be null. Never invent publisher, year, technology stack, or co-authors.
-- For awards: parse each into {title, issuer, date, description}. Honors and accolades go here, NOT in certifications.
-- For languages: parse each into {name, proficiency}. The "name" is the language itself (e.g., "English", "Spanish"). Proficiency is one of: Native, Fluent, Conversational, Basic — leave null if not stated. A bare language name like "English" is valid: {"name": "English", "proficiency": null}.
-- For volunteer: parse each into {role, organization, location, start_date, end_date, bullets}. Same shape as experience.
-- For patents: parse each into {title, number, date, status, authors}. Status is "Granted" or "Pending".
-- For talks: parse each into {title, venue, date, type}. Type is "Conference", "Workshop", or "Seminar".
-- section_order: list ALL section headings top-to-bottom using lowercase canonical keys: summary, experience, projects, education, skills, certifications, publications, awards, languages, volunteer, patents, talks. Prefix only truly unrecognized sections with "extra:" (e.g. "extra:Hobbies"). Include every section present.
-- extra_sections: ONLY for sections that don't match any of the standard types above. Do NOT put awards/languages/volunteer/patents/talks here — they have first-class fields. Set content_type to "entries" if items have headers or bullets, "list" if short one-liners, "text" if a prose block.
-- Return ONLY the JSON. No prose, no markdown fence, no commentary.
+ABSOLUTE FIDELITY RULES:
+1. CAPTURE EVERY DETAIL: If you see a line of text, it MUST be in the JSON. Never skip "Relevant Coursework", "Honors", "Thesis", or individual bullet points. 
+2. USE EXACT WORDING: Do not paraphrase. Copy text exactly as it appears in the source.
+3. EDUCATION DETAILS: Any text associated with a degree (coursework, GPA, awards) MUST be captured in the "details" array. 
+   - NEVER put the degree name ("B.Tech") or field ("Information Technology") into the "details" array; they go in their specific fields.
+   - Preserve labels like "Relevant Coursework:" or "Coursework:" verbatim inside the detail strings.
+4. PRESERVE ACRONYMS (CRITICAL): Keep "B.Tech", "M.Tech", "MS", "GPA" exactly as they appear. NEVER expand "B.Tech" to "Bachelor of Technology".
+5. EXPERIENCE & PROJECTS: Every bullet point must be captured. Every company, title, and date must be captured.
+6. NO SELECTIVE FILTERING: Do not decide that some information is "unimportant". If it is in the resume, it must be in the JSON.
+7. SECTION ORDER: Follow the physical top-to-bottom order of the original document.
 
 SCHEMA:
 {
@@ -64,7 +42,7 @@ SCHEMA:
   "experience": [
     {
       "title": "string",
-      "company": "string",
+      "company": "string|null",
       "location": "string|null",
       "start_date": "string|null",
       "end_date": "string|null",
@@ -87,6 +65,7 @@ SCHEMA:
     {
       "name": "string",
       "tech": "string|null",
+      "date": "string|null",
       "bullets": ["string"]
     }
   ],
@@ -168,7 +147,7 @@ SCHEMA:
 
 _HEADER_INDICATORS = (
     "experience", "education", "projects", "skills", "certifications",
-    "work history", "employment",
+    "work history", "employment", "achievements", "expertise",
 )
 
 
@@ -207,6 +186,62 @@ def _loose_json_extract(text: str) -> dict:
             return json.loads(cleaned)
         except json.JSONDecodeError:
             return {}
+
+
+_HEADING_PATTERNS = [
+    (re.compile(r"^\s*(?:professional\s+)?summary\b", re.I | re.M), "summary"),
+    (re.compile(r"^\s*(?:profile|objective|about\s+me)\b", re.I | re.M), "summary"),
+    (re.compile(r"^\s*(?:work\s+|professional\s+)?experience\b", re.I | re.M), "experience"),
+    (re.compile(r"^\s*employment\s+history\b", re.I | re.M), "experience"),
+    (re.compile(r"^\s*education\b", re.I | re.M), "education"),
+    (re.compile(r"^\s*academic\s+background\b", re.I | re.M), "education"),
+    (re.compile(r"^\s*academic\s+history\b", re.I | re.M), "education"),
+    (re.compile(r"^\s*(?:technical\s+|personal\s+)?projects\b", re.I | re.M), "projects"),
+    (re.compile(r"^\s*(?:technical\s+)?skills\b", re.I | re.M), "skills"),
+    (re.compile(r"^\s*expertise\b", re.I | re.M), "skills"),
+    (re.compile(r"^\s*core\s+competencies\b", re.I | re.M), "skills"),
+    (re.compile(r"^\s*certifications?\b", re.I | re.M), "certifications"),
+    (re.compile(r"^\s*certificates?\b", re.I | re.M), "certifications"),
+    (re.compile(r"^\s*(?:selected\s+)?publications\b", re.I | re.M), "publications"),
+    (re.compile(r"^\s*(?:honors?\s*(?:and|&)?\s*)?awards\b", re.I | re.M), "awards"),
+    (re.compile(r"^\s*achievements\b", re.I | re.M), "awards"),
+    (re.compile(r"^\s*(?:language\s+proficiency|languages)\b", re.I | re.M), "languages"),
+    (re.compile(r"^\s*volunteer(?:\s+experience)?\b", re.I | re.M), "volunteer"),
+    (re.compile(r"^\s*community\s+service\b", re.I | re.M), "volunteer"),
+    (re.compile(r"^\s*patents?\b", re.I | re.M), "patents"),
+    (re.compile(r"^\s*(?:talks|presentations)\b", re.I | re.M), "talks"),
+]
+
+
+def _scan_order_from_text(raw_text: str, extra_titles: list[str] = None) -> list[str]:
+    """Scan raw_text for section headings; return canonical keys in position
+    order. Used to enforce strict fidelity to the original document's layout.
+    """
+    hits = []
+    seen = set()
+
+    # 1. Look for standard headings via regex
+    for pat, key in _HEADING_PATTERNS:
+        m = pat.search(raw_text)
+        if m and key not in seen:
+            hits.append((m.start(), key))
+            seen.add(key)
+
+    # 2. Look for extra section titles provided by LLM
+    if extra_titles:
+        for title in extra_titles:
+            # Case-insensitive search for the exact title on its own line
+            # or with some minor padding.
+            pat = re.compile(rf"^\s*{re.escape(title)}\s*$", re.I | re.M)
+            m = pat.search(raw_text)
+            if m:
+                key = f"extra:{title}"
+                if key not in seen:
+                    hits.append((m.start(), key))
+                    seen.add(key)
+
+    hits.sort(key=lambda x: x[0])
+    return [k for _, k in hits]
 
 
 _SECTION_MAP = {
@@ -253,16 +288,20 @@ _SECTION_MAP = {
 }
 
 
-def _normalize_order(raw_order: list, extra_titles: list[str]) -> list[str]:
+def _normalize_order(raw_order: list | None, extra_titles: list[str]) -> list[str]:
     """Map raw LLM section titles to canonical section keys.
 
     Known sections → their lowercase key ("Experience" → "experience").
     Titles matching an extra_sections title → "extra:<Title>".
     Anything unrecognized → dropped (prevents stale/hallucinated entries).
     """
+    if not raw_order:
+        return []
     result = []
     seen_keys = set()
     for s in raw_order:
+        if not s:
+            continue
         key = s.lower().strip()
         if key in _SECTION_MAP:
             canonical = _SECTION_MAP[key]
@@ -295,6 +334,21 @@ def _appears_in(needle: str, haystack: str) -> bool:
     return n in haystack
 
 
+def _dedupe_education_field(resume: Resume) -> None:
+    """If education.field is already substring of education.degree, drop it.
+    Handles the dash variant "Bachelor of Technology - Information Technology"
+    where the LLM keeps the field merged into the degree string AND also sets
+    field independently, which would otherwise render as "<degree> in <field>"
+    with the field portion duplicated."""
+    for ed in resume.education:
+        if not ed.field or not ed.degree:
+            continue
+        d = ed.degree.lower()
+        f = ed.field.lower().strip()
+        if f and f in d:
+            ed.field = None
+
+
 def _filter_hallucinated_sections(resume: Resume, raw_text: str) -> None:
     """Mutate resume in place — drop entries whose identifying field doesn't
     appear in the raw source text. Catches LLM fabrications from world knowledge
@@ -312,6 +366,20 @@ def _filter_hallucinated_sections(resume: Resume, raw_text: str) -> None:
         v for v in resume.volunteer
         if _appears_in(v.role, hay) or _appears_in(v.organization, hay)
     ]
+
+    # Education: validate location and institution against raw text. The LLM
+    # has been observed to autocorrect spelling (e.g., "Manipal" -> "Manipur"),
+    # which silently injects wrong cities into rendered output.
+    for ed in resume.education:
+        if ed.location and not _appears_in(ed.location, hay):
+            city = ed.location.split(",")[0].strip()
+            if city and not _appears_in(city, hay):
+                ed.location = None
+        if ed.institution and not _appears_in(ed.institution, hay):
+            logger.warning(
+                "Education institution '%s' not found in raw text - possible LLM hallucination",
+                ed.institution,
+            )
 
     # Phone: must have at least 7 digits matching source
     if resume.contact.phone:
@@ -370,26 +438,57 @@ async def extract_resume(raw_text: str) -> Resume:
     # in source text. Catches LLM fabrications from world knowledge that slip
     # past the prompt rules.
     _filter_hallucinated_sections(resume, raw_text)
+    _dedupe_education_field(resume)
 
     if isinstance(data, dict):
         extra_titles = [e.title for e in resume.extra_sections]
-        resume.section_order = _normalize_order(data.get("section_order", []), extra_titles)
-
-        # Ensure all populated standard sections are in the order somewhere
-        # (prevents them from being invisible if the LLM forgot them in section_order)
+        
+        # 1. Normalize what the LLM found (this identifies WHICH sections exist)
+        found_sections = _normalize_order(data.get("section_order", []), extra_titles)
+        
+        # 2. Add any standard sections that have content but weren't in section_order
         for key in [
             "summary", "experience", "education", "projects", "skills",
             "certifications", "publications", "awards", "languages",
             "volunteer", "patents", "talks",
         ]:
             val = getattr(resume, key, None)
-            if val and key not in resume.section_order:
-                resume.section_order.append(key)
+            # Use explicit check for non-empty lists/strings
+            has_content = False
+            if isinstance(val, list):
+                has_content = len(val) > 0
+            elif isinstance(val, str):
+                has_content = len(val.strip()) > 0
+            elif val is not None:
+                has_content = True
 
-        # Also ensure extra sections are included
+            if has_content and key not in found_sections:
+                found_sections.append(key)
         for extra in resume.extra_sections:
-            extra_key = f"extra:{extra.title}"
-            if extra_key not in resume.section_order:
-                resume.section_order.append(extra_key)
+            key = f"extra:{extra.title}"
+            if key not in found_sections:
+                found_sections.append(key)
+
+        # 3. Dynamic Ordering Fix: Always re-scan text to find the TRUE physical order.
+        # This overrides the LLM's "canonical" order (e.g. Education first) with the 
+        # actual layout of the user's document.
+        physical_order = _scan_order_from_text(raw_text, extra_titles)
+        
+        # Merge: use physical_order as the sequence, but only include sections 
+        # that actually have content (found_sections).
+        final_order = []
+        seen = set()
+        for s in physical_order:
+            if s in found_sections and s not in seen:
+                final_order.append(s)
+                seen.add(s)
+        
+        # Append any sections found by LLM that regex missed (edge cases)
+        for s in found_sections:
+            if s not in seen:
+                final_order.append(s)
+                seen.add(s)
+
+        resume.section_order = final_order
 
     return resume

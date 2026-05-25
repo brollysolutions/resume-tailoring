@@ -1,0 +1,32 @@
+{
+  "w_kw": 0.4,
+  "w_skill": 0.25,
+  "w_ngram": 0.05,
+  "w_edu": 0.1,
+  "w_sen": 0.1,
+  "w_cos": 0.1,
+  "p_low": 0.6124,
+  "p_high": 1.0,
+  "calibrated_at": "2026-05-22T05:34:31.753451+00:00",
+  "n_rows": 158,
+  "spearman": 0.3364,
+  "kendall_tau": 0.3988,
+  "source": "manual",
+  "section_weights": {
+    "projects": {
+      "w_kw": 0.3,
+      "w_skill": 0.25,
+      "w_ngram": 0.05,
+      "w_edu": 0.0,
+      "w_sen": 0.0,
+      "w_cos": 0.4,
+      "spearman": 0.4256,
+      "kendall_tau": 0.4317,
+      "n_rows": 24
+    }
+  },
+  "spearman_train": null,
+  "spearman_test": null,
+  "n_train": 0,
+  "n_test": 0
+}

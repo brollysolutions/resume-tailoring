@@ -19,10 +19,20 @@ class Settings(BaseSettings):
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6334
 
+    # Redis
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    CACHE_ENABLED: bool = True
+
     # LLM
     LLM_PROVIDER: str = "groq"
     GROQ_API_KEY: str | None = None
     OPENAI_API_KEY: str | None = None
+
+    # Groq model tiers (free open-source). FAST = bulk edits (low latency / high TPM),
+    # SMART = obedience-critical nodes (router, answer) where instruction-following matters.
+    GROQ_MODEL_FAST: str = "llama-3.1-8b-instant"
+    GROQ_MODEL_SMART: str = "llama-3.3-70b-versatile"
 
     # Set to false in dev so restarts are instant; model lazy-loads on first request
     PRELOAD_EMBEDDING_MODEL: bool = True
