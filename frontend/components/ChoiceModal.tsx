@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { X, FilePlus, Upload, Lock, ArrowRight } from "lucide-react";
+import { X, FilePlus, Upload, Lock } from "lucide-react";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 
 interface ChoiceModalProps {
   onClose: () => void;
@@ -9,6 +10,8 @@ interface ChoiceModalProps {
 }
 
 export function ChoiceModal({ onClose, onImport }: ChoiceModalProps) {
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -18,9 +21,9 @@ export function ChoiceModal({ onClose, onImport }: ChoiceModalProps) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="choice-modal-title">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-50 w-full max-w-2xl card shadow-2xl p-8">
+      <div ref={trapRef} className="relative z-50 w-full max-w-2xl card shadow-2xl p-8">
         <button
           onClick={onClose}
           aria-label="Close"
@@ -30,7 +33,7 @@ export function ChoiceModal({ onClose, onImport }: ChoiceModalProps) {
         </button>
 
         <div className="mb-8">
-          <h2 className="text-2xl font-semibold tracking-tight mb-2">
+          <h2 id="choice-modal-title" className="text-2xl font-semibold tracking-tight mb-2">
             How do you want to start?
           </h2>
           <p className="text-sm text-muted leading-relaxed">
@@ -39,9 +42,11 @@ export function ChoiceModal({ onClose, onImport }: ChoiceModalProps) {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <div
-            aria-disabled="true"
-            className="card p-6 flex flex-col items-start gap-4 opacity-60 cursor-not-allowed"
+          <button
+            type="button"
+            disabled
+            title="Coming soon — build a resume from scratch with AI"
+            className="text-left card p-6 flex flex-col items-start gap-4 opacity-60 cursor-not-allowed"
           >
             <div className="w-11 h-11 rounded bg-subtle flex items-center justify-center">
               <FilePlus className="w-5 h-5" />
@@ -50,15 +55,15 @@ export function ChoiceModal({ onClose, onImport }: ChoiceModalProps) {
               <div className="flex items-center gap-2 mb-2">
                 <p className="text-base font-semibold">Build Resume</p>
                 <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted bg-subtle border border-border rounded px-1.5 py-0.5">
-                  <Lock className="w-2.5 h-2.5" />
-                  Coming soon
+                  <Lock className="w-2.5 h-2.5" aria-hidden="true" />
+                  <span>Coming soon</span>
                 </span>
               </div>
               <p className="text-sm text-muted leading-relaxed">
                 Create a new resume from scratch with AI assistance.
               </p>
             </div>
-          </div>
+          </button>
 
           <button
             onClick={onImport}

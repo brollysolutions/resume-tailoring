@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Plus, Sparkles, Trash2, FolderPlus, Loader2, GripVertical, Check, Wand2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, Plus, Sparkles, Trash2, FolderPlus, Loader2, GripVertical, Wand2, Eye, EyeOff, Pencil } from "lucide-react";
 import type { GeneratedProject } from "@/types/resume";
 import { LineEditor } from "@/components/LineEditor";
 import { SkillsRegenStep } from "@/components/SkillsRegenStep";
@@ -28,16 +28,14 @@ export type {
 } from "@/types/resume";
 import type {
   Suggestion,
-  ContactInfo,
-  ExperienceEntry,
-  EducationEntry,
-  ProjectEntry,
   ResumeData,
 } from "@/types/resume";
 
 interface ResumeEditorProps {
   /** The tailored resume (after applying accepted suggestions). Read-only source of truth. */
   resume: ResumeData;
+  /** The currently selected template ID. */
+  templateId?: string;
   /** Suggestions still pending from the LLM — used to render the ✨ AI badge on matched lines. */
   pendingSuggestions: Suggestion[];
   /** All accepted suggestions for revert UI. */
@@ -76,10 +74,34 @@ const DEFAULT_SECTION_ORDER: string[] = [
   "education",
   "skills",
   "certifications",
+  "publications",
+  "awards",
+  "languages",
+  "volunteer",
+  "patents",
+  "talks",
+  "extra_sections",
 ];
+
+const SECTION_TITLES: Record<string, string> = {
+  summary: "Summary",
+  experience: "Experience",
+  projects: "Projects",
+  education: "Education",
+  skills: "Skills",
+  certifications: "Certifications",
+  publications: "Publications",
+  awards: "Awards",
+  languages: "Languages",
+  volunteer: "Volunteer",
+  patents: "Patents",
+  talks: "Talks",
+  extra_sections: "Extra Sections",
+};
 
 export function ResumeEditor({
   resume,
+  templateId,
   pendingSuggestions,
   accepted,
   onEmit,
@@ -107,29 +129,39 @@ export function ResumeEditor({
     return accepted.filter(a => a.mode !== "reorder_sections");
   }, [accepted]);
 
+  // Merge incoming section_order with the full default list so newly-added
+  // sections (publications, awards, …) still appear when the saved order is older.
+  const mergeOrder = (incoming?: string[]): string[] => {
+    const have = (incoming || []).filter((s) => DEFAULT_SECTION_ORDER.includes(s));
+    const missing = DEFAULT_SECTION_ORDER.filter((s) => !have.includes(s));
+    return have.length ? [...have, ...missing] : DEFAULT_SECTION_ORDER;
+  };
+
   // Local section order state for drag and drop
-  const [localOrder, setLocalOrder] = useState<string[]>(() => 
-    resume.section_order?.length ? resume.section_order : DEFAULT_SECTION_ORDER
-  );
+  const [localOrder, setLocalOrder] = useState<string[]>(() => mergeOrder(resume.section_order));
+  const [lastSyncedOrder, setLastSyncedOrder] = useState(resume.section_order);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
-  // Sync localOrder if resume.section_order changes from external source (like Apply)
-  useMemo(() => {
+  // Sync localOrder if resume.section_order changes from an external source (e.g. revert).
+  // Pattern: adjust state while rendering instead of useEffect → avoids cascading renders.
+  if (resume.section_order !== lastSyncedOrder) {
+    setLastSyncedOrder(resume.section_order);
     if (resume.section_order?.length) {
-      setLocalOrder(resume.section_order);
+      setLocalOrder(mergeOrder(resume.section_order));
     }
-  }, [resume.section_order]);
-
-  const hasOrderChanged = useMemo(() => {
-    const current = resume.section_order?.length ? resume.section_order : DEFAULT_SECTION_ORDER;
-    return JSON.stringify(localOrder) !== JSON.stringify(current);
-  }, [localOrder, resume.section_order]);
+  }
 
   const onDragStart = (e: React.DragEvent, idx: number) => {
     setDragIndex(idx);
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = "move";
+      // Set the drag ghost to the full section card, not just the grip icon.
+      const card = (e.currentTarget as HTMLElement).closest(".drag-section") as HTMLElement | null;
+      if (card) {
+        const rect = card.getBoundingClientRect();
+        e.dataTransfer.setDragImage(card, e.clientX - rect.left, e.clientY - rect.top);
+      }
     }
   };
 
@@ -150,11 +182,33 @@ export function ResumeEditor({
     setLocalOrder(next);
     setDragIndex(null);
     setDragOverIndex(null);
+    onReorderSections?.(next);
   };
 
   const onDragEnd = () => {
     setDragIndex(null);
     setDragOverIndex(null);
+  };
+
+  const moveSection = (from: number, to: number) => {
+    if (to < 0 || to >= localOrder.length || to === from) return;
+    const next = [...localOrder];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setLocalOrder(next);
+    onReorderSections?.(next);
+  };
+
+  const onGripKeyDown = (e: React.KeyboardEvent, index: number) => {
+    const meta = e.ctrlKey || e.metaKey;
+    if (!meta) return;
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      moveSection(index, index - 1);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      moveSection(index, index + 1);
+    }
   };
 
   // Map normalised line text → pending Suggestion (for the ✨ AI badge).
@@ -193,20 +247,71 @@ export function ResumeEditor({
     return m;
   }, [accepted]);
 
+  const hiddenSet = useMemo(
+    () => new Set((resume.hidden_sections || []).map((s) => s.toLowerCase())),
+    [resume.hidden_sections],
+  );
+
+  const titleOf = (key: string) => SECTION_TITLES[key] || key;
+
+  const emitField = (sec: string, idx: number | "", field: string, value: string, display?: string) =>
+    onEmit({
+      section: display || titleOf(sec),
+      mode: "replace_field",
+      original: `${sec}::${idx}::${field}`,
+      suggested: value,
+    });
+
+  const emitTopLevel = (field: string, value: string) =>
+    onEmit({
+      section: "Header",
+      mode: "replace_field",
+      original: `resume::0::${field}`,
+      suggested: value,
+    });
+
+  const emitContact = (field: string, value: string) =>
+    onEmit({
+      section: "Header",
+      mode: "replace_field",
+      original: `contact::0::${field}`,
+      suggested: value,
+    });
+
+  const emitAddEntry = (sec: string) =>
+    onEmit({
+      section: titleOf(sec),
+      mode: "add_entry",
+      original: sec,
+      suggested: "{}",
+    });
+
+  const emitDeleteEntry = (sec: string, idx: number) =>
+    onEmit({
+      section: titleOf(sec),
+      mode: "delete_entry",
+      original: `${sec}::${idx}`,
+      suggested: "",
+    });
+
+  const emitToggleHidden = (sec: string) =>
+    onEmit({
+      section: titleOf(sec),
+      mode: "toggle_hidden",
+      original: sec,
+      suggested: hiddenSet.has(sec) ? "show" : "hide",
+    });
+
+  const hideToggleFor = (sec: string) => (
+    <HideToggle
+      sectionKey={titleOf(sec)}
+      isHidden={hiddenSet.has(sec)}
+      onToggle={() => emitToggleHidden(sec)}
+    />
+  );
+
   return (
     <div className="space-y-3">
-      {/* Apply Order Button */}
-      {hasOrderChanged && onReorderSections && (
-        <div className="sticky top-[52px] z-20 flex justify-center pointer-events-none">
-          <button
-            onClick={() => onReorderSections(localOrder)}
-            className="pointer-events-auto btn-primary shadow-lg ring-4 ring-background flex items-center gap-2 py-2 px-4 text-xs font-bold animate-in fade-in slide-in-from-top-2"
-          >
-            <Check className="w-4 h-4" />
-            Apply Section Order to Preview
-          </button>
-        </div>
-      )}
 
       {/* Accepted-edits banner with collapsible undo list */}
       {visibleAccepted.length > 0 && (
@@ -241,7 +346,7 @@ export function ResumeEditor({
                     </p>
                     {a.suggested && (
                       <p className="text-muted italic truncate" title={a.suggested}>
-                        "{a.suggested}"
+                        &ldquo;{a.suggested}&rdquo;
                       </p>
                     )}
                   </div>
@@ -259,27 +364,98 @@ export function ResumeEditor({
         </div>
       )}
 
+      {/* Header — name + contact info. Always at the top, not part of section_order. */}
+      <SectionCard
+        title="Header"
+        editCount={editCountBySection["Header"] || 0}
+        headerExtras={null}
+      >
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <ScalarField
+            label="Name"
+            value={resume.name}
+            placeholder="Full name"
+            onCommit={(v) => emitTopLevel("name", v)}
+          />
+          <ScalarField
+            label="Email"
+            value={resume.contact?.email}
+            placeholder="you@example.com"
+            onCommit={(v) => emitContact("email", v)}
+          />
+          <ScalarField
+            label="Phone"
+            value={resume.contact?.phone}
+            placeholder="+1 555 555 5555"
+            onCommit={(v) => emitContact("phone", v)}
+          />
+          <ScalarField
+            label="Location"
+            value={resume.contact?.location}
+            placeholder="City, ST"
+            onCommit={(v) => emitContact("location", v)}
+          />
+          <ScalarField
+            label="LinkedIn"
+            value={resume.contact?.linkedin}
+            placeholder="linkedin.com/in/…"
+            onCommit={(v) => emitContact("linkedin", v)}
+          />
+          <ScalarField
+            label="GitHub"
+            value={resume.contact?.github}
+            placeholder="github.com/…"
+            onCommit={(v) => emitContact("github", v)}
+          />
+          <ScalarField
+            label="Website"
+            value={resume.contact?.website}
+            placeholder="example.com"
+            onCommit={(v) => emitContact("website", v)}
+          />
+        </div>
+      </SectionCard>
+
       {localOrder.map((sectionKey, index) => {
         const isDraggingThis = dragIndex === index;
         const isOver = dragOverIndex === index && dragIndex !== index;
         
+        const anyDragging = dragIndex !== null;
+        const isSectionHidden = hiddenSet.has(sectionKey);
+
         const dragHandle = (
-          <div 
-            draggable 
+          <div
+            draggable
+            tabIndex={0}
+            role="button"
+            aria-label={`Reorder ${titleOf(sectionKey)} section. Use Ctrl Arrow Up or Down.`}
             onDragStart={(e) => onDragStart(e, index)}
             onDragOver={(e) => onDragOver(e, index)}
             onDrop={(e) => onDrop(e, index)}
             onDragEnd={onDragEnd}
-            className="p-1 rounded hover:bg-subtle cursor-grab active:cursor-grabbing text-muted hover:text-foreground transition-colors" 
-            title="Drag to reorder"
+            onKeyDown={(e) => onGripKeyDown(e, index)}
+            title="Drag to reorder · Ctrl+↑/↓ to move with keyboard"
+            className={`p-1.5 rounded transition-colors cursor-grab active:cursor-grabbing select-none ${
+              isDraggingThis
+                ? "text-primary bg-primary/10"
+                : anyDragging
+                ? "text-primary/50 bg-primary/5"
+                : "text-muted hover:text-foreground hover:bg-subtle"
+            }`}
           >
-            <GripVertical className="w-3.5 h-3.5" />
+            <GripVertical className="w-4 h-4" />
           </div>
         );
 
-        const cardClasses = `transition-all ${isDraggingThis ? "opacity-40" : ""} ${isOver ? "border-t-4 border-primary pt-1" : ""}`;
+        const cardClasses = `drag-section transition-all duration-150 border-t-2 ${
+          isSectionHidden ? "opacity-50 saturate-0" : ""
+        } ${
+          isDraggingThis ? "opacity-40" : ""
+        } ${
+          isOver ? "border-primary" : "border-transparent"
+        }`;
 
-        if (sectionKey === "summary" && resume.summary) {
+        if (sectionKey === "summary") {
           return (
             <div key="summary" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
               <SectionCard
@@ -290,41 +466,50 @@ export function ResumeEditor({
                   <div className="flex items-center gap-1">
                     <IntensitySelector sectionKey="summary" />
                     {onCopilotFocus && <SectionWand title="Ask Copilot to tailor the Summary" onClick={() => onCopilotFocus({ section: "Summary", targetType: "section", label: "Summary" })} />}
+                    {hideToggleFor("summary")}
                     {dragHandle}
                   </div>
                 }
               >
-                <LineEditor
-                  section="Summary"
-                  text={resume.summary}
-                  wasEdited={wasEdited(resume.summary)}
-                  onCopilot={onCopilotFocus ? () => onCopilotFocus({ section: "Summary", targetType: "line", original: resume.summary || "" }) : undefined}
-                  onEdit={(newText) => onEmit({
-                    section: "Summary",
-                    mode: "replace",
-                    original: resume.summary || "",
-                    suggested: newText,
-                  })}
-                  onDelete={() => onEmit({
-                    section: "Summary",
-                    mode: "remove_line",
-                    original: resume.summary || "",
-                    suggested: "",
-                  })}
-                  badge={lineSuggestion(resume.summary) && (
-                    <AiPendingActions
-                      s={lineSuggestion(resume.summary)!}
-                      onAccept={onAcceptPending}
-                      onReject={onRejectPending}
-                    />
-                  )}
-                />
+                {resume.summary ? (
+                  <LineEditor
+                    section="Summary"
+                    text={resume.summary}
+                    wasEdited={wasEdited(resume.summary)}
+                    hideAdd
+                    onCopilot={onCopilotFocus ? () => onCopilotFocus({ section: "Summary", targetType: "line", original: resume.summary || "" }) : undefined}
+                    onEdit={(newText) => onEmit({
+                      section: "Summary",
+                      mode: "replace",
+                      original: resume.summary || "",
+                      suggested: newText,
+                    })}
+                    onDelete={() => onEmit({
+                      section: "Summary",
+                      mode: "remove_line",
+                      original: resume.summary || "",
+                      suggested: "",
+                    })}
+                    badge={lineSuggestion(resume.summary) && (
+                      <AiPendingActions
+                        s={lineSuggestion(resume.summary)!}
+                        onAccept={onAcceptPending}
+                        onReject={onRejectPending}
+                      />
+                    )}
+                  />
+                ) : (
+                  <AddFirstLine
+                    label="summary"
+                    onAdd={(t) => emitTopLevel("summary", t)}
+                  />
+                )}
               </SectionCard>
             </div>
           );
         }
 
-        if (sectionKey === "experience" && resume.experience && resume.experience.length > 0) {
+        if (sectionKey === "experience") {
           return (
             <div key="experience" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
               <SectionCard
@@ -335,37 +520,39 @@ export function ResumeEditor({
                   <div className="flex items-center gap-1">
                     <IntensitySelector sectionKey="experience" />
                     {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Experience" onClick={() => onCopilotFocus({ section: "Experience", targetType: "section", label: "Experience" })} />}
+                    {hideToggleFor("experience")}
                     {dragHandle}
                   </div>
                 }
               >
-                {resume.experience.map((exp, i) => (
+                {(resume.experience || []).map((exp, i) => (
                   <EntryBlock
                     key={`Experience::${i}`}
                     header={
-                      <>
-                        <span className="font-semibold">{exp.title || "(role)"}</span>
-                        {exp.company && <span className="text-muted"> @ {exp.company}</span>}
-                        {(exp.start_date || exp.end_date) && (
-                          <span className="text-muted text-[11px] ml-1">
-                            · {exp.start_date || ""}{exp.end_date ? ` – ${exp.end_date}` : ""}
-                          </span>
-                        )}
-                        {exp.location && <span className="text-muted text-[11px] ml-1">· {exp.location}</span>}
-                      </>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Title" value={exp.title} placeholder="(role)" onCommit={(v) => emitField("experience", i, "title", v, "Experience")} />
+                        <ScalarField label="Company" value={exp.company} placeholder="(company)" onCommit={(v) => emitField("experience", i, "company", v, "Experience")} />
+                        <ScalarField label="URL" value={exp.company_url} placeholder="https://…" onCommit={(v) => emitField("experience", i, "company_url", v, "Experience")} />
+                        <ScalarField label="Start" value={exp.start_date} placeholder="YYYY-MM" onCommit={(v) => emitField("experience", i, "start_date", v, "Experience")} />
+                        <ScalarField label="End" value={exp.end_date} placeholder="Present" onCommit={(v) => emitField("experience", i, "end_date", v, "Experience")} />
+                        <ScalarField label="Location" value={exp.location} placeholder="City, ST" onCommit={(v) => emitField("experience", i, "location", v, "Experience")} />
+                      </div>
                     }
                     actions={
-                      onCopilotFocus && (exp.bullets || []).length > 0 ? (
-                        <SectionWand
-                          title="Ask Copilot to rewrite this role"
-                          onClick={() => onCopilotFocus({
-                            section: "Experience",
-                            targetType: "entry",
-                            entryIndex: i,
-                            label: `${exp.title || "(role)"}${exp.company ? ` @ ${exp.company}` : ""}`,
-                          })}
-                        />
-                      ) : undefined
+                      <div className="flex items-center gap-2">
+                        {onCopilotFocus && (exp.bullets || []).length > 0 && (
+                          <SectionWand
+                            title="Ask Copilot to rewrite this role"
+                            onClick={() => onCopilotFocus({
+                              section: "Experience",
+                              targetType: "entry",
+                              entryIndex: i,
+                              label: `${exp.title || "(role)"}${exp.company ? ` @ ${exp.company}` : ""}`,
+                            })}
+                          />
+                        )}
+                        <DeleteEntryButton onClick={() => emitDeleteEntry("experience", i)} title="Delete this experience entry" />
+                      </div>
                     }
                   >
                     {(exp.bullets || []).map((b, j) => (
@@ -416,14 +603,13 @@ export function ResumeEditor({
                     )}
                   </EntryBlock>
                 ))}
+                <AddEntryButton label="experience entry" onClick={() => emitAddEntry("experience")} />
               </SectionCard>
             </div>
           );
         }
 
         if (sectionKey === "projects") {
-          const hasProjects = (resume.projects && resume.projects.length > 0) || onKeptChange;
-          if (!hasProjects) return null;
           return (
             <div key="projects" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
               <SectionCard
@@ -447,6 +633,7 @@ export function ResumeEditor({
                         projectScore={sectionScores?.["Projects"]}
                       />
                     )}
+                    {hideToggleFor("projects")}
                     {dragHandle}
                   </div>
                 }
@@ -455,10 +642,13 @@ export function ResumeEditor({
                   <EntryBlock
                     key={`Projects::${i}`}
                     header={
-                      <>
-                        <span className="font-semibold">{p.name || "(project)"}</span>
-                        {p.tech && <span className="text-muted text-[11px] ml-1">· {p.tech}</span>}
-                      </>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Name" value={p.name} placeholder="(project)" onCommit={(v) => emitField("projects", i, "name", v, "Projects")} />
+                        <ScalarField label="Link" value={p.url} placeholder="repo / site" onCommit={(v) => emitField("projects", i, "url", v, "Projects")} />
+                        <ScalarField label="Demo" value={p.demo_url} placeholder="live demo" onCommit={(v) => emitField("projects", i, "demo_url", v, "Projects")} />
+                        <ScalarField label="Tech" value={p.tech} placeholder="stack…" onCommit={(v) => emitField("projects", i, "tech", v, "Projects")} />
+                        <ScalarField label="Date" value={p.date} placeholder="YYYY-MM" onCommit={(v) => emitField("projects", i, "date", v, "Projects")} />
+                      </div>
                     }
                     actions={
                       <div className="flex items-center gap-2">
@@ -473,18 +663,7 @@ export function ResumeEditor({
                             })}
                           />
                         )}
-                        <button
-                          onClick={() => onEmit({
-                            section: "Projects",
-                            mode: "delete_project",
-                            original: p.name || "",
-                            suggested: "",
-                          })}
-                          title="Delete this project"
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-danger border border-danger/30 hover:bg-danger/10 transition-colors"
-                        >
-                          <Trash2 className="w-3 h-3" /> Delete
-                        </button>
+                        <DeleteEntryButton onClick={() => emitDeleteEntry("projects", i)} title="Delete this project" />
                       </div>
                     }
                   >
@@ -539,12 +718,13 @@ export function ResumeEditor({
                 {(!resume.projects || resume.projects.length === 0) && (
                   <EmptyHint text="No projects yet — generate some below." />
                 )}
+                <AddEntryButton label="project" onClick={() => emitAddEntry("projects")} />
               </SectionCard>
             </div>
           );
         }
 
-        if (sectionKey === "education" && resume.education && resume.education.length > 0) {
+        if (sectionKey === "education") {
           return (
             <div key="education" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
               <SectionCard
@@ -555,26 +735,27 @@ export function ResumeEditor({
                   <div className="flex items-center gap-1">
                     <IntensitySelector sectionKey="education" />
                     {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Education" onClick={() => onCopilotFocus({ section: "Education", targetType: "section", label: "Education" })} />}
+                    {hideToggleFor("education")}
                     {dragHandle}
                   </div>
                 }
               >
-                {resume.education.map((ed, i) => (
+                {(resume.education || []).map((ed, i) => (
                   <EntryBlock
                     key={`Education::${i}`}
                     header={
-                      <>
-                        <span className="font-semibold">
-                          {ed.degree || ""}{ed.field ? ` in ${ed.field}` : ""}
-                        </span>
-                        {ed.institution && <span className="text-muted"> @ {ed.institution}</span>}
-                        {(ed.start_date || ed.end_date) && (
-                          <span className="text-muted text-[11px] ml-1">
-                            · {ed.start_date || ""}{ed.end_date ? ` – ${ed.end_date}` : ""}
-                          </span>
-                        )}
-                        {ed.gpa && <span className="text-muted text-[11px] ml-1">· GPA {ed.gpa}</span>}
-                      </>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Institution" value={ed.institution} placeholder="(school)" onCommit={(v) => emitField("education", i, "institution", v, "Education")} />
+                        <ScalarField label="Degree" value={ed.degree} placeholder="B.S." onCommit={(v) => emitField("education", i, "degree", v, "Education")} />
+                        <ScalarField label="Field" value={ed.field} placeholder="Computer Science" onCommit={(v) => emitField("education", i, "field", v, "Education")} />
+                        <ScalarField label="Start" value={ed.start_date} placeholder="YYYY" onCommit={(v) => emitField("education", i, "start_date", v, "Education")} />
+                        <ScalarField label="End" value={ed.end_date} placeholder="YYYY" onCommit={(v) => emitField("education", i, "end_date", v, "Education")} />
+                        <ScalarField label="Location" value={ed.location} placeholder="City, ST" onCommit={(v) => emitField("education", i, "location", v, "Education")} />
+                        <ScalarField label="GPA" value={ed.gpa} placeholder="3.8/4.0" onCommit={(v) => emitField("education", i, "gpa", v, "Education")} />
+                      </div>
+                    }
+                    actions={
+                      <DeleteEntryButton onClick={() => emitDeleteEntry("education", i)} title="Delete this education entry" />
                     }
                   >
                     {(ed.details || []).map((d, j) => (
@@ -625,6 +806,7 @@ export function ResumeEditor({
                     )}
                   </EntryBlock>
                 ))}
+                <AddEntryButton label="education entry" onClick={() => emitAddEntry("education")} />
               </SectionCard>
             </div>
           );
@@ -635,6 +817,7 @@ export function ResumeEditor({
             <div key="skills" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
               <SkillsRegenStep
                 resume={resume}
+                templateId={templateId}
                 apiUrl={apiUrl!}
                 resumeId={resumeId!}
                 jdText={jdText!}
@@ -646,6 +829,7 @@ export function ResumeEditor({
                   <div className="flex items-center gap-1">
                     <IntensitySelector sectionKey="skills" />
                     {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Skills" onClick={() => onCopilotFocus({ section: "Skills", targetType: "section", label: "Skills" })} />}
+                    {hideToggleFor("skills")}
                     {dragHandle}
                   </div>
                 }
@@ -654,7 +838,8 @@ export function ResumeEditor({
           );
         }
 
-        if (sectionKey === "certifications" && resume.certifications && resume.certifications.length > 0) {
+        if (sectionKey === "certifications") {
+          const certs = resume.certifications || [];
           return (
             <div key="certifications" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
               <SectionCard
@@ -663,38 +848,350 @@ export function ResumeEditor({
                 headerExtras={
                   <div className="flex items-center gap-1">
                     {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Certifications" onClick={() => onCopilotFocus({ section: "Certifications", targetType: "section", label: "Certifications" })} />}
+                    {hideToggleFor("certifications")}
                     {dragHandle}
                   </div>
                 }
               >
-                {resume.certifications.map((c, i) => (
-                  <LineEditor
+                {certs.map((c, i) => (
+                  <EntryBlock
                     key={`Certifications::${i}`}
-                    section="Certifications"
-                    ownerId={`Certifications::${i}`}
-                    text={c}
-                    wasEdited={wasEdited(c)}
-                    onCopilot={onCopilotFocus ? () => onCopilotFocus({ section: "Certifications", targetType: "line", original: c }) : undefined}
-                    onEdit={(newText) => onEmit({
-                      section: "Certifications",
-                      mode: "replace",
-                      original: c,
-                      suggested: newText,
-                    })}
-                    onDelete={() => onEmit({
-                      section: "Certifications",
-                      mode: "remove_line",
-                      original: c,
-                      suggested: "",
-                    })}
-                    onAddBelow={(newText) => onEmit({
-                      section: "Certifications",
-                      mode: "add_line",
-                      original: `Certifications::${i}`,
-                      suggested: newText,
-                    })}
-                  />
+                    header={
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Name" value={c.name} placeholder="(cert)" onCommit={(v) => emitField("certifications", i, "name", v, "Certifications")} />
+                        <ScalarField label="Issuer" value={c.issuer} placeholder="(org)" onCommit={(v) => emitField("certifications", i, "issuer", v, "Certifications")} />
+                        <ScalarField label="Date" value={c.date} placeholder="YYYY" onCommit={(v) => emitField("certifications", i, "date", v, "Certifications")} />
+                        <ScalarField label="Link" value={c.credential_url} placeholder="https://…" onCommit={(v) => emitField("certifications", i, "credential_url", v, "Certifications")} />
+                      </div>
+                    }
+                    actions={<DeleteEntryButton onClick={() => emitDeleteEntry("certifications", i)} title="Delete this certification" />}
+                  >
+                    <span />
+                  </EntryBlock>
                 ))}
+                {certs.length === 0 && <EmptyHint text="No certifications yet." />}
+                <AddEntryButton label="certification" onClick={() => emitAddEntry("certifications")} />
+              </SectionCard>
+            </div>
+          );
+        }
+
+        if (sectionKey === "publications") {
+          const items = resume.publications || [];
+          return (
+            <div key="publications" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Publications"
+                editCount={editCountBySection["Publications"] || 0}
+                defaultOpen={items.length > 0}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    {hideToggleFor("publications")}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {items.map((p, i) => (
+                  <EntryBlock
+                    key={`Publications::${i}`}
+                    header={
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Title" value={p.title} placeholder="(title)" onCommit={(v) => emitField("publications", i, "title", v, "Publications")} />
+                        <ScalarField label="Authors" value={p.authors} placeholder="Last, F.; …" onCommit={(v) => emitField("publications", i, "authors", v, "Publications")} />
+                        <ScalarField label="Venue" value={p.venue} placeholder="Conf / Journal" onCommit={(v) => emitField("publications", i, "venue", v, "Publications")} />
+                        <ScalarField label="Year" value={p.year} placeholder="YYYY" onCommit={(v) => emitField("publications", i, "year", v, "Publications")} />
+                        <ScalarField label="DOI" value={p.doi} placeholder="10.xxxx/…" onCommit={(v) => emitField("publications", i, "doi", v, "Publications")} />
+                        <ScalarField label="URL" value={p.url} placeholder="https://…" onCommit={(v) => emitField("publications", i, "url", v, "Publications")} />
+                      </div>
+                    }
+                    actions={<DeleteEntryButton onClick={() => emitDeleteEntry("publications", i)} title="Delete this publication" />}
+                  >
+                    <span />
+                  </EntryBlock>
+                ))}
+                {items.length === 0 && <EmptyHint text="No publications yet." />}
+                <AddEntryButton label="publication" onClick={() => emitAddEntry("publications")} />
+              </SectionCard>
+            </div>
+          );
+        }
+
+        if (sectionKey === "awards") {
+          const items = resume.awards || [];
+          return (
+            <div key="awards" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Awards"
+                editCount={editCountBySection["Awards"] || 0}
+                defaultOpen={items.length > 0}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    {hideToggleFor("awards")}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {items.map((a, i) => (
+                  <EntryBlock
+                    key={`Awards::${i}`}
+                    header={
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Title" value={a.title} placeholder="(award)" onCommit={(v) => emitField("awards", i, "title", v, "Awards")} />
+                        <ScalarField label="Issuer" value={a.issuer} placeholder="(org)" onCommit={(v) => emitField("awards", i, "issuer", v, "Awards")} />
+                        <ScalarField label="Date" value={a.date} placeholder="YYYY-MM" onCommit={(v) => emitField("awards", i, "date", v, "Awards")} />
+                        <ScalarField label="Description" value={a.description} placeholder="One-line context" onCommit={(v) => emitField("awards", i, "description", v, "Awards")} />
+                      </div>
+                    }
+                    actions={<DeleteEntryButton onClick={() => emitDeleteEntry("awards", i)} title="Delete this award" />}
+                  >
+                    <span />
+                  </EntryBlock>
+                ))}
+                {items.length === 0 && <EmptyHint text="No awards yet." />}
+                <AddEntryButton label="award" onClick={() => emitAddEntry("awards")} />
+              </SectionCard>
+            </div>
+          );
+        }
+
+        if (sectionKey === "languages") {
+          const items = resume.languages || [];
+          return (
+            <div key="languages" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Languages"
+                editCount={editCountBySection["Languages"] || 0}
+                defaultOpen={items.length > 0}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    {hideToggleFor("languages")}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {items.map((l, i) => (
+                  <EntryBlock
+                    key={`Languages::${i}`}
+                    header={
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Language" value={l.name} placeholder="English" onCommit={(v) => emitField("languages", i, "name", v, "Languages")} />
+                        <ScalarField
+                          label="Proficiency"
+                          value={l.proficiency}
+                          options={["Native", "Fluent", "Conversational", "Basic"]}
+                          onCommit={(v) => emitField("languages", i, "proficiency", v, "Languages")}
+                        />
+                      </div>
+                    }
+                    actions={<DeleteEntryButton onClick={() => emitDeleteEntry("languages", i)} title="Delete this language" />}
+                  >
+                    <span />
+                  </EntryBlock>
+                ))}
+                {items.length === 0 && <EmptyHint text="No languages yet." />}
+                <AddEntryButton label="language" onClick={() => emitAddEntry("languages")} />
+              </SectionCard>
+            </div>
+          );
+        }
+
+        if (sectionKey === "volunteer") {
+          const items = resume.volunteer || [];
+          return (
+            <div key="volunteer" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Volunteer"
+                editCount={editCountBySection["Volunteer"] || 0}
+                defaultOpen={items.length > 0}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    {hideToggleFor("volunteer")}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {items.map((v, i) => (
+                  <EntryBlock
+                    key={`Volunteer::${i}`}
+                    header={
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Role" value={v.role} placeholder="(role)" onCommit={(val) => emitField("volunteer", i, "role", val, "Volunteer")} />
+                        <ScalarField label="Organization" value={v.organization} placeholder="(org)" onCommit={(val) => emitField("volunteer", i, "organization", val, "Volunteer")} />
+                        <ScalarField label="Start" value={v.start_date} placeholder="YYYY-MM" onCommit={(val) => emitField("volunteer", i, "start_date", val, "Volunteer")} />
+                        <ScalarField label="End" value={v.end_date} placeholder="Present" onCommit={(val) => emitField("volunteer", i, "end_date", val, "Volunteer")} />
+                        <ScalarField label="Location" value={v.location} placeholder="City, ST" onCommit={(val) => emitField("volunteer", i, "location", val, "Volunteer")} />
+                      </div>
+                    }
+                    actions={<DeleteEntryButton onClick={() => emitDeleteEntry("volunteer", i)} title="Delete this volunteer entry" />}
+                  >
+                    {(v.bullets || []).map((b, j) => (
+                      <LineEditor
+                        key={`Volunteer::${i}::${j}`}
+                        section="Volunteer"
+                        ownerId={`Volunteer::${i}`}
+                        text={b}
+                        wasEdited={wasEdited(b)}
+                        onEdit={(newText) => onEmit({ section: "Volunteer", mode: "replace", original: b, suggested: newText })}
+                        onDelete={() => onEmit({ section: "Volunteer", mode: "remove_line", original: b, suggested: "" })}
+                        onAddBelow={(newText) => onEmit({ section: "Volunteer", mode: "add_line", original: `Volunteer::${i}`, suggested: newText })}
+                      />
+                    ))}
+                    {(!v.bullets || v.bullets.length === 0) && (
+                      <AddFirstLine
+                        label="bullet"
+                        onAdd={(t) => onEmit({ section: "Volunteer", mode: "add_line", original: `Volunteer::${i}`, suggested: t })}
+                      />
+                    )}
+                  </EntryBlock>
+                ))}
+                {items.length === 0 && <EmptyHint text="No volunteer entries yet." />}
+                <AddEntryButton label="volunteer entry" onClick={() => emitAddEntry("volunteer")} />
+              </SectionCard>
+            </div>
+          );
+        }
+
+        if (sectionKey === "patents") {
+          const items = resume.patents || [];
+          return (
+            <div key="patents" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Patents"
+                editCount={editCountBySection["Patents"] || 0}
+                defaultOpen={items.length > 0}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    {hideToggleFor("patents")}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {items.map((p, i) => (
+                  <EntryBlock
+                    key={`Patents::${i}`}
+                    header={
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Title" value={p.title} placeholder="(title)" onCommit={(v) => emitField("patents", i, "title", v, "Patents")} />
+                        <ScalarField label="Number" value={p.number} placeholder="US 11,123,456" onCommit={(v) => emitField("patents", i, "number", v, "Patents")} />
+                        <ScalarField label="Date" value={p.date} placeholder="YYYY-MM" onCommit={(v) => emitField("patents", i, "date", v, "Patents")} />
+                        <ScalarField label="Status" value={p.status} options={["Pending", "Granted"]} onCommit={(v) => emitField("patents", i, "status", v, "Patents")} />
+                        <ScalarField label="Authors" value={p.authors} placeholder="Inventors" onCommit={(v) => emitField("patents", i, "authors", v, "Patents")} />
+                      </div>
+                    }
+                    actions={<DeleteEntryButton onClick={() => emitDeleteEntry("patents", i)} title="Delete this patent" />}
+                  >
+                    <span />
+                  </EntryBlock>
+                ))}
+                {items.length === 0 && <EmptyHint text="No patents yet." />}
+                <AddEntryButton label="patent" onClick={() => emitAddEntry("patents")} />
+              </SectionCard>
+            </div>
+          );
+        }
+
+        if (sectionKey === "talks") {
+          const items = resume.talks || [];
+          return (
+            <div key="talks" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Talks"
+                editCount={editCountBySection["Talks"] || 0}
+                defaultOpen={items.length > 0}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    {hideToggleFor("talks")}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {items.map((t, i) => (
+                  <EntryBlock
+                    key={`Talks::${i}`}
+                    header={
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Title" value={t.title} placeholder="(title)" onCommit={(v) => emitField("talks", i, "title", v, "Talks")} />
+                        <ScalarField label="Venue" value={t.venue} placeholder="(venue)" onCommit={(v) => emitField("talks", i, "venue", v, "Talks")} />
+                        <ScalarField label="Date" value={t.date} placeholder="YYYY-MM" onCommit={(v) => emitField("talks", i, "date", v, "Talks")} />
+                        <ScalarField label="Type" value={t.type} options={["Conference", "Workshop", "Seminar"]} onCommit={(v) => emitField("talks", i, "type", v, "Talks")} />
+                      </div>
+                    }
+                    actions={<DeleteEntryButton onClick={() => emitDeleteEntry("talks", i)} title="Delete this talk" />}
+                  >
+                    <span />
+                  </EntryBlock>
+                ))}
+                {items.length === 0 && <EmptyHint text="No talks yet." />}
+                <AddEntryButton label="talk" onClick={() => emitAddEntry("talks")} />
+              </SectionCard>
+            </div>
+          );
+        }
+
+        if (sectionKey === "extra_sections") {
+          const items = resume.extra_sections || [];
+          return (
+            <div key="extra_sections" className={cardClasses} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)}>
+              <SectionCard
+                title="Extra Sections"
+                editCount={editCountBySection["Extra Sections"] || 0}
+                defaultOpen={items.length > 0}
+                headerExtras={
+                  <div className="flex items-center gap-1">
+                    {hideToggleFor("extra_sections")}
+                    {dragHandle}
+                  </div>
+                }
+              >
+                {items.map((xs, i) => (
+                  <EntryBlock
+                    key={`ExtraSection::${i}`}
+                    header={
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <ScalarField label="Title" value={xs.title} placeholder="Section name" onCommit={(v) => emitField("extra_sections", i, "title", v, "Extra Sections")} />
+                        <ScalarField
+                          label="Type"
+                          value={xs.content_type}
+                          options={["entries", "text", "list"]}
+                          onCommit={(v) => emitField("extra_sections", i, "content_type", v, "Extra Sections")}
+                        />
+                      </div>
+                    }
+                    actions={<DeleteEntryButton onClick={() => emitDeleteEntry("extra_sections", i)} title="Delete this extra section" />}
+                  >
+                    {(xs.items || []).map((it, j) => (
+                      <div key={`ExtraSection::${i}::${j}`} className="border-l border-border/60 pl-2 mt-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                          <ScalarField label="Header" value={it.header} placeholder="(header)" onCommit={() => { /* item-level fields not yet supported */ }} />
+                          <ScalarField label="Subheader" value={it.subheader} placeholder="(subheader)" onCommit={() => { /* item-level fields not yet supported */ }} />
+                        </div>
+                        {it.text && (
+                          <LineEditor
+                            section="Extra Sections"
+                            text={it.text}
+                            marker=""
+                            hideAdd
+                            wasEdited={wasEdited(it.text)}
+                            onEdit={(newText) => onEmit({ section: "Extra Sections", mode: "replace", original: it.text || "", suggested: newText })}
+                            onDelete={() => onEmit({ section: "Extra Sections", mode: "remove_line", original: it.text || "", suggested: "" })}
+                          />
+                        )}
+                        {(it.bullets || []).map((b, k) => (
+                          <LineEditor
+                            key={`ExtraSection::${i}::${j}::${k}`}
+                            section="Extra Sections"
+                            text={b}
+                            wasEdited={wasEdited(b)}
+                            onEdit={(newText) => onEmit({ section: "Extra Sections", mode: "replace", original: b, suggested: newText })}
+                            onDelete={() => onEmit({ section: "Extra Sections", mode: "remove_line", original: b, suggested: "" })}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                  </EntryBlock>
+                ))}
+                {items.length === 0 && <EmptyHint text="No extra sections yet." />}
+                <AddEntryButton label="extra section" onClick={() => emitAddEntry("extra_sections")} />
               </SectionCard>
             </div>
           );
@@ -711,9 +1208,9 @@ function SectionWand({ onClick, title }: { onClick: () => void; title: string })
     <button
       onClick={onClick}
       title={title}
-      className="p-1 rounded hover:bg-primary/10 text-primary"
+      className="p-1.5 rounded transition-colors hover:bg-primary/10 text-muted hover:text-primary"
     >
-      <Wand2 className="w-3.5 h-3.5" />
+      <Wand2 className="w-4 h-4" />
     </button>
   );
 }
@@ -722,16 +1219,17 @@ function SectionCard({
   title,
   editCount = 0,
   headerExtras,
-  sectionScore,
+  defaultOpen = true,
   children,
 }: {
   title: string;
   editCount?: number;
   headerExtras?: React.ReactNode;
   sectionScore?: number;
+  defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
     <div className="card p-3 space-y-2">
@@ -845,7 +1343,7 @@ function AiPendingActions({
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-20 w-80 p-3 card shadow-xl">
+          <div className="absolute right-0 top-full mt-1 z-20 w-[min(20rem,90vw)] max-w-[20rem] p-3 card shadow-xl">
             <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1">
               AI suggests
             </p>
@@ -874,7 +1372,7 @@ function AiPendingActions({
 }
 
 function GenerateProjectsInlineButton({
-  resumeId, jdText, apiUrl, keptProjects, projectCount, projectNames, onKeptChange, nextSuggestionId, projectScore,
+  resumeId, jdText, apiUrl, projectCount, onKeptChange, projectScore,
 }: {
   resumeId: string;
   jdText: string;
@@ -911,7 +1409,7 @@ function GenerateProjectsInlineButton({
       if (projects.length > 0) {
         onKeptChange(projects);
       }
-    } catch (err) {
+    } catch {
       // silently fail
     } finally {
       setIsGenerating(false);
@@ -958,5 +1456,169 @@ function GenerateProjectsInlineButton({
         </button>
       )}
     </div>
+  );
+}
+
+/** Inline edit-on-click for a single string/enum field. Emits a `replace_field` suggestion. */
+function ScalarField({
+  label,
+  value,
+  placeholder,
+  options,
+  onCommit,
+  multiline,
+  className,
+}: {
+  label: string;
+  value: string | undefined;
+  placeholder?: string;
+  options?: string[];
+  onCommit: (next: string) => void;
+  multiline?: boolean;
+  className?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null>(null);
+
+  const start = () => {
+    setDraft(value || "");
+    setEditing(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const commit = () => {
+    const next = (draft || "").trim();
+    if (next !== (value || "").trim()) onCommit(next);
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setDraft(value || "");
+    setEditing(false);
+  };
+
+  if (editing) {
+    if (options && options.length > 0) {
+      return (
+        <span className={`inline-flex items-center gap-1 ${className || ""}`}>
+          <span className="text-[10px] uppercase tracking-wider text-muted">{label}</span>
+          <select
+            ref={(el) => { inputRef.current = el; }}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { e.preventDefault(); cancel(); }
+              if (e.key === "Enter") { e.preventDefault(); commit(); }
+            }}
+            className="bg-subtle/60 border border-border rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-primary"
+          >
+            <option value="">—</option>
+            {options.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </span>
+      );
+    }
+    if (multiline) {
+      return (
+        <span className={`inline-block ${className || ""}`}>
+          <span className="block text-[10px] uppercase tracking-wider text-muted mb-0.5">{label}</span>
+          <textarea
+            ref={(el) => { inputRef.current = el; }}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { e.preventDefault(); cancel(); }
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commit(); }
+            }}
+            rows={Math.max(1, Math.min(4, draft.split("\n").length))}
+            placeholder={placeholder}
+            className="w-full bg-subtle/60 border border-border rounded px-2 py-1 text-sm resize-none focus:outline-none focus:border-primary"
+          />
+        </span>
+      );
+    }
+    return (
+      <span className={`inline-flex items-center gap-1 ${className || ""}`}>
+        <span className="text-[10px] uppercase tracking-wider text-muted">{label}</span>
+        <input
+          ref={(el) => { inputRef.current = el; }}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") { e.preventDefault(); cancel(); }
+            if (e.key === "Enter") { e.preventDefault(); commit(); }
+          }}
+          placeholder={placeholder}
+          className="bg-subtle/60 border border-border rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-primary min-w-[8rem]"
+        />
+      </span>
+    );
+  }
+
+  const hasValue = !!(value && value.trim());
+  return (
+    <button
+      onClick={start}
+      title={`Edit ${label}`}
+      className={`group/sf inline-flex items-center gap-1 hover:bg-subtle/60 rounded px-1 py-0.5 transition-colors ${className || ""}`}
+    >
+      <span className="text-[10px] uppercase tracking-wider text-muted">{label}</span>
+      <span className={`text-xs ${hasValue ? "text-foreground" : "text-muted italic"}`}>
+        {hasValue ? value : (placeholder || "—")}
+      </span>
+      <Pencil className="w-2.5 h-2.5 text-muted opacity-0 group-hover/sf:opacity-100 transition-opacity" />
+    </button>
+  );
+}
+
+/** Per-section visibility toggle. Emits `toggle_hidden`. */
+function HideToggle({
+  sectionKey,
+  isHidden,
+  onToggle,
+}: {
+  sectionKey: string;
+  isHidden: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      title={isHidden ? `Show ${sectionKey} in preview` : `Hide ${sectionKey} from preview`}
+      className={`p-1.5 rounded transition-colors ${isHidden ? "bg-warning/10 text-warning hover:bg-warning/20" : "hover:bg-subtle text-muted hover:text-foreground"}`}
+    >
+      {isHidden ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+    </button>
+  );
+}
+
+/** "+ Add <label>" button at section footer. Emits `add_entry`. */
+function AddEntryButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="mt-2 inline-flex items-center gap-1 text-[11px] text-muted hover:text-foreground border border-dashed border-border hover:border-foreground/40 rounded px-2 py-1 transition-colors"
+    >
+      <Plus className="w-3 h-3" /> Add {label}
+    </button>
+  );
+}
+
+/** Small delete-entry button for entry headers. Emits `delete_entry`. */
+function DeleteEntryButton({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-danger border border-danger/30 hover:bg-danger/10 transition-colors"
+    >
+      <Trash2 className="w-3 h-3" /> Delete
+    </button>
   );
 }

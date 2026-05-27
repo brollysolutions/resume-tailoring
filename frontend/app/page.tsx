@@ -27,15 +27,19 @@ export default function Home() {
   const [templatesError, setTemplatesError] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
 
-  // Restore stage + template on mount
+  // Restore stage + template on mount. setState calls here synchronize React with
+  // localStorage (an external system) on one-shot mount — the lint rule over-flags
+  // this legitimate pattern.
   useEffect(() => {
     const savedStage = localStorage.getItem(STAGE_KEY) as Stage | null;
     const savedTemplate = localStorage.getItem(TEMPLATE_KEY);
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (savedTemplate) setSelectedTemplate(savedTemplate);
     if (savedStage === "import" && savedTemplate) setStage("import");
     else if (savedStage === "templates") setStage("templates");
     else if (savedStage === "choice") setStage("choice");
     setMounted(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   const goToStage = (s: Stage) => { setStage(s); saveStage(s); };

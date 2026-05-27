@@ -50,6 +50,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [pageHeight, setPageHeight] = useState(BASE_HEIGHT);
   const isDragging = useRef(false);
+  const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
   const fitWidth = useCallback(() => {
@@ -126,8 +127,8 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
         }
         const data = await res.json();
         setHtml(data.html || "");
-      } catch (err: any) {
-        setError(err.message || "Could not load preview.");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Could not load preview.");
       } finally {
         setIsLoading(false);
       }
@@ -175,6 +176,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     // Pan from anywhere — iframe has pointer-events:none so it never captures clicks.
     isDragging.current = true;
+    setDragging(true);
     dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
   };
 
@@ -188,6 +190,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
 
   const handleMouseUp = () => {
     isDragging.current = false;
+    setDragging(false);
   };
 
   const setZoomClamped = useCallback((nextZoom: number) => {
@@ -251,7 +254,10 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
     }
     if (resume.certifications && resume.certifications.length > 0) {
       let lines = 0;
-      for (const c of resume.certifications) lines += estimateLines(c);
+      for (const c of resume.certifications) {
+        const text = [c.name, c.issuer, c.date].filter(Boolean).join(" · ");
+        lines += estimateLines(text);
+      }
       sections.push({ name: "Certifications", lines });
     }
 
@@ -301,22 +307,22 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-2 mb-2 px-1">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+      <div className="flex items-center justify-between gap-2 mb-2 px-2 py-1.5 rounded-lg bg-subtle/50 border border-border">
+        <span className="text-xs font-semibold uppercase tracking-wider text-foreground/70 shrink-0">
           Preview
         </span>
         <div className="flex items-center gap-1">
           <select
             value={layoutDensity}
             onChange={(e) => setLayoutDensity(e.target.value)}
-            className="text-[11px] h-7 px-2 py-1 mr-1 rounded border border-border bg-white text-muted hover:text-foreground transition-colors outline-none focus:ring-1 focus:ring-primary/20"
+            className="text-[11px] h-7 px-2 py-1 mr-1 rounded border border-border bg-background text-muted hover:text-foreground transition-colors outline-none focus:ring-1 focus:ring-primary/20"
             title="Adjust layout density to fit on one page"
           >
             <option value="auto">Density: Auto</option>
-            <option value="expanded">Expanded</option>
+            <option value="expanded">Expanded — most whitespace</option>
             <option value="standard">Standard</option>
-            <option value="compact">Compact</option>
-            <option value="latex-tight">Tight</option>
+            <option value="compact">Compact — tighter spacing</option>
+            <option value="latex-tight">Tight — fit more on one page</option>
           </select>
           <button
             onClick={() => setZoomClamped(zoom * 0.9)}
@@ -404,7 +410,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
             <AlertTriangle className="w-3.5 h-3.5 text-amber-700 mt-0.5 shrink-0" />
             <div className="min-w-0 flex-1 space-y-1">
               <p className="font-semibold text-amber-900">
-                Resume runs ~{Math.round(overflowPx)}px over one page (~{overflowLines} extra line{overflowLines !== 1 ? "s" : ""}).
+                Resume runs ~{overflowLines} extra line{overflowLines !== 1 ? "s" : ""} past page 1.
               </p>
               <p className="text-amber-800">
                 Tip: remove ~{overflowLines} bullet{overflowLines !== 1 ? "s" : ""} from your longest section{resume?.summary && resume.summary.trim() ? ", or tighten the summary" : ""}.
@@ -428,7 +434,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
       {isNearEdge && !isLoading && (
         <div className="mb-2 rounded-md border border-border bg-subtle/40 px-3 py-1.5 text-[11px] inline-flex items-center gap-1.5 text-muted">
           <Info className="w-3 h-3" />
-          You&apos;re ~{Math.round(headroomPx)}px from spilling onto page 2.
+          Close to page-2 edge — add about {Math.max(1, Math.round(headroomPx / 18))} more line{Math.max(1, Math.round(headroomPx / 18)) !== 1 ? "s" : ""} before it spills.
         </div>
       )}
 
@@ -439,9 +445,9 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        className="relative flex-1 rounded-lg bg-slate-100 border border-border overflow-hidden"
+        className="relative flex-1 rounded-lg bg-subtle border border-border overflow-hidden"
         style={{
-          cursor: isDragging.current ? "grabbing" : "grab",
+          cursor: dragging ? "grabbing" : "grab",
           minHeight: "60vh",
         }}
       >

@@ -37,6 +37,13 @@
   button:disabled {
     cursor: not-allowed;
   }
+
+  /* Keyboard focus ring — applies to every focusable element so tab-nav is visible. */
+  :where(button, a, input, textarea, select, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
 }
 
 @layer utilities {
@@ -49,15 +56,15 @@
            bg-accent text-white text-sm font-medium
            hover:bg-accent-hover hover:scale-[1.02] hover:shadow-md
            active:scale-[0.97] transition-all duration-150
-           disabled:opacity-40 disabled:pointer-events-none;
+           disabled:opacity-60 disabled:pointer-events-none;
   }
 
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md
-           border border-border bg-white text-foreground text-sm font-medium
+           border border-border bg-card text-foreground text-sm font-medium
            hover:bg-subtle hover:scale-[1.02] hover:shadow-sm
            active:scale-[0.97] transition-all duration-150
-           disabled:opacity-40 disabled:pointer-events-none;
+           disabled:opacity-60 disabled:pointer-events-none;
   }
 
   .btn-ghost {
@@ -68,9 +75,9 @@
   }
 
   .input {
-    @apply w-full px-3 py-2.5 rounded-md border border-border bg-white text-sm
+    @apply w-full px-3 py-2.5 rounded-md border border-border bg-card text-sm
            placeholder:text-muted/70
-           focus:outline-none focus:border-foreground transition-colors;
+           focus:border-foreground transition-colors;
   }
 
   /* Thin, subtle scrollbar — visible only on hover for a clean look. */

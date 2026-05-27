@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Sparkles, Loader2, Bot, User, Cpu, Compass, X, Check, Wand2, FolderPlus, SkipForward, ChevronDown, ChevronUp } from "lucide-react";
+import { Send, Sparkles, Loader2, Bot, User, Cpu, Compass, X, Check, Wand2, FolderPlus, ChevronDown, ChevronUp } from "lucide-react";
 import type { Suggestion, GeneratedProject } from "@/types/resume";
 
 interface Message {
@@ -78,6 +78,9 @@ function describeSuggestion(s: Suggestion): { title: string; body?: React.ReactN
     try { order = JSON.parse(s.suggested || "[]"); } catch { /* ignore */ }
     return { title: "Reorder sections", body: <span className="text-muted">{order.join(" · ")}</span> };
   }
+  if (mode === "set_summary") {
+    return { title: "Generate Summary", body: <p className="text-foreground">{s.suggested}</p> };
+  }
   if (mode === "remove_line") {
     return { title: `Remove line from ${section}`, body: <span className="line-through text-muted">{s.original}</span> };
   }
@@ -110,7 +113,7 @@ const DOMAIN_COLORS: Record<string, string> = {
   product: "bg-purple-50 text-purple-700 border-purple-200",
   infra: "bg-orange-50 text-orange-700 border-orange-200",
   ml: "bg-green-50 text-green-700 border-green-200",
-  tools: "bg-slate-100 text-slate-700 border-slate-200",
+  tools: "bg-subtle text-foreground border-border",
 };
 
 function ChatProjectCard({
@@ -125,21 +128,21 @@ function ChatProjectCard({
   const [expanded, setExpanded] = useState(false);
   const domainClass = DOMAIN_COLORS[project.domain_tag] ?? DOMAIN_COLORS.tools;
   return (
-    <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-2.5 space-y-1.5">
+    <div className="rounded-lg border border-emerald-200/70 bg-emerald-50/40 p-2.5 space-y-1.5">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <p className="text-[12px] font-semibold text-slate-800 leading-snug">{project.name}</p>
+            <p className="text-[12px] font-semibold text-foreground leading-snug">{project.name}</p>
             <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-medium border ${domainClass}`}>
               {project.domain_tag}
             </span>
           </div>
-          <p className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">{project.tech}</p>
+          <p className="text-[10px] text-muted font-mono mt-0.5 truncate">{project.tech}</p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={onSkip}
-            className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+            className="p-1 rounded hover:bg-subtle text-muted hover:text-foreground transition-colors"
             title="Skip this project"
           >
             <X className="w-3.5 h-3.5" />
@@ -154,7 +157,7 @@ function ChatProjectCard({
       </div>
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+        className="flex items-center gap-1 text-[10px] text-muted hover:text-foreground transition-colors"
       >
         {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
         {expanded ? "Hide bullets" : `${project.bullets.length} bullet${project.bullets.length !== 1 ? "s" : ""}`}
@@ -162,8 +165,8 @@ function ChatProjectCard({
       {expanded && (
         <ul className="space-y-0.5 pl-1">
           {project.bullets.map((b, i) => (
-            <li key={i} className="text-[10px] text-slate-600 flex gap-1.5">
-              <span className="text-slate-400 shrink-0">•</span>
+            <li key={i} className="text-[10px] text-muted flex gap-1.5">
+              <span className="text-muted/60 shrink-0">•</span>
               <span>{b}</span>
             </li>
           ))}
@@ -208,7 +211,7 @@ export function CopilotChat({
       {
         id: "initial",
         sender: "copilot",
-        text: "Hi! I'm your tailoring copilot. Tell me what to change — e.g. \"tailor my experience to this JD\" — or click the ✦ wand on any line to edit it here. I'll propose changes for you to review and accept.",
+        text: "Tell me what to change — tailor a section, rewrite bullets, align skills, or generate projects. Click the wand on any line to target it directly.",
         timestamp: new Date(),
       },
     ];
@@ -356,7 +359,7 @@ export function CopilotChat({
   };
 
   return (
-    <div className="flex flex-col h-full bg-white border border-slate-200 rounded-xl overflow-hidden shadow-lg shadow-blue-500/5">
+    <div className="flex flex-col h-full bg-card border border-border rounded-xl overflow-hidden shadow-lg shadow-blue-500/5">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
         <div className="flex items-center gap-2.5">
@@ -379,7 +382,7 @@ export function CopilotChat({
       </div>
 
       {/* Message Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin bg-white">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin bg-card">
         {messages.map((msg) => (
           <div key={msg.id} className="space-y-2">
             <div
@@ -390,7 +393,7 @@ export function CopilotChat({
               <div
                 className={`flex items-center justify-center w-7 h-7 rounded-full flex-shrink-0 shadow-sm ${
                   msg.sender === "user"
-                    ? "bg-slate-100 text-slate-600"
+                    ? "bg-subtle text-muted"
                     : "bg-gradient-to-tr from-blue-500 to-indigo-600 text-white"
                 }`}
               >
@@ -400,7 +403,7 @@ export function CopilotChat({
                 className={`px-3.5 py-2 rounded-2xl text-xs leading-relaxed ${
                   msg.sender === "user"
                     ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-none shadow-md shadow-blue-500/10 font-medium"
-                    : "bg-slate-50 border border-slate-100 text-slate-800 rounded-tl-none shadow-sm"
+                    : "bg-subtle border border-border text-foreground rounded-tl-none shadow-sm"
                 }`}
               >
                 {msg.text}
@@ -420,17 +423,17 @@ export function CopilotChat({
                         state === "accepted"
                           ? "border-success/40 bg-success/5"
                           : state === "rejected"
-                          ? "border-border bg-slate-50 opacity-50"
-                          : "border-blue-100 bg-blue-50/40"
+                          ? "border-border bg-subtle opacity-50"
+                          : "border-blue-200/60 bg-blue-50/40"
                       }`}
                     >
-                      <p className="font-semibold text-slate-700 mb-1">{title}</p>
-                      {body && <div className="text-slate-600 leading-relaxed mb-1.5">{body}</div>}
+                      <p className="font-semibold text-foreground mb-1">{title}</p>
+                      {body && <div className="text-muted leading-relaxed mb-1.5">{body}</div>}
                       {!state && (
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => reject(s.id)}
-                            className="px-2 py-0.5 rounded text-[10px] text-muted hover:text-foreground hover:bg-slate-100 transition-colors"
+                            className="px-2 py-0.5 rounded text-[10px] text-muted hover:text-foreground hover:bg-subtle transition-colors"
                           >
                             Reject
                           </button>
@@ -467,7 +470,7 @@ export function CopilotChat({
             <div className="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 text-white flex-shrink-0 shadow-sm animate-pulse">
               <Bot className="w-3.5 h-3.5" />
             </div>
-            <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-slate-50 border border-slate-100 text-xs text-slate-500 rounded-tl-none shadow-sm animate-pulse">
+            <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-subtle border border-border text-xs text-muted rounded-tl-none shadow-sm animate-pulse">
               <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
               <span>Working on it…</span>
             </div>
@@ -476,9 +479,9 @@ export function CopilotChat({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Preset Pills */}
-      {messages.length === 1 && !isLoading && !focus && (
-        <div className="px-4 py-2.5 flex flex-wrap gap-2 border-t border-slate-100 bg-white">
+      {/* Preset Pills — persistent so returning users can rediscover them */}
+      {!isLoading && !focus && (
+        <div className="px-4 py-2.5 flex flex-wrap gap-2 border-t border-border bg-card">
           {PRESET_PILLS.map((pill, idx) => {
             const Icon = pill.icon;
             return (
@@ -497,8 +500,8 @@ export function CopilotChat({
 
       {/* Focus chip */}
       {focus && (
-        <div className="px-3 pt-2 bg-white">
-          <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50/60 px-2.5 py-1.5">
+        <div className="px-3 pt-2 bg-card">
+          <div className="flex items-start gap-2 rounded-lg border border-blue-200/70 bg-blue-50/60 px-2.5 py-1.5">
             <Wand2 className="w-3.5 h-3.5 text-blue-600 mt-0.5 shrink-0" />
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-700">
@@ -509,7 +512,7 @@ export function CopilotChat({
                   : `Editing this ${focus.section} line`}
               </p>
               {(focus.targetType === "line" ? focus.original : focus.label) && (
-                <p className="text-[11px] text-slate-600 truncate" title={focus.targetType === "line" ? focus.original : focus.label}>
+                <p className="text-[11px] text-muted truncate" title={focus.targetType === "line" ? focus.original : focus.label}>
                   {focus.targetType === "line" ? focus.original : focus.label}
                 </p>
               )}
@@ -527,7 +530,7 @@ export function CopilotChat({
 
       {/* Pending project review cards */}
       {pendingProjects.length > 0 && (
-        <div className="px-3 pb-2 space-y-2 bg-white border-t border-slate-100 pt-2">
+        <div className="px-3 pb-2 space-y-2 bg-card border-t border-border pt-2">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
             <FolderPlus className="w-3 h-3" />
             {pendingProjects.length} project{pendingProjects.length !== 1 ? "s" : ""} to review
@@ -544,7 +547,7 @@ export function CopilotChat({
       )}
 
       {/* Input Form */}
-      <div className="p-3 border-t border-slate-100 bg-white">
+      <div className="p-3 border-t border-border bg-card">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -564,7 +567,7 @@ export function CopilotChat({
                 ? "What should I change about this line?"
                 : "Instruct the copilot to tailor your resume…"
             }
-            className="flex-1 min-w-0 bg-white border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 rounded-lg px-3 py-2 text-xs transition-all disabled:opacity-50 text-slate-800 outline-none"
+            className="flex-1 min-w-0 bg-card border border-border focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 rounded-lg px-3 py-2 text-xs transition-all disabled:opacity-50 text-foreground outline-none"
           />
           <button
             type="submit"

@@ -8,6 +8,8 @@ const ACCEPTED = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 
+const MAX_BYTES = 10 * 1024 * 1024;
+
 interface UploadZoneProps {
   templateId: string;
   onUploaded?: (data: { resume_id: string; keywords: string[] }) => void;
@@ -31,7 +33,7 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!isUploading) { setAnalyzeStep(0); return; }
+    if (!isUploading) return;
     const id = setInterval(() => setAnalyzeStep(s => Math.min(s + 1, ANALYZE_STEPS.length - 1)), 1800);
     return () => clearInterval(id);
   }, [isUploading]);
@@ -49,6 +51,10 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
   const accept = (f: File) => {
     if (!ACCEPTED.includes(f.type)) {
       setError("Only PDF and DOCX files are supported.");
+      return;
+    }
+    if (f.size > MAX_BYTES) {
+      setError(`File is ${(f.size / 1024 / 1024).toFixed(1)} MB. Max is 10 MB.`);
       return;
     }
     setError(null);
@@ -69,6 +75,7 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
 
   const onUpload = async () => {
     if (!file) return;
+    setAnalyzeStep(0);
     setIsUploading(true);
     setError(null);
     const controller = new AbortController();
@@ -101,9 +108,9 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
       window.location.href = `/job-search?keywords=${encodeURIComponent(
         keywordsQuery
       )}&resume_id=${data.resume_id}`;
-    } catch (err: any) {
-      if (err.name === "AbortError") return;
-      setError(err.message || "Something went wrong.");
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      setError(err instanceof Error ? err.message : "Something went wrong.");
       setIsUploading(false);
     }
   };
@@ -190,9 +197,11 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
         <button
           onClick={onUpload}
           disabled={isUploading}
+          aria-live="polite"
+          aria-label={isUploading ? "Analyzing resume" : "Continue with this file"}
           className="w-full rounded-lg px-4 py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-all text-white"
           style={isUploading ? {
-            background: "linear-gradient(90deg, #1d4ed8, #3b82f6, #60a5fa, #3b82f6, #1d4ed8)",
+            background: "linear-gradient(90deg, var(--color-accent), var(--color-foreground), var(--color-accent))",
             backgroundSize: "300% 100%",
             animation: "gradientShift 2s ease infinite",
             cursor: "default",

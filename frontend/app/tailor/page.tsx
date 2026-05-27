@@ -3,11 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ResumePreview } from "@/components/ResumePreview";
 import { ResumeEditor } from "@/components/ResumeEditor";
-import { GenerateProjectsStep } from "@/components/StepContent";
-import { Tabs } from "@/components/Tabs";
 import type { ResumeData, Suggestion, GeneratedProject } from "@/types/resume";
 type EditorSuggestion = Suggestion;
-import { Loader2, ArrowLeft, Sparkles, RefreshCw, MessageSquare, Sliders, FileText, Briefcase, GraduationCap, Cpu, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, ArrowLeft, Sparkles, RefreshCw } from "lucide-react";
 import { applySuggestionsClient } from "@/lib/applyResume";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CopilotChat, type CopilotFocus } from "@/components/CopilotChat";
@@ -60,7 +58,6 @@ function TailorPageContent() {
   // Projects generated via chat copilot — reviewed per-card, appended additively
   const [chatGenProjects, setChatGenProjects] = useState<GeneratedProject[]>([]);
   const [nextSuggestionId, setNextSuggestionId] = useState<number>(10000);
-  const [showGenerateProjects, setShowGenerateProjects] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [copilotFocus, setCopilotFocus] = useState<CopilotFocus | null>(null);
   // Version counter — increments on every accepted edit (copilot or manual) so
@@ -313,7 +310,7 @@ function TailorPageContent() {
     recalcMatchRef.current = recalcMatch;
   }, [recalcMatch]);
 
-  const recalcTimerRef = useRef<any>(null);
+  const recalcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scheduleRecalc = useCallback(() => {
     if (recalcTimerRef.current) {
@@ -345,18 +342,25 @@ function TailorPageContent() {
   }, [nextSuggestionId, scheduleRecalc]);
 
   // No-op stubs kept for ResumeEditor prop compatibility (AI suggestions removed).
-  const handleAcceptPending = useCallback((_id: number, _edited: string) => {}, []);
-  const handleRejectPending = useCallback((_id: number) => {}, []);
+  const handleAcceptPending = useCallback(() => {}, []);
+  const handleRejectPending = useCallback(() => {}, []);
 
   const handleReorderSections = useCallback((newOrder: string[]) => {
-    const sg: Omit<Suggestion, "id"> = {
+    const withId: Suggestion = {
       section: "Global",
       mode: "reorder_sections",
       suggested: JSON.stringify(newOrder),
       reasoning: "User reordered sections",
+      id: nextSuggestionId,
     };
-    handleEmit(sg);
-  }, [handleEmit]);
+    setNextSuggestionId((n) => n + 1);
+    // Replace any prior reorder suggestion so the approved list doesn't grow unboundedly.
+    setApproved((prev) => [...prev.filter((s) => s.mode !== "reorder_sections"), withId]);
+    setTailoredResume((prev) => prev ? applySuggestionsClient(prev, [withId]) : prev);
+    setPreviewKey((k) => k + 1);
+    setStaleScore(true);
+    scheduleRecalc();
+  }, [nextSuggestionId, scheduleRecalc]);
 
   // Revert: pop from approved, rebuild local resume from original + remaining approved.
   const handleRevert = useCallback((id: number) => {
@@ -487,7 +491,8 @@ function TailorPageContent() {
           return next;
         });
       } else if (d.type === "generate_projects") {
-        void runGenerateProjects({ count: (d as any).count, more: (d as any).more });
+        const gd = d as { count?: number; more?: boolean };
+        void runGenerateProjects({ count: gd.count, more: gd.more });
       }
     }
   }, [originalResume, scheduleRecalc, runGenerateProjects]);
@@ -621,6 +626,7 @@ function TailorPageContent() {
           ) : tailoredResume ? (
             <ResumeEditor
               resume={tailoredResume}
+              templateId={templateId}
               pendingSuggestions={[] as EditorSuggestion[]}
               accepted={approved as EditorSuggestion[]}
               onEmit={(s) => handleEmit(s as Omit<Suggestion, "id">)}

@@ -7,7 +7,8 @@
  * original until the next preview re-render catches up.
  *
  * Supported modes (must mirror backend):
- *   - Non-Skills: replace, remove_line, add_line, replace_field, delete_project
+ *   - Non-Skills: replace, set_summary, remove_line, add_line, replace_field, delete_project,
+ *                 add_entry, delete_entry, toggle_hidden
  *   - Skills:     add_skill, remove_skill, rename_category, delete_category, move_skill
  *                 (explicit fields: category, skill, target_category, is_new_category)
  */
@@ -60,8 +61,25 @@ function applyReplace(data: ResumeData, original: string, suggested: string) {
   for (const cat of data.skills || []) {
     if (replaceInList(cat.skills, original, suggested)) return;
   }
+  for (const v of data.volunteer || []) {
+    if (replaceInList(v.bullets, original, suggested)) return;
+  }
+  for (const xs of data.extra_sections || []) {
+    for (const it of xs.items || []) {
+      if (replaceInList(it.bullets, original, suggested)) return;
+      if (it.text && sameText(it.text, original)) {
+        it.text = suggested;
+        return;
+      }
+    }
+  }
   if (data.certifications) {
-    replaceInList(data.certifications, original, suggested);
+    for (const cert of data.certifications) {
+      if (cert.name && sameText(cert.name, original)) {
+        cert.name = suggested;
+        return;
+      }
+    }
   }
 }
 
@@ -79,8 +97,25 @@ function applyRemoveLine(data: ResumeData, original: string) {
   for (const ed of data.education || []) {
     if (removeFromList(ed.details, original)) return;
   }
+  for (const v of data.volunteer || []) {
+    if (removeFromList(v.bullets, original)) return;
+  }
+  for (const xs of data.extra_sections || []) {
+    for (const it of xs.items || []) {
+      if (removeFromList(it.bullets, original)) return;
+      if (it.text && sameText(it.text, original)) {
+        it.text = "";
+        return;
+      }
+    }
+  }
   if (data.certifications) {
-    removeFromList(data.certifications, original);
+    for (let i = 0; i < data.certifications.length; i++) {
+      if (sameText(data.certifications[i].name || "", original)) {
+        data.certifications.splice(i, 1);
+        return;
+      }
+    }
   }
 }
 
@@ -100,8 +135,11 @@ function applyAddLine(data: ResumeData, ownerSpec: string, line: string) {
   } else if (secLower === "education") {
     const ed = (data.education || [])[idx];
     if (ed) { ed.details = [...(ed.details || []), line]; }
+  } else if (secLower === "volunteer") {
+    const v = (data.volunteer || [])[idx];
+    if (v) { v.bullets = [...(v.bullets || []), line]; }
   } else if (secLower === "certifications" || secLower === "certification") {
-    data.certifications = [...(data.certifications || []), line];
+    data.certifications = [...(data.certifications || []), { name: line }];
   }
 }
 
@@ -125,8 +163,16 @@ function applyReplaceBullets(data: ResumeData, spec: string, bulletsJson: string
     data.projects[idx].bullets = bullets;
   } else if (secLower === "education" && data.education?.[idx]) {
     data.education[idx].details = bullets;
+  } else if (secLower === "volunteer" && data.volunteer?.[idx]) {
+    data.volunteer[idx].bullets = bullets;
   }
 }
+
+const SCALAR_SECTIONS = new Set([
+  "experience", "projects", "education",
+  "publications", "awards", "languages",
+  "volunteer", "patents", "talks", "extra_sections",
+]);
 
 function applyReplaceField(data: ResumeData, spec: string, value: string) {
   const parts = spec.split("::");
@@ -137,14 +183,105 @@ function applyReplaceField(data: ResumeData, spec: string, value: string) {
     data.contact = { ...(data.contact || {}), [field]: value };
     return;
   }
+  if (secLower === "resume") {
+    // Top-level scalars on the Resume itself (e.g. name).
+    (data as Record<string, unknown>)[field] = value;
+    return;
+  }
   const idx = parseInt(idxStr, 10);
   if (Number.isNaN(idx)) return;
-  if (secLower === "experience" && data.experience?.[idx]) {
-    (data.experience[idx] as Record<string, unknown>)[field] = value;
-  } else if (secLower === "projects" && data.projects?.[idx]) {
-    (data.projects[idx] as Record<string, unknown>)[field] = value;
-  } else if (secLower === "education" && data.education?.[idx]) {
-    (data.education[idx] as Record<string, unknown>)[field] = value;
+  if (!SCALAR_SECTIONS.has(secLower)) return;
+  const list = (data as unknown as Record<string, unknown[]>)[secLower];
+  if (!Array.isArray(list)) return;
+  const entry = list[idx] as Record<string, unknown> | undefined;
+  if (!entry) return;
+  entry[field] = value;
+}
+
+function _blankEntry(section: string): Record<string, unknown> {
+  switch (section) {
+    case "experience":
+      return { title: "", company: "", location: "", start_date: "", end_date: "", bullets: [] };
+    case "education":
+      return { institution: "", degree: "", field: "", location: "", start_date: "", end_date: "", gpa: "", details: [] };
+    case "projects":
+      return { name: "", tech: "", date: "", bullets: [] };
+    case "publications":
+      return { title: "New publication", authors: "", venue: "", year: "", doi: "", url: "" };
+    case "awards":
+      return { title: "New award", issuer: "", date: "", description: "" };
+    case "languages":
+      return { name: "New language", proficiency: "" };
+    case "volunteer":
+      return { role: "New role", organization: "", location: "", start_date: "", end_date: "", bullets: [] };
+    case "patents":
+      return { title: "New patent", number: "", date: "", status: "", authors: "" };
+    case "talks":
+      return { title: "New talk", venue: "", date: "", type: "" };
+    case "extra_sections":
+      return { title: "New Section", content_type: "entries", items: [] };
+    default:
+      return {};
+  }
+}
+
+const ADDABLE_SECTIONS = new Set([
+  "experience", "education", "projects",
+  "publications", "awards", "languages",
+  "volunteer", "patents", "talks", "extra_sections",
+]);
+
+function applyAddEntry(data: ResumeData, sectionKey: string, initialJson: string) {
+  const sec = (sectionKey || "").toLowerCase();
+  if (!ADDABLE_SECTIONS.has(sec)) return;
+  let initial: Record<string, unknown> | null = null;
+  if (initialJson && initialJson !== "{}") {
+    try {
+      const parsed = JSON.parse(initialJson);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        initial = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // ignore — fall back to blank
+    }
+  }
+  const entry = { ..._blankEntry(sec), ...(initial || {}) };
+  const bag = data as unknown as Record<string, unknown[]>;
+  if (!Array.isArray(bag[sec])) bag[sec] = [];
+  bag[sec].push(entry);
+  // ExtraSections render via `extra:<title>` keys in section_order. Inject one so the new entry shows up.
+  if (sec === "extra_sections") {
+    const title = ((entry as { title?: string }).title || "New Section").trim();
+    const tag = `extra:${title}`;
+    const order = (data.section_order = [...(data.section_order || [])]);
+    if (!order.includes(tag)) order.push(tag);
+  }
+}
+
+function applyDeleteEntry(data: ResumeData, spec: string) {
+  const parts = spec.split("::");
+  if (parts.length !== 2) return;
+  const [sec, idxStr] = parts;
+  const secLower = sec.toLowerCase();
+  if (!ADDABLE_SECTIONS.has(secLower)) return;
+  const idx = parseInt(idxStr, 10);
+  if (Number.isNaN(idx)) return;
+  const list = (data as unknown as Record<string, unknown[]>)[secLower];
+  if (!Array.isArray(list)) return;
+  if (idx < 0 || idx >= list.length) return;
+  list.splice(idx, 1);
+}
+
+function applyToggleHidden(data: ResumeData, sectionKey: string, action: string) {
+  const sec = (sectionKey || "").toLowerCase();
+  if (!sec) return;
+  const hidden = (data.hidden_sections = [...(data.hidden_sections || [])]);
+  const has = hidden.includes(sec);
+  const want = action.toLowerCase();
+  if (want === "hide" && !has) hidden.push(sec);
+  else if (want === "show" && has) data.hidden_sections = hidden.filter((s) => s !== sec);
+  else if (want === "toggle") {
+    data.hidden_sections = has ? hidden.filter((s) => s !== sec) : [...hidden, sec];
   }
 }
 
@@ -249,6 +386,27 @@ export function applySuggestionsClient(
       } catch {
         // ignore parse error
       }
+      continue;
+    }
+
+    if (mode === "add_entry") {
+      if (!original) continue;
+      applyAddEntry(data, original, sg.suggested ?? "");
+      continue;
+    }
+    if (mode === "delete_entry") {
+      if (!original) continue;
+      applyDeleteEntry(data, original);
+      continue;
+    }
+    if (mode === "toggle_hidden") {
+      if (!original) continue;
+      applyToggleHidden(data, original, suggested || "toggle");
+      continue;
+    }
+
+    if (mode === "set_summary") {
+      if (suggested) data.summary = suggested;
       continue;
     }
 

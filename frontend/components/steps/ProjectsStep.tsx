@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import { DiffViewer } from "@/components/DiffViewer";
 import type { Suggestion } from "@/types/resume";
@@ -18,19 +18,22 @@ interface ProjectsStepProps {
 export function ProjectsStep({
   pending, projectNames, onApprove, onReject, onContinue, onSkip, continueLabel,
 }: ProjectsStepProps) {
-  const [projectIndices, setProjectIndices] = useState<number[] | null>(null);
+  const [frozenIndices, setFrozenIndices] = useState<number[] | null>(null);
   const [carouselIdx, setCarouselIdx] = useState(0);
 
-  useEffect(() => {
-    if (projectIndices !== null) return;
+  // Freeze the project index set on first non-empty `pending` payload; later updates
+  // change suggestion bodies, not which projects we walk through. Uses "adjust state
+  // while rendering" to avoid setState-in-effect cascades.
+  if (frozenIndices === null) {
     const set = new Set<number>();
     pending.forEach((s) => {
       if (typeof s.project_index === "number") set.add(s.project_index);
     });
     if (set.size > 0) {
-      setProjectIndices(Array.from(set).sort((a, b) => a - b));
+      setFrozenIndices(Array.from(set).sort((a, b) => a - b));
     }
-  }, [pending, projectIndices]);
+  }
+  const projectIndices: number[] = frozenIndices ?? [];
 
   if (!projectIndices || projectIndices.length === 0) {
     return (
@@ -78,8 +81,8 @@ export function ProjectsStep({
           <span className="text-xs text-muted">·</span>
           <span className="text-xs font-medium">{currentName}</span>
         </div>
-        <span className="text-xs text-muted tabular-nums">
-          Project {carouselIdx + 1} of {projectIndices.length}
+        <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-subtle border border-border text-muted tabular-nums">
+          {carouselIdx + 1} / {projectIndices.length}
         </span>
       </div>
 

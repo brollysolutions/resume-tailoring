@@ -103,7 +103,7 @@ interface GenerateProjectsStepProps {
 }
 
 export function GenerateProjectsStep({
-  resumeId, jdText, apiUrl, keptProjects, projectCount, projectNames, onProjectsGenerated,
+  resumeId, jdText, apiUrl, projectCount, projectNames, onProjectsGenerated,
   onKeptChange, continueDisabled = false, onContinue, onSkip, continueLabel,
 }: GenerateProjectsStepProps) {
   const [projects, setProjects] = useState<GeneratedProject[]>([]);
@@ -145,8 +145,8 @@ export function GenerateProjectsStep({
       } else {
         setExcludeNames(newProjects.map((p) => p.name));
       }
-    } catch (err: any) {
-      setError(err.message || "Something went wrong.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setIsGenerating(false);
     }
