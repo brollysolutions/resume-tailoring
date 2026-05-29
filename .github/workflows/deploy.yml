@@ -1,0 +1,26 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          script: |
+            cd ${{ secrets.DEPLOY_DIR }}
+            # Pull latest code
+            git pull origin main
+            # Rebuild and restart containers
+            # Note: NEXT_PUBLIC_API_URL is baked at build time, so --build is essential.
+            docker compose up --build -d
+            # Clean up dangling images to save space on the Droplet
+            docker image prune -f
