@@ -19,8 +19,5 @@ jobs:
             cd /root/resume_optimize/resume-tailoring
             # Pull latest code
             git pull origin prod
-            # Rebuild and restart containers
-            # Note: NEXT_PUBLIC_API_URL is baked at build time, so --build is essential.
-            docker compose up --build -d
-            # Clean up dangling images to save space on the Droplet
-            # docker image prune -f
+            docker-compose up --build -d
+            
