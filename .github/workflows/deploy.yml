@@ -16,7 +16,7 @@ jobs:
           username: ${{ secrets.HOST_NAME }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            cd /resume_optimize/resume-tailoring
+            cd /root/resume_optimize/resume-tailoring
             # Pull latest code
             git pull origin prod
             # Rebuild and restart containers
