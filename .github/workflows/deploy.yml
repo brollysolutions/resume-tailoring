@@ -9,6 +9,20 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Check for required secrets
+        run: |
+          MISSING_SECRETS=()
+          if [ -z "${{ secrets.DO_HOST }}" ]; then MISSING_SECRETS+=("DO_HOST"); fi
+          if [ -z "${{ secrets.DO_USERNAME }}" ]; then MISSING_SECRETS+=("DO_USERNAME"); fi
+          if [ -z "${{ secrets.DO_SSH_KEY }}" ]; then MISSING_SECRETS+=("DO_SSH_KEY"); fi
+          if [ -z "${{ secrets.DEPLOY_DIR }}" ]; then MISSING_SECRETS+=("DEPLOY_DIR"); fi
+          
+          if [ ${#MISSING_SECRETS[@]} -ne 0 ]; then
+            echo "Error: The following GitHub Secrets are missing: ${MISSING_SECRETS[*]}"
+            echo "Please add them in Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:

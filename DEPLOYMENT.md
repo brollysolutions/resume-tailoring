@@ -199,6 +199,27 @@ The frontend bundle is rebuilt from scratch each time (includes the new `NEXT_PU
 
 ---
 
+## Step 8 — CI/CD with GitHub Actions
+
+The repository includes a GitHub Actions workflow in `.github/workflows/deploy.yml` that automates deployment to your DigitalOcean Droplet on every push to `main`.
+
+### Required GitHub Secrets
+
+To use the automated deployment, you must add the following secrets to your GitHub repository (**Settings > Secrets and variables > Actions**):
+
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `DO_HOST` | The IP address or hostname of your Droplet. | `123.456.78.90` |
+| `DO_USERNAME` | The SSH user (usually `root` or a dedicated deploy user). | `root` |
+| `DO_SSH_KEY` | The **private** SSH key used to access the Droplet. | `-----BEGIN OPENSSH PRIVATE KEY----- ...` |
+| `DEPLOY_DIR` | The absolute path on the Droplet where the repo is cloned. | `/home/root/resume-tailoring` |
+
+### Security Recommendation
+
+It is recommended to use a dedicated SSH key for deployment and add the corresponding public key to `/root/.ssh/authorized_keys` on your Droplet.
+
+---
+
 ## Troubleshooting
 
 **Embedding model download hangs on first start**
