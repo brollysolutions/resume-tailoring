@@ -3,9 +3,10 @@ import json
 import logging
 import re
 from typing import List, Optional
-from app.core.llm_client import _chat, get_smart_model
+from app.core.llm_client import _chat, get_smart_model, get_model_name
 from app.core.llm_prompts import (
     PROMPT_TAILOR_SUMMARY_SYSTEM as PROMPT_TAILOR_SUMMARY,
+    PROMPT_GENERATE_SUMMARY_SYSTEM as PROMPT_GENERATE_SUMMARY,
     PROMPT_TAILOR_EXPERIENCE_SYSTEM as PROMPT_TAILOR_EXPERIENCE,
     PROMPT_TAILOR_PROJECTS_SYSTEM as PROMPT_TAILOR_PROJECTS,
     PROMPT_TAILOR_SKILLS_SYSTEM as PROMPT_TAILOR_SKILLS,
@@ -13,6 +14,7 @@ from app.core.llm_prompts import (
     PROMPT_PREPROCESS_JD_SYSTEM as PROMPT_PREPROCESS_JD,
     PROMPT_EXTRACT_JD_HARD_REQUIREMENTS_SYSTEM as PROMPT_EXTRACT_JD_HARD_REQUIREMENTS,
     PROMPT_SECTION_DIAGNOSIS_SYSTEM,
+    PROMPT_MATCH_BLOCKERS_SYSTEM,
     PROMPT_GENERATE_SKILLS_GOLDMINE_SYSTEM,
     ANTI_GRAFT_CLAUSE,
     INTENSITY_INSTRUCTIONS,
@@ -127,7 +129,7 @@ async def _tailor_section(system_prompt: str, user_content: str, cap: int, model
         if not isinstance(s, dict):
             continue
         s["suggested"] = _clean_suggested(s.get("suggested", ""))
-        if not s.get("suggested"):
+        if not s.get("suggested") and s.get("mode") != "remove_line":
             continue
         if s.get("mode") == "add_line":
             continue
@@ -139,17 +141,31 @@ async def _tailor_section(system_prompt: str, user_content: str, cap: int, model
     return cleaned[:cap]
 
 
-async def generate_keywords(text: str, max_keywords: int = 5) -> List[str]:
-    """Extract job titles from resume text."""
-    prompt = (
-        f"Based on resume text, suggest exactly {max_keywords} targeted job titles "
-        f"(e.g. 'Frontend Developer', 'Data Scientist'). "
-        f"Return ONLY comma-separated list. No technical skills.\n"
-        f"Text:\n{text[:2000]}"
-    )
-    content = await _chat([{"role": "user", "content": prompt}])
-    keywords = [k.strip() for k in content.split(",") if k.strip()]
-    return keywords[:max_keywords]
+async def generate_keywords(text: str, max_keywords: int = 5) -> tuple[list[str], list[str]]:
+    """
+    Extract standard industry job titles and core technology tokens from resume text.
+    Returns (roles, core_stack).
+    """
+    from app.core.llm_prompts import PROMPT_GENERATE_KEYWORDS_USER
+    try:
+        prompt = PROMPT_GENERATE_KEYWORDS_USER.format(text=text[:4000])
+        content = await _chat([{"role": "user", "content": prompt}], json_mode=True)
+        parsed = json.loads(content)
+        roles = parsed.get("roles", [])
+        stack = parsed.get("core_stack", [])
+        
+        # Ensure we have clean lists
+        roles = [r.strip() for r in roles if isinstance(r, str) and r.strip()][:max_keywords]
+        stack = [s.strip() for s in stack if isinstance(s, str) and s.strip()]
+        
+        if not roles:
+            roles = ["Software Engineer", "Developer"]
+            
+        return roles, stack
+    except Exception as e:
+        logger.warning(f"generate_keywords failed: {e}")
+        return ["Software Engineer", "Developer"], []
+
 
 
 async def tailor_education(
@@ -205,6 +221,26 @@ async def tailor_summary(
         f"JOB DESCRIPTION:\n{jd_text[:2000]}"
     )
     return await _tailor_section(system, user, cap=1, model=get_smart_model(), reject_first_person=False)
+
+
+async def generate_summary(
+    resume_context: str,
+    jd_text: str,
+    keywords_to_inject: Optional[list] = None,
+    intensity: str = "balanced",
+) -> list:
+    """Generate a summary from scratch when the resume has none."""
+    system = PROMPT_GENERATE_SUMMARY + INTENSITY_INSTRUCTIONS[intensity] + _keyword_injection_block(keywords_to_inject or [], intensity)
+    user = (
+        f"CANDIDATE BACKGROUND:\n{resume_context}\n\n"
+        f"JOB DESCRIPTION:\n{jd_text[:2000]}"
+    )
+    sugg = await _tailor_section(system, user, cap=1, model=get_smart_model(), reject_first_person=False)
+    for s in sugg:
+        s["section"] = "Summary"
+        s["mode"] = "set_summary"
+        s.setdefault("original", "")
+    return sugg
 
 
 async def tailor_experience(
@@ -292,6 +328,70 @@ async def tailor_projects(
     return suggestions
 
 
+async def _llm_filter_skill_suggestions(
+    add_skill_suggs: list,
+    jd_text: str,
+    experience_ctx: str,
+    projects_ctx: str,
+) -> list:
+    """Contextual LLM gate for add_skill suggestions.
+
+    Three gates — ALL must pass for a suggestion to survive:
+    1. REAL NAMED SKILL — specific technology/tool/language/library/framework/platform.
+       Rejects concept nouns, role titles, common English words, credentials.
+    2. GROUNDED — evidence of the skill appears in the candidate's background.
+    3. JD-RELEVANT — JD meaningfully requires it, not just boilerplate mention.
+
+    Falls back to the full list on any error so skills are never silently lost.
+    Uses fast model + cache (mirrors _llm_filter_actionable_keywords in ats_simulator).
+    """
+    if not add_skill_suggs:
+        return add_skill_suggs
+
+    items = "\n".join(
+        f"{i}. skill={s.get('skill')!r} → category={((s.get('category') or s.get('target_category')) or 'NEW')!r}"
+        for i, s in enumerate(add_skill_suggs)
+    )
+    background = "\n".join(filter(None, [experience_ctx, projects_ctx]))
+
+    prompt = (
+        "You are a resume skill validator. Keep ONLY additions that pass ALL THREE gates.\n\n"
+        "GATE 1 — REAL NAMED SKILL: Must be a specific, named technology, tool, language, "
+        "library, framework, or platform. REJECT: concept nouns (e.g. 'Data Storage', "
+        "'System Design', 'Information Retrieval'), role titles ('Full Stack Development'), "
+        "common English words ('list', 'science', 're', 'law', 'set', 'code'), "
+        "EEO/legal terms ('accessible', 'accessibility'), education credentials "
+        "('Bachelor\\'s', 'degree', 'master\\'s', 'PhD').\n\n"
+        "GATE 2 — GROUNDED: The skill or close evidence of it must appear in the "
+        "candidate's background. Do NOT add skills visible only in the JD.\n\n"
+        "GATE 3 — JD-RELEVANT: The JD must meaningfully call for this skill, "
+        "not just mention it incidentally or in boilerplate.\n\n"
+        f"CANDIDATE BACKGROUND:\n<BACKGROUND>\n{background[:1000]}\n</BACKGROUND>\n\n"
+        f"JOB DESCRIPTION:\n<JD>\n{jd_text[:800]}\n</JD>\n\n"
+        f"PROPOSED SKILL ADDITIONS:\n{items}\n\n"
+        'Return ONLY JSON: {"keep": [list of integer indices that pass all three gates]}'
+    )
+
+    try:
+        raw = await _chat(
+            [{"role": "user", "content": prompt}],
+            json_mode=True,
+            model=get_model_name(),
+            use_cache=True,
+        )
+        result = json.loads(raw)
+        keep_indices = result.get("keep", list(range(len(add_skill_suggs))))
+        valid_indices = {i for i in keep_indices if isinstance(i, int) and 0 <= i < len(add_skill_suggs)}
+        filtered = [s for i, s in enumerate(add_skill_suggs) if i in valid_indices]
+        dropped = len(add_skill_suggs) - len(filtered)
+        if dropped:
+            logger.info("[tailor_skills] LLM filter dropped %d add_skill suggestion(s)", dropped)
+        return filtered
+    except Exception as e:
+        logger.warning("[tailor_skills] LLM filter failed (%s) — returning unfiltered", e)
+        return add_skill_suggs
+
+
 async def tailor_skills(
     skills: list,
     jd_text: str,
@@ -342,7 +442,28 @@ async def tailor_skills(
         )
 
     user = "\n\n".join(user_parts)
-    suggestions = await _tailor_section(system, user, cap=20, model=get_smart_model())
+    try:
+        content = await _chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            json_mode=True,
+            model=get_smart_model(),
+        )
+        suggestions = json.loads(content).get("suggestions", [])
+    except Exception as e:
+        logger.warning("[tailor_skills] LLM call failed: %s", e)
+        try:
+            content = await _chat(
+                [{"role": "system", "content": system + "\nRespond ONLY with valid JSON."},
+                 {"role": "user", "content": user}],
+                json_mode=False,
+                model=get_smart_model(),
+            )
+            start, end = content.find("{"), content.rfind("}") + 1
+            suggestions = json.loads(content[start:end]).get("suggestions", []) if start != -1 and end > 0 else []
+        except Exception:
+            return []
+    if not isinstance(suggestions, list):
+        return []
 
     # Validate the new explicit-field schema. Modes:
     #   add_skill        — needs skill + (category OR (target_category + is_new_category))
@@ -350,6 +471,12 @@ async def tailor_skills(
     #   rename_category  — needs category + target_category
     #   delete_category  — needs category (cap at 2 deletions)
     #   move_skill       — needs category + skill + target_category
+    _EDU_CREDENTIALS = frozenset({
+        "bachelor", "bachelor's", "bachelors", "master", "master's", "masters",
+        "phd", "ph.d", "doctorate", "doctoral", "undergraduate", "graduate",
+        "postgraduate", "mba", "degree", "diploma",
+    })
+
     cats_lower = {c.lower() for c in categories}
     cleaned: list = []
     delete_count = 0
@@ -360,6 +487,58 @@ async def tailor_skills(
         skill = (s.get("skill") or "").strip()
         target_category = (s.get("target_category") or "").strip()
         is_new_category = bool(s.get("is_new_category"))
+
+        # Drop add_skill with trivially short or obviously-non-skill strings.
+        # Allowlist keeps single-char/short langs: C, R, Go, SQL, Git, etc.
+        _SHORT_SKILL_ALLOWLIST = {
+            "c", "r", "go", "sql", "git", "aws", "gcp", "lua", "vim",
+            "c#", "c++", "ai", "ml", "ui", "ux", "qa",
+        }
+        _COMMON_WORD_BLOCKLIST = {
+            "science", "list", "set", "map", "type", "class", "object",
+            "function", "method", "variable", "re", "new", "old", "big",
+            "small", "basic", "general", "advanced", "core", "main",
+            "key", "top", "best", "good", "high", "low", "fast", "slow",
+            "large", "real", "open", "free", "data", "code", "work",
+            "test", "build", "run", "use", "get", "put", "add", "update",
+            "create", "read", "write", "load", "save", "send", "receive",
+        }
+        if mode == "add_skill" and skill:
+            skill_lower = skill.lower()
+            if skill_lower in _COMMON_WORD_BLOCKLIST:
+                logger.warning("[tailor_skills] dropping common-word skill: '%s'", skill)
+                continue
+            if len(skill) <= 2 and skill_lower not in _SHORT_SKILL_ALLOWLIST:
+                logger.warning("[tailor_skills] dropping too-short skill: '%s'", skill)
+                continue
+
+        # Drop add_skill where the skill IS the category name (e.g. "security" → "Security")
+        if mode == "add_skill" and skill:
+            dest = (category or target_category).lower()
+            if skill.lower() == dest:
+                logger.warning("[tailor_skills] dropping: skill '%s' == category name", skill)
+                continue
+
+        # Drop add_skill for education credentials (e.g. "Bachelor's degree")
+        if mode == "add_skill" and skill:
+            skill_words = set(skill.lower().replace("'s", "").replace("'", "").split())
+            if skill_words & _EDU_CREDENTIALS:
+                logger.warning("[tailor_skills] dropping education credential as skill: '%s'", skill)
+                continue
+
+        # Drop add_skill for role-concept phrases — vague nouns that aren't tools
+        # e.g. "Full Stack Development", "Data Storage", "System Design"
+        _CONCEPT_SUFFIXES = {"development", "engineering", "management", "storage",
+                             "design", "architecture", "operations", "administration",
+                             "technologies", "technology", "solutions", "services",
+                             "systems", "infrastructure", "methodology", "practices",
+                             "retrieval", "processing", "computation", "inference",
+                             "analysis", "analytics", "modeling", "modelling"}
+        if mode == "add_skill" and skill:
+            last_word = skill.lower().rsplit(None, 1)[-1]
+            if last_word in _CONCEPT_SUFFIXES and len(skill.split()) >= 2:
+                logger.warning("[tailor_skills] dropping concept-noun skill: '%s'", skill)
+                continue
 
         if mode == "delete_category":
             if category.lower() not in cats_lower:
@@ -460,28 +639,65 @@ async def tailor_skills(
             continue
         validated.append(s)
 
-    return validated
+    if not validated and suggestions:
+        logger.warning("[tailor_skills] all %d suggestion(s) dropped by validation", len(suggestions))
 
-
-async def preprocess_jd(jd_text: str) -> dict:
-    """Clean boilerplate from JD. Returns {cleaned_text, title}."""
-    system = PROMPT_PREPROCESS_JD
-
-    try:
-        content = await _chat(
-            [{"role": "system", "content": system},
-             {"role": "user", "content": f"RAW JD:\n{jd_text[:6000]}"}],
-            json_mode=True,
+    # LLM post-filter: contextual gate on add_skill items only.
+    # Structural ops (remove/rename/move/delete) operate on existing skills and are safe.
+    add_skill_suggs = [s for s in validated if s.get("mode") == "add_skill"]
+    structural_suggs = [s for s in validated if s.get("mode") != "add_skill"]
+    if add_skill_suggs:
+        add_skill_suggs = await _llm_filter_skill_suggestions(
+            add_skill_suggs, jd_text, experience_ctx, projects_ctx
         )
-        parsed = json.loads(content)
-        cleaned = (parsed.get("cleaned_text") or "").strip()
-        title = (parsed.get("title") or "").strip() or None
-        if not cleaned or len(cleaned) < 50:
-            return {"cleaned_text": jd_text, "title": title}
-        return {"cleaned_text": cleaned, "title": title}
+    return structural_suggs + add_skill_suggs
+
+
+async def llm_clean_tech_field(tech_str: str) -> str:
+    """Remove noise from a project's comma-separated tech string.
+
+    Keeps only genuine named technologies (languages, frameworks, libraries,
+    databases, platforms, tools, cloud services). Removes generic English words,
+    JD buzzwords, soft-skill terms, and role descriptors.
+
+    Fast model + cache — each unique tech string is LLM-processed at most once.
+    Falls back to original on any error.
+    """
+    if not (tech_str or "").strip():
+        return tech_str
+    items = [t.strip() for t in tech_str.split(",") if t.strip()]
+    if not items:
+        return tech_str
+
+    prompt = (
+        "Filter this list of items from a software project's tech stack. "
+        "Return ONLY genuine, specific technology names — programming languages, "
+        "frameworks, libraries, databases, platforms, tools, or cloud services.\n\n"
+        "EXCLUDE anything that is NOT a specific named technology: "
+        "generic English words (field, idea, language, minimum, money, form, history, "
+        "intelligence, leadership, identity, mobile, list, science, re, law, set), "
+        "soft skills, business nouns, adjectives, and any word a developer would "
+        "not include in a 'Tech Stack' section of a project README.\n\n"
+        f"Items: {json.dumps(items)}\n\n"
+        'Return JSON: {"tech": ["item1", "item2", ...]}'
+    )
+    try:
+        raw = await _chat(
+            [{"role": "user", "content": prompt}],
+            json_mode=True,
+            model=get_model_name(),
+            use_cache=True,
+        )
+        result = json.loads(raw)
+        filtered = result.get("tech", items)
+        valid_lower = {i.lower(): i for i in items}
+        kept = [valid_lower[t.lower()] for t in filtered if t.lower() in valid_lower]
+        if not kept:
+            return tech_str
+        return ", ".join(kept)
     except Exception as e:
-        logger.warning(f"[preprocess_jd] failed, using original: {e}")
-        return {"cleaned_text": jd_text, "title": None}
+        logger.warning("[llm_clean_tech_field] failed (%s) — using original", e)
+        return tech_str
 
 
 # Cache for hard requirement extraction
@@ -664,6 +880,89 @@ async def analyze_low_sections(
         cleaned = _verify_diagnosis(cleaned, section_text, miss)
         if cleaned:
             out[orig_section] = cleaned
+    return out
+
+
+_BLOCKER_KINDS = {"experience", "seniority", "education"}
+
+
+async def explain_match_blockers(jd_text: str, ceiling: dict | None) -> list:
+    """Plain-English coaching for hard-requirement gaps (years / seniority /
+    degree) that cap the match score and cannot be fixed by keyword tailoring.
+
+    Args:
+        jd_text: Job description text.
+        ceiling: detect_ceiling() output — {score, reasons, exp_required,
+            exp_actual}. The deterministic ground truth; the LLM may only
+            explain constraints listed here.
+
+    Returns:
+        list of {"kind", "headline", "detail"}. Empty list (NO LLM call) when
+        the ceiling has no blocking reasons.
+    """
+    reasons = (ceiling or {}).get("reasons") or []
+    if not reasons:
+        return []
+
+    payload = {
+        "reasons": reasons,
+        "exp_required": (ceiling or {}).get("exp_required"),
+        "exp_actual": (ceiling or {}).get("exp_actual"),
+    }
+    user_content = (
+        "<JD>\n"
+        f"{jd_text[:2000]}\n"
+        "</JD>\n\n"
+        "<CEILING>\n"
+        f"{json.dumps(payload, ensure_ascii=False)}\n"
+        "</CEILING>\n\n"
+        "Explain each blocker above and how to mitigate it."
+    )
+
+    try:
+        content = await _chat(
+            [{"role": "system", "content": PROMPT_MATCH_BLOCKERS_SYSTEM},
+             {"role": "user", "content": user_content}],
+            json_mode=True,
+        )
+        parsed = json.loads(content)
+    except Exception as e:
+        logger.warning(f"[explain_match_blockers] json_mode failed, retrying: {e}")
+        try:
+            content = await _chat(
+                [{"role": "system", "content": PROMPT_MATCH_BLOCKERS_SYSTEM + "\nRespond ONLY with valid JSON."},
+                 {"role": "user", "content": user_content}],
+                json_mode=False,
+            )
+            start = content.find("{"); end = content.rfind("}") + 1
+            if start == -1 or end <= 0:
+                return []
+            parsed = json.loads(content[start:end])
+        except Exception as e2:
+            logger.warning(f"[explain_match_blockers] retry failed: {e2}")
+            return []
+
+    blockers = parsed.get("blockers") if isinstance(parsed, dict) else None
+    if not isinstance(blockers, list):
+        return []
+
+    out: list = []
+    seen: set = set()
+    for entry in blockers:
+        if not isinstance(entry, dict):
+            continue
+        kind = entry.get("kind")
+        headline = entry.get("headline")
+        detail = entry.get("detail")
+        if kind not in _BLOCKER_KINDS or kind in seen:
+            continue
+        if not isinstance(headline, str) or not isinstance(detail, str):
+            continue
+        cleaned = _clean_diagnosis(detail)
+        if not cleaned:
+            continue
+        seen.add(kind)
+        out.append({"kind": kind, "headline": headline.strip(), "detail": cleaned})
     return out
 
 

@@ -103,18 +103,26 @@ async def retrieve_rag_context_node(state: TailorGraphState) -> Dict[str, Any]:
     sections_to_retrieve = ["Experience", "Projects", "Summary"]
     
     for section in sections_to_retrieve:
+        # Parallel retrieval across all missing keywords for this section
+        kw_results = await asyncio.gather(
+            *[
+                RAGService.retrieve_relevant_evidence(
+                    resume_id=resume_id,
+                    query=f"Details related to: {kw}",
+                    limit=1,
+                    section_filter=section,
+                )
+                for kw in missing_keywords[:5]
+            ],
+            return_exceptions=True,
+        )
         evidence_chunks = []
-        # Search for top missing keywords related to this section
-        for kw in missing_keywords[:5]:
-            hits = await RAGService.retrieve_relevant_evidence(
-                resume_id=resume_id,
-                query=f"Details related to: {kw}",
-                limit=1,
-                section_filter=section
-            )
+        for hits in kw_results:
+            if isinstance(hits, Exception):
+                continue
             for hit in hits:
                 evidence_chunks.append(hit["text"])
-        
+
         # Deduplicate and combine evidence
         unique_chunks = list(set(evidence_chunks))
         retrieved_evidence[section] = "\n".join(unique_chunks) if unique_chunks else "None"
@@ -306,12 +314,10 @@ async def critique_low_sections_node(state: TailorGraphState) -> Dict[str, Any]:
         return {"critique_instructions": {}, "iteration": state.get("iteration", 1) + 1}
         
     critique_instructions = {}
-    
-    # Call Critic node to generate actionable instructions for each low-scoring section
-    for section_info in low_sections[:2]:  # Focus on the worst 2 sections to avoid overload
+    sect_text = resume_to_plaintext(state["current_resume"])
+
+    async def _critique_one(section_info: dict) -> tuple[str, str]:
         sect = section_info["section"]
-        sect_text = resume_to_plaintext(state["current_resume"])
-        
         prompt = (
             f"You are a Senior Technical Recruiter criticking a resume section.\n"
             f"The candidate's '{sect}' section scored low ({section_info['score']}/100) because it lacks keyword relevance or depth.\n"
@@ -321,13 +327,21 @@ async def critique_low_sections_node(state: TailorGraphState) -> Dict[str, Any]:
             f"CANDIDATE SECTION CONTENT:\n{sect_text[:1500]}\n\n"
             f"Provide ONLY clear, concise bullet points of critique instructions. Do not output JSON or conversational filler."
         )
-        
-        try:
-            critique = await _chat([{"role": "user", "content": prompt}], json_mode=False)
-            critique_instructions[sect] = critique.strip()
-            logger.info("[LangGraph] Generated critique for %s:\n%s", sect, critique.strip()[:100] + "...")
-        except Exception as e:
-            logger.warning("Failed to generate critique for %s: %s", sect, e)
+        critique = await _chat([{"role": "user", "content": prompt}], json_mode=False)
+        return sect, critique.strip()
+
+    # Parallel critique calls for the worst 2 sections
+    critique_results = await asyncio.gather(
+        *[_critique_one(s) for s in low_sections[:2]],
+        return_exceptions=True,
+    )
+    for res in critique_results:
+        if isinstance(res, Exception):
+            logger.warning("Failed to generate critique: %s", res)
+            continue
+        sect, critique = res
+        critique_instructions[sect] = critique
+        logger.info("[LangGraph] Generated critique for %s:\n%s", sect, critique[:100] + "...")
             
     return {
         "critique_instructions": critique_instructions,

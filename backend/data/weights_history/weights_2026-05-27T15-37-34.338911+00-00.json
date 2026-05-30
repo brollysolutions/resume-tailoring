@@ -1,0 +1,43 @@
+{
+  "w_kw": 0.4,
+  "w_skill": 0.25,
+  "w_ngram": 0.05,
+  "w_edu": 0.1,
+  "w_sen": 0.1,
+  "w_cos": 0.1,
+  "p_low": 0.59,
+  "p_high": 1.0,
+  "calibrated_at": "2026-05-27T15:37:34.338911+00:00",
+  "n_rows": 177,
+  "spearman": 0.3866,
+  "kendall_tau": 0.4295,
+  "source": "auto_calibrator",
+  "section_weights": {
+    "projects": {
+      "w_kw": 0.25,
+      "w_skill": 0.1,
+      "w_ngram": 0.05,
+      "w_edu": 0.05,
+      "w_sen": 0.1,
+      "w_cos": 0.45,
+      "spearman": 0.3534,
+      "kendall_tau": 0.3595,
+      "n_rows": 43
+    },
+    "skills": {
+      "w_kw": 0.2,
+      "w_skill": 0.15,
+      "w_ngram": 0.1,
+      "w_edu": 0.0,
+      "w_sen": 0.1,
+      "w_cos": 0.45,
+      "spearman": 0.3143,
+      "kendall_tau": 0.3002,
+      "n_rows": 43
+    }
+  },
+  "spearman_train": 0.3866,
+  "spearman_test": -0.0638,
+  "n_train": 126,
+  "n_test": 51
+}

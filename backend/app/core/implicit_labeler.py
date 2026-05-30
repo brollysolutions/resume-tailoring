@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +65,8 @@ def log_suggestion_event(
     **extra,
 ) -> None:
     """Best-effort append. Never raises."""
+    if os.environ.get("TESTING") == "1":
+        return
     if not resume_id or not jd_hash:
         return
     try:

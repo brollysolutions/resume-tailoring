@@ -29,7 +29,7 @@ _STOPWORDS = frozenset({
     "their", "about", "could", "other", "these", "which", "while", "where",
     "after", "before", "between", "during", "through", "above", "below",
     "under", "over", "very", "much", "many", "some", "also", "only", "just",
-    "must", "should", "might", "shall", "onto", "upon", "across",
+    "must", "should", "might", "may", "shall", "onto", "upon", "across",
     "within", "without", "against", "toward", "towards", "year", "years",
     "month", "months", "week", "weeks", "today", "yesterday", "tomorrow",
     "high", "low", "best", "great", "small", "large", "big", "long", "short",
@@ -116,6 +116,88 @@ _BLOCKED_GENERIC = frozenset({
     "digital", "recruitment", "hiring", "smart", "impactful", "growth",
     "global", "success", "innovative", "fast-paced", "dynamic",
     "solutions", "solution", "driven", "passionate", "motivated",
+    # Soft-skill backstop (Bug fix: prevent tech stack pollution)
+    "action", "actions", "afraid", "clearly", "collaborate", "collaborates",
+    "clear", "drive", "drives", "deliver", "delivers", "demonstrate",
+    "demonstrates", "ensure", "ensures", "leverage", "leverages",
+    "contribute", "contributes",
+    # Generic English prepositions / adverbs that pass tokenizer
+    "along", "around", "across", "within", "throughout",
+    # EEO / legal boilerplate — appears in almost every JD footer
+    "eeo", "eeoc", "equal", "discrimination", "discriminate",
+    "race", "color", "religion", "sex", "gender", "orientation",
+    "veteran", "veterans", "national", "origin", "protected",
+    "affirmative", "accommodation", "accommodations",
+    "marital", "pregnancy", "ancestry", "disability", "disabilities",
+    "regardless", "qualified", "pursuant",
+    "accessible", "accessibility",  # ADA/EEO language, not a tech skill
+    # Legal / regulatory terms — JD compliance language, not skills
+    "law", "laws", "legal", "legally", "regulatory", "regulation", "regulations",
+    "compliant", "compliance", "statute", "statutes", "legislation",
+    # Abstract CS concept nouns — field names, not specific tools
+    "retrieval", "information", "inference", "computation", "processing",
+    # JD fragment noise — single common words that aren't standalone skills
+    "science", "list", "set", "map", "type", "class", "object", "method",
+    "function", "variable", "code", "data", "work", "test", "build",
+    # Age-related — EEO term, not a skill
+    "age",
+    # Tokenizer artifacts
+    "e.g", "i.e", "eg", "ie",
+    # Education credentials — JD requirements, never resume skills
+    "bachelor", "bachelors", "master", "masters", "phd", "doctorate",
+    "undergraduate", "graduate", "postgraduate", "mba",
+    # High-frequency JD noise that isn't a tech skill
+    "another", "addition", "degree", "degrees",
+    "feedback", "user", "users", "consumer", "consumers",
+    "content", "payment", "payments", "status",
+    # Vague tech-adjacent nouns — too generic to be a skill
+    "app", "apps", "computer", "computers", "computing",
+    "display", "displays",
+    # Quality / metric descriptors — these appear in JDs as attributes of work,
+    # not as skills a candidate would list (e.g. "high accuracy", "reliable output")
+    "accuracy", "accurate",
+    "reliability", "reliable",
+    "correctness", "correct",
+    "consistency", "consistent",
+    "thoroughness", "thorough",
+    "validity", "valid",
+    "performance",
+    # Soft-skill / project-management nouns
+    "deadline", "deadlines", "deliverable", "deliverables",
+    "efficiency", "effective", "effectiveness",
+    "impact", "milestone", "milestones", "objective", "objectives",
+    # Generic verbs / adverbs that slip past POS filter
+    "beyond", "explore", "explores", "exploring", "foster", "fosters",
+    "drive", "drives", "driving", "enable", "enables", "enabling",
+    "enhance", "enhances", "enhancing",
+    # Legal / visa / HR requirements (not resume skills)
+    "citizenship", "visa", "clearance", "authorization", "authorize",
+    "area", "areas", "region", "regions",
+    # Business-domain nouns — describe the vertical, not a tool
+    "banking", "basis", "capability", "capabilities", "center", "centres",
+    "change", "changes", "agreement", "agreements",
+    "accountability", "accountable",
+    "cfos", "cfo", "cto", "coo", "cpos",
+    "financial", "finance", "budget", "budgeting",
+    "expense", "expenses", "revenue", "revenues",
+    "forecast", "forecasting", "reporting",
+    "compliance", "governance", "audit", "auditing",
+    "operations", "operational", "strategy", "strategic",
+    "initiative", "initiatives", "program", "programs",
+    "customer", "customers", "client", "clients",
+    "product", "products",
+    "market", "markets", "business", "businesses",
+    "dataset", "datasets", "insight", "insights",
+    "dashboard", "dashboards",
+    "meeting", "meetings", "presentation", "presentations",
+    # Generic accomplishment / culture fluff — describe attributes of work or
+    # workplace, never a tool a candidate lists as a skill.
+    "achievement", "achievements", "activity", "activities",
+    "adherence", "acumen", "colleague", "colleagues",
+    "contact", "contacts", "control", "controls",
+    "culture", "cultures", "cultural", "excellence",
+    "innovation", "innovations", "mindset", "attention",
+    "passion", "enthusiasm", "ownership",
 })
 
 
@@ -260,6 +342,9 @@ _ALIASES: dict[str, str] = {
     "back-end": "backend",
 }
 
+# Unified set of all curated tech keywords (canonical forms and aliases).
+_TECH_TOKENS = frozenset(list(_ALIASES.keys()) + list(_ALIASES.values()))
+
 
 # Lazy spaCy load. Keeps uvicorn cold start fast — model only loads on first
 # tokenization call (similar pattern to embedder in vector_db.py).
@@ -325,9 +410,31 @@ def _jd_entity_tokens(jd_text: str) -> frozenset:
         for tok in re.findall(r'\b[a-z][a-z0-9+#.\-]*\b', ent.text.lower()):
             if len(tok) < 2 and tok not in {"c", "r"}:
                 continue
+            if tok in _TECH_TOKENS:
+                continue
             norm = _normalize_token(tok)
-            if norm:
+            if norm and norm not in _TECH_TOKENS:
                 out.add(norm)
+    return frozenset(out)
+
+
+@lru_cache(maxsize=64)
+def _jd_pos_blocked_tokens(jd_text: str) -> frozenset:
+    """Tokens spaCy POS-tagged as VERB/ADV/ADJ in JD context. Excluded from
+    JD keyword ranking unless they are in _TECH_TOKENS (curated tech vocabulary)."""
+    nlp = _get_nlp_ner()
+    if nlp is None:
+        return frozenset()
+    try:
+        doc = nlp(jd_text[:20000])
+    except Exception:
+        return frozenset()
+    out: set[str] = set()
+    for tok in doc:
+        if tok.pos_ in {"VERB", "ADV", "ADJ"}:
+            lemma = (tok.lemma_ or tok.text).lower().strip()
+            if lemma and lemma not in _TECH_TOKENS:
+                out.add(_normalize_token(lemma))
     return frozenset(out)
 
 
@@ -378,14 +485,10 @@ def _significant_tokens(text: str) -> set:
     return out
 
 
-def _top_jd_tokens(jd_text: str, k: int = 50, min_freq: int = 2) -> set:
-    """Return up to k most-frequent significant normalized tokens in the JD.
-
-    Filters: English stopwords, curated JD noise (_BLOCKED_GENERIC), and
-    NER entities (cities, persons, orgs, dates, numerics).
-
-    Ranked by frequency, then alphabetically. Includes all significant tokens
-    up to limit k, regardless of frequency (min_freq is now a soft hint)."""
+def _ranked_jd_tokens(jd_text: str, k: int = 50, min_freq: int = 2) -> list[str]:
+    """Top-k significant JD tokens as a list, ranked by frequency (desc) then
+    alphabetically. Same filtering as `_top_jd_tokens`; preserves order so
+    callers can surface the most important terms first."""
     counts: Counter = Counter()
     for raw in _tokenize_raw(jd_text):
         if raw in _STOPWORDS or raw in _BLOCKED_GENERIC:
@@ -395,12 +498,23 @@ def _top_jd_tokens(jd_text: str, k: int = 50, min_freq: int = 2) -> set:
             continue
         counts[norm] += 1
     if not counts:
-        return set()
+        return []
     entities = _jd_entity_tokens(jd_text)
-    # Return top K significant tokens that are NOT entities.
-    filtered = [(t, c) for t, c in counts.items() if t not in entities]
+    pos_blocked = _jd_pos_blocked_tokens(jd_text)
+    filtered = [(t, c) for t, c in counts.items() if t not in entities and t not in pos_blocked]
     filtered.sort(key=lambda x: (-x[1], x[0]))
-    return {t for t, _ in filtered[:k]}
+    return [t for t, _ in filtered[:k]]
+
+
+def _top_jd_tokens(jd_text: str, k: int = 50, min_freq: int = 2) -> set:
+    """Return up to k most-frequent significant normalized tokens in the JD.
+
+    Filters: English stopwords, curated JD noise (_BLOCKED_GENERIC), and
+    NER entities (cities, persons, orgs, dates, numerics).
+
+    Ranked by frequency, then alphabetically. Includes all significant tokens
+    up to limit k, regardless of frequency (min_freq is now a soft hint)."""
+    return set(_ranked_jd_tokens(jd_text, k=k, min_freq=min_freq))
 
 
 def _fuzzy_coverage(top_jd: set, resume_tokens: set, threshold: int = 85) -> set:

@@ -31,7 +31,15 @@ export function ImportResumeModal({
     }
     return [];
   });
+  const [stack, setStack] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      const s = sessionStorage.getItem("import_stack");
+      return s ? JSON.parse(s) : [];
+    }
+    return [];
+  });
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastResumeId, setLastResumeId] = useState(resumeId);
@@ -96,12 +104,15 @@ export function ImportResumeModal({
     // Clear import session storage
     sessionStorage.removeItem("import_resume_id");
     sessionStorage.removeItem("import_keywords");
+    sessionStorage.removeItem("import_stack");
 
     const kw = keywords.join("|");
+    const st = stack.join("|");
     window.location.href = `/job-search?keywords=${encodeURIComponent(
       kw
-    )}&resume_id=${resumeId}`;
+    )}&stack=${encodeURIComponent(st)}&resume_id=${resumeId}`;
   };
+
 
   const previewPlaceholder = error ? (
     <p className="text-xs text-danger">{error}</p>
@@ -161,8 +172,10 @@ export function ImportResumeModal({
                   onClick={() => {
                     setResumeId(null);
                     setKeywords([]);
+                    setStack([]);
                     sessionStorage.removeItem("import_resume_id");
                     sessionStorage.removeItem("import_keywords");
+                    sessionStorage.removeItem("import_stack");
                   }}
                   className="btn-ghost p-2 text-muted hover:text-danger"
                 >
@@ -175,11 +188,14 @@ export function ImportResumeModal({
                 onUploaded={(data) => {
                   setResumeId(data.resume_id);
                   setKeywords(data.keywords);
+                  setStack(data.stack);
                   sessionStorage.setItem("import_resume_id", data.resume_id);
                   sessionStorage.setItem("import_keywords", JSON.stringify(data.keywords));
+                  sessionStorage.setItem("import_stack", JSON.stringify(data.stack));
                 }}
               />
             )}
+
           </div>
 
           <div className="px-8 py-4 border-t border-border flex items-center justify-end">
@@ -200,6 +216,7 @@ export function ImportResumeModal({
             html={previewHtml}
             showControls
             fillParent
+            oddZoom
             onClose={onClose}
             placeholder={previewPlaceholder}
           />

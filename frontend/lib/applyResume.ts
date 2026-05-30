@@ -172,6 +172,7 @@ const SCALAR_SECTIONS = new Set([
   "experience", "projects", "education",
   "publications", "awards", "languages",
   "volunteer", "patents", "talks", "extra_sections",
+  "custom_links",
 ]);
 
 function applyReplaceField(data: ResumeData, spec: string, value: string) {
@@ -220,6 +221,8 @@ function _blankEntry(section: string): Record<string, unknown> {
       return { title: "New talk", venue: "", date: "", type: "" };
     case "extra_sections":
       return { title: "New Section", content_type: "entries", items: [] };
+    case "custom_links":
+      return { label: "Link", url: "" };
     default:
       return {};
   }
@@ -229,6 +232,7 @@ const ADDABLE_SECTIONS = new Set([
   "experience", "education", "projects",
   "publications", "awards", "languages",
   "volunteer", "patents", "talks", "extra_sections",
+  "custom_links",
 ]);
 
 function applyAddEntry(data: ResumeData, sectionKey: string, initialJson: string) {

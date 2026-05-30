@@ -15,6 +15,9 @@ interface TemplatePreviewProps {
   onClose?: () => void;
   /** Rendered centered in the container when html is null. */
   placeholder?: React.ReactNode;
+  /** Zoom readout is an explicit, always-odd integer % stepped ~3% per click
+   *  (never lands on an even value like 72%). Used by the upload modal. */
+  oddZoom?: boolean;
 }
 
 export function TemplatePreview({
@@ -25,6 +28,7 @@ export function TemplatePreview({
   maxScrollHeight = "600px",
   onClose,
   placeholder,
+  oddZoom = false,
 }: TemplatePreviewProps) {
   const noControlsRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -33,6 +37,8 @@ export function TemplatePreview({
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
   const [userZoom, setUserZoom] = useState(1);
   const [contentHeight, setContentHeight] = useState(1056); // default 1 page
+  // Explicit integer-% zoom for oddZoom mode (null until the fit scale is known).
+  const [pctZoom, setPctZoom] = useState<number | null>(null);
 
   // Measure the container for both paths
   useEffect(() => {
@@ -62,6 +68,25 @@ export function TemplatePreview({
 
   const totalScale = fitScale * userZoom;
 
+  // Odd-zoom mode: the readout is an explicit always-odd integer %, stepped ~3%
+  // per click, so it never shows an even value like 72%. The render scale is
+  // driven by that % so the label stays honest.
+  const fitPct = Math.max(1, Math.round(fitScale * 100));
+  const oddFitPct = fitPct % 2 === 0 ? Math.max(1, fitPct - 1) : fitPct;
+
+  // pctZoom stays null until the user actually zooms — display falls back to the
+  // odd fit %, so no setState-in-effect is needed to seed an initial value.
+  const displayPct = oddZoom ? (pctZoom ?? oddFitPct) : Math.round(totalScale * 100);
+  const scale = oddZoom ? displayPct / 100 : totalScale;
+
+  const stepOddZoom = (dir: 1 | -1) => {
+    setPctZoom((cur) => {
+      let next = (cur ?? oddFitPct) + dir * 3;
+      if (next % 2 === 0) next += dir; // snap back to an odd value
+      return Math.max(oddFitPct, Math.min(301, next));
+    });
+  };
+
   const adjustZoom = (next: number) => {
     setUserZoom(Math.max(1, next));
   };
@@ -81,6 +106,7 @@ export function TemplatePreview({
             srcDoc={html}
             aria-hidden="true"
             scrolling="no"
+            sandbox="allow-same-origin"
             style={{
               position: "absolute",
               top: 0,
@@ -139,19 +165,19 @@ export function TemplatePreview({
         <button
           type="button"
           className="w-6 h-6 flex items-center justify-center text-sm font-mono hover:bg-subtle rounded transition-colors"
-          onClick={() => adjustZoom(+(userZoom - 0.1).toFixed(1))}
-          disabled={userZoom <= 1}
+          onClick={() => (oddZoom ? stepOddZoom(-1) : adjustZoom(+(userZoom - 0.1).toFixed(1)))}
+          disabled={oddZoom ? displayPct <= oddFitPct : userZoom <= 1}
           aria-label="Zoom out"
         >
           −
         </button>
         <span className="text-[11px] text-muted w-8 text-center tabular-nums">
-          {Math.round(totalScale * 100)}%
+          {displayPct}%
         </span>
         <button
           type="button"
           className="w-6 h-6 flex items-center justify-center text-sm font-mono hover:bg-subtle rounded transition-colors"
-          onClick={() => adjustZoom(Math.min(3, +(userZoom + 0.1).toFixed(1)))}
+          onClick={() => (oddZoom ? stepOddZoom(1) : adjustZoom(Math.min(3, +(userZoom + 0.1).toFixed(1))))}
           aria-label="Zoom in"
         >
           +
@@ -169,8 +195,8 @@ export function TemplatePreview({
           <div
             style={{
               position: "relative",
-              width: `${baseWidth * totalScale}px`,
-              height: `${contentHeight * totalScale}px`,
+              width: `${baseWidth * scale}px`,
+              height: `${contentHeight * scale}px`,
               margin: "0 auto",
             }}
           >
@@ -180,6 +206,7 @@ export function TemplatePreview({
               srcDoc={html}
               aria-hidden="true"
               scrolling="no"
+              sandbox="allow-same-origin"
               onLoad={onIframeLoad}
               style={{
                 position: "absolute",
@@ -188,7 +215,7 @@ export function TemplatePreview({
                 width: `${baseWidth}px`,
                 height: `${contentHeight}px`,
                 transformOrigin: "top left",
-                transform: `scale(${totalScale})`,
+                transform: `scale(${scale})`,
                 border: 0,
                 pointerEvents: "none",
                 background: "white",

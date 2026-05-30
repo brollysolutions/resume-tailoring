@@ -9,140 +9,10 @@ import json
 import logging
 import re
 from app.core.llm_client import _chat
+from app.core.llm_prompts import PROMPT_EXTRACT_RESUME_SYSTEM
 from app.models.resume_schema import Resume
 
 logger = logging.getLogger(__name__)
-
-
-_EXTRACTION_SYSTEM = """You are a precise resume parser. Your goal is 100% content retention. Extract every single word and detail from the raw text into the JSON schema below.
-
-ABSOLUTE FIDELITY RULES:
-1. CAPTURE EVERY DETAIL: If you see a line of text, it MUST be in the JSON. Never skip "Relevant Coursework", "Honors", "Thesis", or individual bullet points. 
-2. USE EXACT WORDING: Do not paraphrase. Copy text exactly as it appears in the source.
-3. EDUCATION DETAILS: Any text associated with a degree (coursework, GPA, awards) MUST be captured in the "details" array. 
-   - NEVER put the degree name ("B.Tech") or field ("Information Technology") into the "details" array; they go in their specific fields.
-   - Preserve labels like "Relevant Coursework:" or "Coursework:" verbatim inside the detail strings.
-4. PRESERVE ACRONYMS (CRITICAL): Keep "B.Tech", "M.Tech", "MS", "GPA" exactly as they appear. NEVER expand "B.Tech" to "Bachelor of Technology".
-5. EXPERIENCE & PROJECTS: Every bullet point must be captured. Every company, title, and date must be captured.
-6. NO SELECTIVE FILTERING: Do not decide that some information is "unimportant". If it is in the resume, it must be in the JSON.
-7. SECTION ORDER: Follow the physical top-to-bottom order of the original document.
-
-SCHEMA:
-{
-  "name": "string",
-  "contact": {
-    "email": "string|null",
-    "phone": "string|null",
-    "location": "string|null",
-    "linkedin": "string|null",
-    "github": "string|null",
-    "website": "string|null"
-  },
-  "summary": "string|null",
-  "experience": [
-    {
-      "title": "string",
-      "company": "string|null",
-      "location": "string|null",
-      "start_date": "string|null",
-      "end_date": "string|null",
-      "bullets": ["string"]
-    }
-  ],
-  "education": [
-    {
-      "institution": "string",
-      "degree": "string|null",
-      "field": "string|null",
-      "location": "string|null",
-      "start_date": "string|null",
-      "end_date": "string|null",
-      "gpa": "string|null",
-      "details": ["string"]
-    }
-  ],
-  "projects": [
-    {
-      "name": "string",
-      "tech": "string|null",
-      "date": "string|null",
-      "bullets": ["string"]
-    }
-  ],
-  "skills": [
-    {
-      "category": "string",
-      "skills": ["string"]
-    }
-  ],
-  "certifications": ["string"],
-  "publications": [
-    {
-      "title": "string",
-      "authors": "string|null",
-      "venue": "string|null",
-      "year": "string|null",
-      "doi": "string|null",
-      "url": "string|null"
-    }
-  ],
-  "awards": [
-    {
-      "title": "string",
-      "issuer": "string|null",
-      "date": "string|null",
-      "description": "string|null"
-    }
-  ],
-  "languages": [
-    {
-      "name": "string",
-      "proficiency": "Native|Fluent|Conversational|Basic|null"
-    }
-  ],
-  "volunteer": [
-    {
-      "role": "string",
-      "organization": "string",
-      "location": "string|null",
-      "start_date": "string|null",
-      "end_date": "string|null",
-      "bullets": ["string"]
-    }
-  ],
-  "patents": [
-    {
-      "title": "string",
-      "number": "string|null",
-      "date": "string|null",
-      "status": "Granted|Pending|null",
-      "authors": "string|null"
-    }
-  ],
-  "talks": [
-    {
-      "title": "string",
-      "venue": "string|null",
-      "date": "string|null",
-      "type": "Conference|Workshop|Seminar|null"
-    }
-  ],
-  "section_order": ["string"],
-  "extra_sections": [
-    {
-      "title": "string",
-      "content_type": "entries|text|list",
-      "items": [
-        {
-          "header": "string|null",
-          "subheader": "string|null",
-          "bullets": ["string"],
-          "text": "string|null"
-        }
-      ]
-    }
-  ]
-}"""
 
 
 _HEADER_INDICATORS = (
@@ -349,6 +219,64 @@ def _dedupe_education_field(resume: Resume) -> None:
             ed.field = None
 
 
+def _clean_coursework(resume: Resume) -> None:
+    """Consolidate Coursework from extra_sections and deduplicate within education."""
+    cw_titles = {"coursework", "relevant coursework", "key coursework", "related coursework"}
+    
+    # 1. Move extra_sections coursework into the first education entry
+    extra_courseworks = [ex for ex in resume.extra_sections if ex.title.lower().strip() in cw_titles]
+    if extra_courseworks and resume.education:
+        courses = []
+        for ex in extra_courseworks:
+            for item in ex.items:
+                if item.header: courses.append(item.header)
+                if item.text: courses.append(item.text)
+                courses.extend(item.bullets)
+        if courses:
+            resume.education[0].details.append("Relevant Coursework: " + ", ".join(courses))
+            
+    # Remove from extra_sections
+    resume.extra_sections = [ex for ex in resume.extra_sections if ex.title.lower().strip() not in cw_titles]
+    
+    # 2. Deduplicate coursework lines within each education entry
+    for ed in resume.education:
+        courses = []
+        other_lines = []
+        for d in ed.details:
+            d_lower = d.lower().strip()
+            if d_lower.startswith("relevant coursework:") or d_lower.startswith("coursework:"):
+                parts = d.split(":", 1)
+                if len(parts) > 1:
+                    for c in parts[1].split(","):
+                        c = c.strip()
+                        # simple case-insensitive deduplication while preserving original case
+                        if c and not any(c.lower() == existing.lower() for existing in courses):
+                            courses.append(c)
+            else:
+                other_lines.append(d)
+                
+        if courses:
+            other_lines.append("Relevant Coursework: " + ", ".join(courses))
+        ed.details = other_lines
+
+
+def _dedupe_canonical_extra_sections(resume: Resume) -> None:
+    """Drop extra_sections whose title maps to a standard section that already
+    has content. The LLM sometimes emits e.g. "TECHNICAL SKILLS" as BOTH the
+    canonical field (skills) AND a redundant extra_section, which then renders
+    twice (once inline, once as broken entries with null subheaders)."""
+    kept = []
+    for ex in resume.extra_sections:
+        canonical = _SECTION_MAP.get(ex.title.lower().strip())
+        if canonical:
+            val = getattr(resume, canonical, None)
+            has_content = bool(val.strip()) if isinstance(val, str) else bool(val)
+            if has_content:
+                continue  # canonical field already holds this — drop the dupe
+        kept.append(ex)
+    resume.extra_sections = kept
+
+
 def _filter_hallucinated_sections(resume: Resume, raw_text: str) -> None:
     """Mutate resume in place — drop entries whose identifying field doesn't
     appear in the raw source text. Catches LLM fabrications from world knowledge
@@ -399,7 +327,7 @@ async def extract_resume(raw_text: str) -> Resume:
     try:
         content = await _chat(
             [
-                {"role": "system", "content": _EXTRACTION_SYSTEM},
+                {"role": "system", "content": PROMPT_EXTRACT_RESUME_SYSTEM},
                 {"role": "user", "content": user_prompt},
             ],
             json_mode=True,
@@ -410,7 +338,7 @@ async def extract_resume(raw_text: str) -> Resume:
         try:
             content = await _chat(
                 [
-                    {"role": "system", "content": _EXTRACTION_SYSTEM + "\nReturn ONLY the JSON object, no other text."},
+                    {"role": "system", "content": PROMPT_EXTRACT_RESUME_SYSTEM + "\nReturn ONLY the JSON object, no other text."},
                     {"role": "user", "content": user_prompt},
                 ],
                 json_mode=False,
@@ -439,6 +367,8 @@ async def extract_resume(raw_text: str) -> Resume:
     # past the prompt rules.
     _filter_hallucinated_sections(resume, raw_text)
     _dedupe_education_field(resume)
+    _clean_coursework(resume)
+    _dedupe_canonical_extra_sections(resume)
 
     if isinstance(data, dict):
         extra_titles = [e.title for e in resume.extra_sections]

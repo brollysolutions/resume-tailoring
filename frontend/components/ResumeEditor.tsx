@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Plus, Sparkles, Trash2, FolderPlus, Loader2, GripVertical, Wand2, Eye, EyeOff, Pencil } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Sparkles, Trash2, FolderPlus, Loader2, GripVertical, Eye, EyeOff, Pencil } from "lucide-react";
 import type { GeneratedProject } from "@/types/resume";
 import { LineEditor } from "@/components/LineEditor";
 import { SkillsRegenStep } from "@/components/SkillsRegenStep";
@@ -131,14 +131,36 @@ export function ResumeEditor({
 
   // Merge incoming section_order with the full default list so newly-added
   // sections (publications, awards, …) still appear when the saved order is older.
-  const mergeOrder = (incoming?: string[]): string[] => {
+  const isSectionPopulated = (key: string, res: ResumeData) => {
+    if (key === "summary") return !!res.summary;
+    if (key === "experience") return !!(res.experience && res.experience.length > 0);
+    if (key === "projects") return !!(res.projects && res.projects.length > 0);
+    if (key === "education") return !!(res.education && res.education.length > 0);
+    if (key === "skills") return !!(res.skills && res.skills.length > 0);
+    if (key === "certifications") return !!(res.certifications && res.certifications.length > 0);
+    if (key === "publications") return !!(res.publications && res.publications.length > 0);
+    if (key === "awards") return !!(res.awards && res.awards.length > 0);
+    if (key === "languages") return !!(res.languages && res.languages.length > 0);
+    if (key === "volunteer") return !!(res.volunteer && res.volunteer.length > 0);
+    if (key === "patents") return !!(res.patents && res.patents.length > 0);
+    if (key === "talks") return !!(res.talks && res.talks.length > 0);
+    if (key === "extra_sections") return !!(res.extra_sections && res.extra_sections.length > 0);
+    return false;
+  };
+
+  const mergeOrder = (incoming: string[] | undefined, res: ResumeData): string[] => {
     const have = (incoming || []).filter((s) => DEFAULT_SECTION_ORDER.includes(s));
     const missing = DEFAULT_SECTION_ORDER.filter((s) => !have.includes(s));
-    return have.length ? [...have, ...missing] : DEFAULT_SECTION_ORDER;
+    const combined = have.length ? [...have, ...missing] : DEFAULT_SECTION_ORDER;
+    
+    const populated = combined.filter((s) => isSectionPopulated(s, res));
+    const empty = combined.filter((s) => !isSectionPopulated(s, res));
+    
+    return [...populated, ...empty];
   };
 
   // Local section order state for drag and drop
-  const [localOrder, setLocalOrder] = useState<string[]>(() => mergeOrder(resume.section_order));
+  const [localOrder, setLocalOrder] = useState<string[]>(() => mergeOrder(resume.section_order, resume));
   const [lastSyncedOrder, setLastSyncedOrder] = useState(resume.section_order);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -148,7 +170,7 @@ export function ResumeEditor({
   if (resume.section_order !== lastSyncedOrder) {
     setLastSyncedOrder(resume.section_order);
     if (resume.section_order?.length) {
-      setLocalOrder(mergeOrder(resume.section_order));
+      setLocalOrder(mergeOrder(resume.section_order, resume));
     }
   }
 
@@ -375,44 +397,92 @@ export function ResumeEditor({
             label="Name"
             value={resume.name}
             placeholder="Full name"
+            hideLabel
+            valueClassName="text-base font-bold"
             onCommit={(v) => emitTopLevel("name", v)}
           />
-          <ScalarField
-            label="Email"
-            value={resume.contact?.email}
-            placeholder="you@example.com"
-            onCommit={(v) => emitContact("email", v)}
-          />
-          <ScalarField
-            label="Phone"
-            value={resume.contact?.phone}
-            placeholder="+1 555 555 5555"
-            onCommit={(v) => emitContact("phone", v)}
-          />
-          <ScalarField
-            label="Location"
-            value={resume.contact?.location}
-            placeholder="City, ST"
-            onCommit={(v) => emitContact("location", v)}
-          />
-          <ScalarField
-            label="LinkedIn"
-            value={resume.contact?.linkedin}
-            placeholder="linkedin.com/in/…"
-            onCommit={(v) => emitContact("linkedin", v)}
-          />
-          <ScalarField
-            label="GitHub"
-            value={resume.contact?.github}
-            placeholder="github.com/…"
-            onCommit={(v) => emitContact("github", v)}
-          />
-          <ScalarField
-            label="Website"
-            value={resume.contact?.website}
-            placeholder="example.com"
-            onCommit={(v) => emitContact("website", v)}
-          />
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+            <ScalarField
+              label="Email"
+              value={resume.contact?.email}
+              placeholder="you@example.com"
+              hideLabel
+              onCommit={(v) => emitContact("email", v)}
+            />
+            <span>•</span>
+            <ScalarField
+              label="Phone"
+              value={resume.contact?.phone}
+              placeholder="+1 555 555 5555"
+              hideLabel
+              onCommit={(v) => emitContact("phone", v)}
+            />
+            <span>•</span>
+            <ScalarField
+              label="Location"
+              value={resume.contact?.location}
+              placeholder="City, ST"
+              hideLabel
+              onCommit={(v) => emitContact("location", v)}
+            />
+            <span>•</span>
+            <ScalarField
+              label="LinkedIn"
+              value={resume.contact?.linkedin}
+              placeholder="linkedin.com/in/…"
+              hideLabel
+              onCommit={(v) => emitContact("linkedin", v)}
+            />
+            <span>•</span>
+            <ScalarField
+              label="GitHub"
+              value={resume.contact?.github}
+              placeholder="github.com/…"
+              hideLabel
+              onCommit={(v) => emitContact("github", v)}
+            />
+            <span>•</span>
+            <ScalarField
+              label="Website"
+              value={resume.contact?.website}
+              placeholder="example.com"
+              hideLabel
+              onCommit={(v) => emitContact("website", v)}
+            />
+            {(resume.custom_links || []).map((link, i) => (
+              <span key={`CustomLink::${i}`} className="flex items-center gap-1">
+                <span>•</span>
+                <ScalarField
+                  label="Label"
+                  value={link.label}
+                  placeholder="Link"
+                  hideLabel
+                  valueClassName="font-medium"
+                  onCommit={(v) => onEmit({ section: "Header", mode: "replace_field", original: `custom_links::${i}::label`, suggested: v })}
+                />
+                <ScalarField
+                  label="URL"
+                  value={link.url}
+                  placeholder="https://…"
+                  hideLabel
+                  onCommit={(v) => onEmit({ section: "Header", mode: "replace_field", original: `custom_links::${i}::url`, suggested: v })}
+                />
+                <button
+                  onClick={() => onEmit({ section: "Header", mode: "delete_entry", original: `custom_links::${i}` })}
+                  className="text-muted hover:text-danger p-0.5"
+                  title="Remove link"
+                >
+                  <Trash2 className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            ))}
+            <button
+              onClick={() => onEmit({ section: "Header", mode: "add_entry", original: "custom_links" })}
+              className="inline-flex items-center gap-1 text-[10px] text-primary hover:text-primary-dark ml-1 border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 transition-colors"
+            >
+              <Plus className="w-2.5 h-2.5" /> Add Link
+            </button>
+          </div>
         </div>
       </SectionCard>
 
@@ -465,7 +535,6 @@ export function ResumeEditor({
                 headerExtras={
                   <div className="flex items-center gap-1">
                     <IntensitySelector sectionKey="summary" />
-                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor the Summary" onClick={() => onCopilotFocus({ section: "Summary", targetType: "section", label: "Summary" })} />}
                     {hideToggleFor("summary")}
                     {dragHandle}
                   </div>
@@ -519,7 +588,6 @@ export function ResumeEditor({
                 headerExtras={
                   <div className="flex items-center gap-1">
                     <IntensitySelector sectionKey="experience" />
-                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Experience" onClick={() => onCopilotFocus({ section: "Experience", targetType: "section", label: "Experience" })} />}
                     {hideToggleFor("experience")}
                     {dragHandle}
                   </div>
@@ -529,28 +597,24 @@ export function ResumeEditor({
                   <EntryBlock
                     key={`Experience::${i}`}
                     header={
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Title" value={exp.title} placeholder="(role)" onCommit={(v) => emitField("experience", i, "title", v, "Experience")} />
-                        <ScalarField label="Company" value={exp.company} placeholder="(company)" onCommit={(v) => emitField("experience", i, "company", v, "Experience")} />
-                        <ScalarField label="URL" value={exp.company_url} placeholder="https://…" onCommit={(v) => emitField("experience", i, "company_url", v, "Experience")} />
-                        <ScalarField label="Start" value={exp.start_date} placeholder="YYYY-MM" onCommit={(v) => emitField("experience", i, "start_date", v, "Experience")} />
-                        <ScalarField label="End" value={exp.end_date} placeholder="Present" onCommit={(v) => emitField("experience", i, "end_date", v, "Experience")} />
-                        <ScalarField label="Location" value={exp.location} placeholder="City, ST" onCommit={(v) => emitField("experience", i, "location", v, "Experience")} />
+                      <div className="flex flex-col gap-1 w-full">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <ScalarField label="Title" value={exp.title} placeholder="(role)" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("experience", i, "title", v, "Experience")} />
+                          {(exp.title || exp.company) && <span className="text-muted text-xs font-medium">at</span>}
+                          <ScalarField label="Company" value={exp.company} placeholder="(company)" hideLabel valueClassName="text-sm font-semibold text-primary" onCommit={(v) => emitField("experience", i, "company", v, "Experience")} />
+                          <ScalarField label="URL" value={exp.company_url} placeholder="https://…" hideLabel onCommit={(v) => emitField("experience", i, "company_url", v, "Experience")} />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                          <ScalarField label="Start" value={exp.start_date} placeholder="YYYY-MM" hideLabel onCommit={(v) => emitField("experience", i, "start_date", v, "Experience")} />
+                          <span>–</span>
+                          <ScalarField label="End" value={exp.end_date} placeholder="Present" hideLabel onCommit={(v) => emitField("experience", i, "end_date", v, "Experience")} />
+                          <span>|</span>
+                          <ScalarField label="Location" value={exp.location} placeholder="City, ST" hideLabel onCommit={(v) => emitField("experience", i, "location", v, "Experience")} />
+                        </div>
                       </div>
                     }
                     actions={
                       <div className="flex items-center gap-2">
-                        {onCopilotFocus && (exp.bullets || []).length > 0 && (
-                          <SectionWand
-                            title="Ask Copilot to rewrite this role"
-                            onClick={() => onCopilotFocus({
-                              section: "Experience",
-                              targetType: "entry",
-                              entryIndex: i,
-                              label: `${exp.title || "(role)"}${exp.company ? ` @ ${exp.company}` : ""}`,
-                            })}
-                          />
-                        )}
                         <DeleteEntryButton onClick={() => emitDeleteEntry("experience", i)} title="Delete this experience entry" />
                       </div>
                     }
@@ -619,7 +683,6 @@ export function ResumeEditor({
                 headerExtras={
                   <div className="flex items-center gap-2">
                     <IntensitySelector sectionKey="projects" />
-                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Projects" onClick={() => onCopilotFocus({ section: "Projects", targetType: "section", label: "Projects" })} />}
                     {onKeptChange && apiUrl && resumeId && jdText && (
                       <GenerateProjectsInlineButton
                         resumeId={resumeId!}
@@ -642,27 +705,21 @@ export function ResumeEditor({
                   <EntryBlock
                     key={`Projects::${i}`}
                     header={
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Name" value={p.name} placeholder="(project)" onCommit={(v) => emitField("projects", i, "name", v, "Projects")} />
-                        <ScalarField label="Link" value={p.url} placeholder="repo / site" onCommit={(v) => emitField("projects", i, "url", v, "Projects")} />
-                        <ScalarField label="Demo" value={p.demo_url} placeholder="live demo" onCommit={(v) => emitField("projects", i, "demo_url", v, "Projects")} />
-                        <ScalarField label="Tech" value={p.tech} placeholder="stack…" onCommit={(v) => emitField("projects", i, "tech", v, "Projects")} />
-                        <ScalarField label="Date" value={p.date} placeholder="YYYY-MM" onCommit={(v) => emitField("projects", i, "date", v, "Projects")} />
+                      <div className="flex flex-col gap-1 w-full">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <ScalarField label="Name" value={p.name} placeholder="(project)" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("projects", i, "name", v, "Projects")} />
+                          <ScalarField label="Link" value={p.url} placeholder="repo / site" hideLabel onCommit={(v) => emitField("projects", i, "url", v, "Projects")} />
+                          <ScalarField label="Demo" value={p.demo_url} placeholder="live demo" hideLabel onCommit={(v) => emitField("projects", i, "demo_url", v, "Projects")} />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                          <ScalarField label="Tech" value={p.tech} placeholder="stack…" hideLabel onCommit={(v) => emitField("projects", i, "tech", v, "Projects")} />
+                          {(p.tech || p.date) && <span>|</span>}
+                          <ScalarField label="Date" value={p.date} placeholder="YYYY-MM" hideLabel onCommit={(v) => emitField("projects", i, "date", v, "Projects")} />
+                        </div>
                       </div>
                     }
                     actions={
                       <div className="flex items-center gap-2">
-                        {onCopilotFocus && (p.bullets || []).length > 0 && (
-                          <SectionWand
-                            title="Ask Copilot to rewrite this project"
-                            onClick={() => onCopilotFocus({
-                              section: "Projects",
-                              targetType: "entry",
-                              entryIndex: i,
-                              label: p.name || "(project)",
-                            })}
-                          />
-                        )}
                         <DeleteEntryButton onClick={() => emitDeleteEntry("projects", i)} title="Delete this project" />
                       </div>
                     }
@@ -734,7 +791,6 @@ export function ResumeEditor({
                 headerExtras={
                   <div className="flex items-center gap-1">
                     <IntensitySelector sectionKey="education" />
-                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Education" onClick={() => onCopilotFocus({ section: "Education", targetType: "section", label: "Education" })} />}
                     {hideToggleFor("education")}
                     {dragHandle}
                   </div>
@@ -744,14 +800,25 @@ export function ResumeEditor({
                   <EntryBlock
                     key={`Education::${i}`}
                     header={
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Institution" value={ed.institution} placeholder="(school)" onCommit={(v) => emitField("education", i, "institution", v, "Education")} />
-                        <ScalarField label="Degree" value={ed.degree} placeholder="B.S." onCommit={(v) => emitField("education", i, "degree", v, "Education")} />
-                        <ScalarField label="Field" value={ed.field} placeholder="Computer Science" onCommit={(v) => emitField("education", i, "field", v, "Education")} />
-                        <ScalarField label="Start" value={ed.start_date} placeholder="YYYY" onCommit={(v) => emitField("education", i, "start_date", v, "Education")} />
-                        <ScalarField label="End" value={ed.end_date} placeholder="YYYY" onCommit={(v) => emitField("education", i, "end_date", v, "Education")} />
-                        <ScalarField label="Location" value={ed.location} placeholder="City, ST" onCommit={(v) => emitField("education", i, "location", v, "Education")} />
-                        <ScalarField label="GPA" value={ed.gpa} placeholder="3.8/4.0" onCommit={(v) => emitField("education", i, "gpa", v, "Education")} />
+                      <div className="flex flex-col gap-1 w-full">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <ScalarField label="Institution" value={ed.institution} placeholder="(school)" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("education", i, "institution", v, "Education")} />
+                          <ScalarField label="Degree" value={ed.degree} placeholder="B.S." hideLabel onCommit={(v) => emitField("education", i, "degree", v, "Education")} />
+                          <ScalarField label="Field" value={ed.field} placeholder="Computer Science" hideLabel onCommit={(v) => emitField("education", i, "field", v, "Education")} />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                          <ScalarField label="Start" value={ed.start_date} placeholder="YYYY" hideLabel onCommit={(v) => emitField("education", i, "start_date", v, "Education")} />
+                          <span>–</span>
+                          <ScalarField label="End" value={ed.end_date} placeholder="YYYY" hideLabel onCommit={(v) => emitField("education", i, "end_date", v, "Education")} />
+                          <span>|</span>
+                          <ScalarField label="Location" value={ed.location} placeholder="City, ST" hideLabel onCommit={(v) => emitField("education", i, "location", v, "Education")} />
+                          {ed.gpa && (
+                            <>
+                              <span>|</span>
+                              <ScalarField label="GPA" value={ed.gpa} placeholder="3.8/4.0" hideLabel onCommit={(v) => emitField("education", i, "gpa", v, "Education")} />
+                            </>
+                          )}
+                        </div>
                       </div>
                     }
                     actions={
@@ -828,7 +895,6 @@ export function ResumeEditor({
                 headerExtras={
                   <div className="flex items-center gap-1">
                     <IntensitySelector sectionKey="skills" />
-                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Skills" onClick={() => onCopilotFocus({ section: "Skills", targetType: "section", label: "Skills" })} />}
                     {hideToggleFor("skills")}
                     {dragHandle}
                   </div>
@@ -847,7 +913,6 @@ export function ResumeEditor({
                 editCount={editCountBySection["Certifications"] || 0}
                 headerExtras={
                   <div className="flex items-center gap-1">
-                    {onCopilotFocus && <SectionWand title="Ask Copilot to tailor Certifications" onClick={() => onCopilotFocus({ section: "Certifications", targetType: "section", label: "Certifications" })} />}
                     {hideToggleFor("certifications")}
                     {dragHandle}
                   </div>
@@ -857,11 +922,16 @@ export function ResumeEditor({
                   <EntryBlock
                     key={`Certifications::${i}`}
                     header={
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Name" value={c.name} placeholder="(cert)" onCommit={(v) => emitField("certifications", i, "name", v, "Certifications")} />
-                        <ScalarField label="Issuer" value={c.issuer} placeholder="(org)" onCommit={(v) => emitField("certifications", i, "issuer", v, "Certifications")} />
-                        <ScalarField label="Date" value={c.date} placeholder="YYYY" onCommit={(v) => emitField("certifications", i, "date", v, "Certifications")} />
-                        <ScalarField label="Link" value={c.credential_url} placeholder="https://…" onCommit={(v) => emitField("certifications", i, "credential_url", v, "Certifications")} />
+                      <div className="flex flex-col gap-1 w-full">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <ScalarField label="Name" value={c.name} placeholder="(cert)" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("certifications", i, "name", v, "Certifications")} />
+                          {(c.name && c.issuer) && <span className="text-muted text-xs font-medium">from</span>}
+                          <ScalarField label="Issuer" value={c.issuer} placeholder="(org)" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("certifications", i, "issuer", v, "Certifications")} />
+                          {c.credential_url && <ScalarField label="Link" value={c.credential_url} placeholder="https://…" hideLabel onCommit={(v) => emitField("certifications", i, "credential_url", v, "Certifications")} />}
+                        </div>
+                        <div className="text-xs text-muted">
+                          <ScalarField label="Date" value={c.date} placeholder="YYYY" hideLabel onCommit={(v) => emitField("certifications", i, "date", v, "Certifications")} />
+                        </div>
                       </div>
                     }
                     actions={<DeleteEntryButton onClick={() => emitDeleteEntry("certifications", i)} title="Delete this certification" />}
@@ -883,7 +953,6 @@ export function ResumeEditor({
               <SectionCard
                 title="Publications"
                 editCount={editCountBySection["Publications"] || 0}
-                defaultOpen={items.length > 0}
                 headerExtras={
                   <div className="flex items-center gap-1">
                     {hideToggleFor("publications")}
@@ -895,13 +964,28 @@ export function ResumeEditor({
                   <EntryBlock
                     key={`Publications::${i}`}
                     header={
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Title" value={p.title} placeholder="(title)" onCommit={(v) => emitField("publications", i, "title", v, "Publications")} />
-                        <ScalarField label="Authors" value={p.authors} placeholder="Last, F.; …" onCommit={(v) => emitField("publications", i, "authors", v, "Publications")} />
-                        <ScalarField label="Venue" value={p.venue} placeholder="Conf / Journal" onCommit={(v) => emitField("publications", i, "venue", v, "Publications")} />
-                        <ScalarField label="Year" value={p.year} placeholder="YYYY" onCommit={(v) => emitField("publications", i, "year", v, "Publications")} />
-                        <ScalarField label="DOI" value={p.doi} placeholder="10.xxxx/…" onCommit={(v) => emitField("publications", i, "doi", v, "Publications")} />
-                        <ScalarField label="URL" value={p.url} placeholder="https://…" onCommit={(v) => emitField("publications", i, "url", v, "Publications")} />
+                      <div className="flex flex-col gap-1 w-full">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <ScalarField label="Title" value={p.title} placeholder="(title)" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("publications", i, "title", v, "Publications")} />
+                          {p.authors && <ScalarField label="Authors" value={p.authors} placeholder="Last, F.; …" hideLabel onCommit={(v) => emitField("publications", i, "authors", v, "Publications")} />}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                          <ScalarField label="Venue" value={p.venue} placeholder="Conf / Journal" hideLabel onCommit={(v) => emitField("publications", i, "venue", v, "Publications")} />
+                          <span>|</span>
+                          <ScalarField label="Year" value={p.year} placeholder="YYYY" hideLabel onCommit={(v) => emitField("publications", i, "year", v, "Publications")} />
+                          {p.doi && (
+                            <>
+                              <span>|</span>
+                              <ScalarField label="DOI" value={p.doi} placeholder="10.xxxx/…" hideLabel onCommit={(v) => emitField("publications", i, "doi", v, "Publications")} />
+                            </>
+                          )}
+                          {p.url && (
+                            <>
+                              <span>|</span>
+                              <ScalarField label="URL" value={p.url} placeholder="https://…" hideLabel onCommit={(v) => emitField("publications", i, "url", v, "Publications")} />
+                            </>
+                          )}
+                        </div>
                       </div>
                     }
                     actions={<DeleteEntryButton onClick={() => emitDeleteEntry("publications", i)} title="Delete this publication" />}
@@ -923,7 +1007,6 @@ export function ResumeEditor({
               <SectionCard
                 title="Awards"
                 editCount={editCountBySection["Awards"] || 0}
-                defaultOpen={items.length > 0}
                 headerExtras={
                   <div className="flex items-center gap-1">
                     {hideToggleFor("awards")}
@@ -935,11 +1018,21 @@ export function ResumeEditor({
                   <EntryBlock
                     key={`Awards::${i}`}
                     header={
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Title" value={a.title} placeholder="(award)" onCommit={(v) => emitField("awards", i, "title", v, "Awards")} />
-                        <ScalarField label="Issuer" value={a.issuer} placeholder="(org)" onCommit={(v) => emitField("awards", i, "issuer", v, "Awards")} />
-                        <ScalarField label="Date" value={a.date} placeholder="YYYY-MM" onCommit={(v) => emitField("awards", i, "date", v, "Awards")} />
-                        <ScalarField label="Description" value={a.description} placeholder="One-line context" onCommit={(v) => emitField("awards", i, "description", v, "Awards")} />
+                      <div className="flex flex-col gap-1 w-full">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <ScalarField label="Title" value={a.title} placeholder="(award)" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("awards", i, "title", v, "Awards")} />
+                          {(a.title && a.issuer) && <span className="text-muted text-xs font-medium">from</span>}
+                          <ScalarField label="Issuer" value={a.issuer} placeholder="(org)" hideLabel valueClassName="text-sm font-semibold text-primary" onCommit={(v) => emitField("awards", i, "issuer", v, "Awards")} />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                          <ScalarField label="Date" value={a.date} placeholder="YYYY-MM" hideLabel onCommit={(v) => emitField("awards", i, "date", v, "Awards")} />
+                          {a.description && (
+                            <>
+                              <span>|</span>
+                              <ScalarField label="Description" value={a.description} placeholder="One-line context" hideLabel onCommit={(v) => emitField("awards", i, "description", v, "Awards")} />
+                            </>
+                          )}
+                        </div>
                       </div>
                     }
                     actions={<DeleteEntryButton onClick={() => emitDeleteEntry("awards", i)} title="Delete this award" />}
@@ -961,7 +1054,6 @@ export function ResumeEditor({
               <SectionCard
                 title="Languages"
                 editCount={editCountBySection["Languages"] || 0}
-                defaultOpen={items.length > 0}
                 headerExtras={
                   <div className="flex items-center gap-1">
                     {hideToggleFor("languages")}
@@ -974,11 +1066,13 @@ export function ResumeEditor({
                     key={`Languages::${i}`}
                     header={
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Language" value={l.name} placeholder="English" onCommit={(v) => emitField("languages", i, "name", v, "Languages")} />
+                        <ScalarField label="Language" value={l.name} placeholder="English" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("languages", i, "name", v, "Languages")} />
                         <ScalarField
                           label="Proficiency"
                           value={l.proficiency}
                           options={["Native", "Fluent", "Conversational", "Basic"]}
+                          hideLabel
+                          valueClassName="text-xs text-muted italic"
                           onCommit={(v) => emitField("languages", i, "proficiency", v, "Languages")}
                         />
                       </div>
@@ -1002,7 +1096,6 @@ export function ResumeEditor({
               <SectionCard
                 title="Volunteer"
                 editCount={editCountBySection["Volunteer"] || 0}
-                defaultOpen={items.length > 0}
                 headerExtras={
                   <div className="flex items-center gap-1">
                     {hideToggleFor("volunteer")}
@@ -1014,12 +1107,19 @@ export function ResumeEditor({
                   <EntryBlock
                     key={`Volunteer::${i}`}
                     header={
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Role" value={v.role} placeholder="(role)" onCommit={(val) => emitField("volunteer", i, "role", val, "Volunteer")} />
-                        <ScalarField label="Organization" value={v.organization} placeholder="(org)" onCommit={(val) => emitField("volunteer", i, "organization", val, "Volunteer")} />
-                        <ScalarField label="Start" value={v.start_date} placeholder="YYYY-MM" onCommit={(val) => emitField("volunteer", i, "start_date", val, "Volunteer")} />
-                        <ScalarField label="End" value={v.end_date} placeholder="Present" onCommit={(val) => emitField("volunteer", i, "end_date", val, "Volunteer")} />
-                        <ScalarField label="Location" value={v.location} placeholder="City, ST" onCommit={(val) => emitField("volunteer", i, "location", val, "Volunteer")} />
+                      <div className="flex flex-col gap-1 w-full">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <ScalarField label="Role" value={v.role} placeholder="(role)" hideLabel valueClassName="text-sm font-semibold" onCommit={(val) => emitField("volunteer", i, "role", val, "Volunteer")} />
+                          {(v.role && v.organization) && <span className="text-muted text-xs font-medium">at</span>}
+                          <ScalarField label="Organization" value={v.organization} placeholder="(org)" hideLabel valueClassName="text-sm font-semibold text-primary" onCommit={(val) => emitField("volunteer", i, "organization", val, "Volunteer")} />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                          <ScalarField label="Start" value={v.start_date} placeholder="YYYY-MM" hideLabel onCommit={(val) => emitField("volunteer", i, "start_date", val, "Volunteer")} />
+                          <span>–</span>
+                          <ScalarField label="End" value={v.end_date} placeholder="Present" hideLabel onCommit={(val) => emitField("volunteer", i, "end_date", val, "Volunteer")} />
+                          <span>|</span>
+                          <ScalarField label="Location" value={v.location} placeholder="City, ST" hideLabel onCommit={(val) => emitField("volunteer", i, "location", val, "Volunteer")} />
+                        </div>
                       </div>
                     }
                     actions={<DeleteEntryButton onClick={() => emitDeleteEntry("volunteer", i)} title="Delete this volunteer entry" />}
@@ -1058,7 +1158,6 @@ export function ResumeEditor({
               <SectionCard
                 title="Patents"
                 editCount={editCountBySection["Patents"] || 0}
-                defaultOpen={items.length > 0}
                 headerExtras={
                   <div className="flex items-center gap-1">
                     {hideToggleFor("patents")}
@@ -1070,12 +1169,18 @@ export function ResumeEditor({
                   <EntryBlock
                     key={`Patents::${i}`}
                     header={
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Title" value={p.title} placeholder="(title)" onCommit={(v) => emitField("patents", i, "title", v, "Patents")} />
-                        <ScalarField label="Number" value={p.number} placeholder="US 11,123,456" onCommit={(v) => emitField("patents", i, "number", v, "Patents")} />
-                        <ScalarField label="Date" value={p.date} placeholder="YYYY-MM" onCommit={(v) => emitField("patents", i, "date", v, "Patents")} />
-                        <ScalarField label="Status" value={p.status} options={["Pending", "Granted"]} onCommit={(v) => emitField("patents", i, "status", v, "Patents")} />
-                        <ScalarField label="Authors" value={p.authors} placeholder="Inventors" onCommit={(v) => emitField("patents", i, "authors", v, "Patents")} />
+                      <div className="flex flex-col gap-1 w-full">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <ScalarField label="Title" value={p.title} placeholder="(title)" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("patents", i, "title", v, "Patents")} />
+                          <ScalarField label="Number" value={p.number} placeholder="US 11,123,456" hideLabel valueClassName="text-xs font-medium text-primary" onCommit={(v) => emitField("patents", i, "number", v, "Patents")} />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                          <ScalarField label="Date" value={p.date} placeholder="YYYY-MM" hideLabel onCommit={(v) => emitField("patents", i, "date", v, "Patents")} />
+                          <span>|</span>
+                          <ScalarField label="Status" value={p.status} options={["Pending", "Granted"]} hideLabel onCommit={(v) => emitField("patents", i, "status", v, "Patents")} />
+                          <span>|</span>
+                          <ScalarField label="Authors" value={p.authors} placeholder="Inventors" hideLabel onCommit={(v) => emitField("patents", i, "authors", v, "Patents")} />
+                        </div>
                       </div>
                     }
                     actions={<DeleteEntryButton onClick={() => emitDeleteEntry("patents", i)} title="Delete this patent" />}
@@ -1097,7 +1202,6 @@ export function ResumeEditor({
               <SectionCard
                 title="Talks"
                 editCount={editCountBySection["Talks"] || 0}
-                defaultOpen={items.length > 0}
                 headerExtras={
                   <div className="flex items-center gap-1">
                     {hideToggleFor("talks")}
@@ -1109,11 +1213,17 @@ export function ResumeEditor({
                   <EntryBlock
                     key={`Talks::${i}`}
                     header={
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Title" value={t.title} placeholder="(title)" onCommit={(v) => emitField("talks", i, "title", v, "Talks")} />
-                        <ScalarField label="Venue" value={t.venue} placeholder="(venue)" onCommit={(v) => emitField("talks", i, "venue", v, "Talks")} />
-                        <ScalarField label="Date" value={t.date} placeholder="YYYY-MM" onCommit={(v) => emitField("talks", i, "date", v, "Talks")} />
-                        <ScalarField label="Type" value={t.type} options={["Conference", "Workshop", "Seminar"]} onCommit={(v) => emitField("talks", i, "type", v, "Talks")} />
+                      <div className="flex flex-col gap-1 w-full">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <ScalarField label="Title" value={t.title} placeholder="(title)" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("talks", i, "title", v, "Talks")} />
+                          {(t.title && t.venue) && <span className="text-muted text-xs font-medium">at</span>}
+                          <ScalarField label="Venue" value={t.venue} placeholder="(venue)" hideLabel valueClassName="text-sm font-semibold text-primary" onCommit={(v) => emitField("talks", i, "venue", v, "Talks")} />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                          <ScalarField label="Date" value={t.date} placeholder="YYYY-MM" hideLabel onCommit={(v) => emitField("talks", i, "date", v, "Talks")} />
+                          <span>|</span>
+                          <ScalarField label="Type" value={t.type} options={["Conference", "Workshop", "Seminar"]} hideLabel onCommit={(v) => emitField("talks", i, "type", v, "Talks")} />
+                        </div>
                       </div>
                     }
                     actions={<DeleteEntryButton onClick={() => emitDeleteEntry("talks", i)} title="Delete this talk" />}
@@ -1135,7 +1245,6 @@ export function ResumeEditor({
               <SectionCard
                 title="Extra Sections"
                 editCount={editCountBySection["Extra Sections"] || 0}
-                defaultOpen={items.length > 0}
                 headerExtras={
                   <div className="flex items-center gap-1">
                     {hideToggleFor("extra_sections")}
@@ -1148,11 +1257,13 @@ export function ResumeEditor({
                     key={`ExtraSection::${i}`}
                     header={
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <ScalarField label="Title" value={xs.title} placeholder="Section name" onCommit={(v) => emitField("extra_sections", i, "title", v, "Extra Sections")} />
+                        <ScalarField label="Title" value={xs.title} placeholder="Section name" hideLabel valueClassName="text-sm font-semibold" onCommit={(v) => emitField("extra_sections", i, "title", v, "Extra Sections")} />
                         <ScalarField
                           label="Type"
                           value={xs.content_type}
                           options={["entries", "text", "list"]}
+                          hideLabel
+                          valueClassName="text-xs text-muted italic"
                           onCommit={(v) => emitField("extra_sections", i, "content_type", v, "Extra Sections")}
                         />
                       </div>
@@ -1162,8 +1273,8 @@ export function ResumeEditor({
                     {(xs.items || []).map((it, j) => (
                       <div key={`ExtraSection::${i}::${j}`} className="border-l border-border/60 pl-2 mt-1 space-y-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                          <ScalarField label="Header" value={it.header} placeholder="(header)" onCommit={() => { /* item-level fields not yet supported */ }} />
-                          <ScalarField label="Subheader" value={it.subheader} placeholder="(subheader)" onCommit={() => { /* item-level fields not yet supported */ }} />
+                          <ScalarField label="Header" value={it.header} placeholder="(header)" hideLabel valueClassName="font-medium" onCommit={() => { /* item-level fields not yet supported */ }} />
+                          <ScalarField label="Subheader" value={it.subheader} placeholder="(subheader)" hideLabel onCommit={() => { /* item-level fields not yet supported */ }} />
                         </div>
                         {it.text && (
                           <LineEditor
@@ -1203,23 +1314,11 @@ export function ResumeEditor({
   );
 }
 
-function SectionWand({ onClick, title }: { onClick: () => void; title: string }) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className="p-1.5 rounded transition-colors hover:bg-primary/10 text-muted hover:text-primary"
-    >
-      <Wand2 className="w-4 h-4" />
-    </button>
-  );
-}
-
 function SectionCard({
   title,
   editCount = 0,
   headerExtras,
-  defaultOpen = true,
+  defaultOpen = false,
   children,
 }: {
   title: string;
@@ -1232,21 +1331,25 @@ function SectionCard({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="card p-3 space-y-2">
-      <div className="flex items-center justify-between gap-2">
+    <div className={`card p-3 space-y-2 transition-all duration-200 ${open ? "shadow-sm" : "hover:shadow-sm hover:border-foreground/20 hover:bg-subtle/20"}`}>
+      <div className="flex items-center justify-between gap-2 group">
         <button
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-2 min-w-0 flex-1 text-left group"
+          className="flex items-center gap-2 min-w-0 flex-1 text-left"
         >
           {open ? <ChevronUp className="w-3.5 h-3.5 text-muted shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" />}
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted group-hover:text-foreground transition-colors">{title}</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted group-hover:text-foreground transition-colors truncate">{title}</h3>
           {editCount > 0 && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success/10 text-success border border-success/30">
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success/10 text-success border border-success/30 shrink-0">
               {editCount} edited
             </span>
           )}
         </button>
-        {headerExtras}
+        {headerExtras && (
+          <div className="shrink-0 flex items-center">
+            {headerExtras}
+          </div>
+        )}
       </div>
       {open && <div className="space-y-2">{children}</div>}
     </div>
@@ -1468,6 +1571,8 @@ function ScalarField({
   onCommit,
   multiline,
   className,
+  hideLabel,
+  valueClassName,
 }: {
   label: string;
   value: string | undefined;
@@ -1476,6 +1581,8 @@ function ScalarField({
   onCommit: (next: string) => void;
   multiline?: boolean;
   className?: string;
+  hideLabel?: boolean;
+  valueClassName?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
@@ -1568,8 +1675,8 @@ function ScalarField({
       title={`Edit ${label}`}
       className={`group/sf inline-flex items-center gap-1 hover:bg-subtle/60 rounded px-1 py-0.5 transition-colors ${className || ""}`}
     >
-      <span className="text-[10px] uppercase tracking-wider text-muted">{label}</span>
-      <span className={`text-xs ${hasValue ? "text-foreground" : "text-muted italic"}`}>
+      {!hideLabel && <span className="text-[10px] uppercase tracking-wider text-muted">{label}</span>}
+      <span className={`${valueClassName || "text-xs"} ${hasValue ? "text-foreground" : "text-muted italic"}`}>
         {hasValue ? value : (placeholder || "—")}
       </span>
       <Pencil className="w-2.5 h-2.5 text-muted opacity-0 group-hover/sf:opacity-100 transition-opacity" />

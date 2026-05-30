@@ -11,6 +11,7 @@ Available templates: standard (serif, LaTeX-style, single-column, ATS-safe).
 import logging
 import os
 import re
+import math
 from io import BytesIO
 from typing import Optional, List, Dict
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -39,6 +40,11 @@ TEMPLATES: List[Dict[str, str]] = [
         "id": "standard",
         "name": "Standard",
         "description": "Clean single-column black-and-white layout. ATS-safe.",
+    },
+    {
+        "id": "modern-blue",
+        "name": "Modern Blue",
+        "description": "Sans-serif single-column layout with blue accents and a multi-column skills grid.",
     },
 ]
 
@@ -132,7 +138,7 @@ def _resume_char_count(resume: Resume) -> int:
         count += sum(len(d) for d in (ed.details or []))
     for s in resume.skills:
         count += sum(len(sk) for sk in (s.skills or []))
-    count += sum(len(c) for c in resume.certifications)
+    count += sum(len(c.name or "") for c in resume.certifications)
     count += sum(len(p.title or "") + len(p.authors or "") + len(p.venue or "") for p in resume.publications)
     count += sum(len(a.title or "") + len(a.description or "") for a in resume.awards)
     count += sum(len(v.role or "") + len(v.organization or "") + sum(len(b) for b in (v.bullets or [])) for v in resume.volunteer)
@@ -181,7 +187,7 @@ def _estimate_density(resume: Resume) -> str:
         char_count += sum(len(sk) for sk in (s.skills or []))
     if resume.skills:
         section_count += 1
-    char_count += sum(len(c) for c in resume.certifications)
+    char_count += sum(len(c.name or "") for c in resume.certifications)
     char_count += sum(len(p.title or "") + len(p.authors or "") for p in resume.publications)
     char_count += sum(len(a.title or "") + len(a.description or "") for a in resume.awards)
     char_count += sum(len(v.role or "") + sum(len(b) for b in (v.bullets or [])) for v in resume.volunteer)
@@ -222,12 +228,20 @@ def render_html(
     return template.render(resume=resume, density=density, density_name=density_key)
 
 
+def _block_remote_fetch(url, *args, **kwargs):
+    """url_fetcher that denies all external/file resource loads during PDF render.
+    Resume templates are fully self-contained (no images, no remote CSS/fonts),
+    so any fetch attempt means injected content — block it to prevent SSRF and
+    local-file disclosure."""
+    raise ValueError(f"External resource blocked during PDF render: {url}")
+
+
 def render_pdf(resume: Resume, template_id: Optional[str] = "standard",
                layout_density: Optional[str] = None,
                target_pages: Optional[int] = None) -> bytes:
     from weasyprint import HTML
     html = render_html(resume, template_id, layout_density=layout_density, target_pages=target_pages)
-    return HTML(string=html).write_pdf()
+    return HTML(string=html, url_fetcher=_block_remote_fetch).write_pdf()
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +321,84 @@ def _contact_line(resume: Resume) -> str:
     return "  |  ".join(parts)
 
 
+def _add_hyperlink(paragraph, text: str, url: str, *, size=None, color=None, underline=True):
+    """python-docx has no hyperlink API — build the w:hyperlink XML directly."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    
+    part = paragraph.part
+    r_id = part.relate_to(url, RT.HYPERLINK, is_external=True)
+
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), r_id)
+
+    new_run = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')
+
+    if color:
+        c = OxmlElement('w:color')
+        c.set(qn('w:val'), color)
+        rPr.append(c)
+
+    if underline:
+        u = OxmlElement('w:u')
+        u.set(qn('w:val'), 'single')
+        rPr.append(u)
+        
+    if size:
+        sz = OxmlElement('w:sz')
+        sz.set(qn('w:val'), str(int(size * 2)))
+        rPr.append(sz)
+        szCs = OxmlElement('w:szCs')
+        szCs.set(qn('w:val'), str(int(size * 2)))
+        rPr.append(szCs)
+
+    new_run.append(rPr)
+    text_element = OxmlElement('w:t')
+    text_element.text = text
+    new_run.append(text_element)
+    hyperlink.append(new_run)
+    paragraph._p.append(hyperlink)
+    return hyperlink
+
+
+def _render_contact_docx(paragraph, resume: Resume, size: float, color="000000"):
+    """Render contact line with clickable links where available."""
+    from docx.shared import Pt
+    c = resume.contact
+    first = True
+    
+    def add_sep():
+        nonlocal first
+        if not first:
+            paragraph.add_run("  |  ").font.size = Pt(size)
+        first = False
+
+    if c.phone:
+        add_sep()
+        paragraph.add_run(c.phone).font.size = Pt(size)
+    if c.email:
+        add_sep()
+        _add_hyperlink(paragraph, c.email, f"mailto:{c.email}", size=size, color=color)
+    if c.linkedin:
+        add_sep()
+        _add_hyperlink(paragraph, "LinkedIn", c.linkedin, size=size, color=color)
+    if c.github:
+        add_sep()
+        _add_hyperlink(paragraph, "GitHub", c.github, size=size, color=color)
+    if c.location:
+        add_sep()
+        paragraph.add_run(c.location).font.size = Pt(size)
+    if c.website:
+        add_sep()
+        _add_hyperlink(paragraph, "Website", c.website, size=size, color=color)
+    for link in resume.custom_links:
+        if link.url:
+            add_sep()
+            _add_hyperlink(paragraph, link.label or "Link", link.url, size=size, color=color)
+
+
 _DEFAULT_ORDER = [
     "summary", "experience", "projects", "education", "skills",
     "certifications", "publications", "awards", "languages",
@@ -364,9 +456,12 @@ def _render_publication_docx(doc, pub, *, size=10.5):
         ven.italic = True
         ven.font.size = Pt(size)
     if pub.doi:
-        p.add_run(f" DOI: {pub.doi}.").font.size = Pt(size)
-    if pub.url:
-        p.add_run(f" {pub.url}").font.size = Pt(size)
+        p.add_run(" DOI: ").font.size = Pt(size)
+        _add_hyperlink(p, pub.doi, f"https://doi.org/{pub.doi}", size=size)
+        p.add_run(".").font.size = Pt(size)
+    elif pub.url:
+        p.add_run(" ").font.size = Pt(size)
+        _add_hyperlink(p, "URL", pub.url, size=size)
 
 
 def _render_award_docx(doc, award, *, size=10.5):
@@ -509,14 +604,10 @@ def _render_docx_standard(resume: Resume, density_key: str = "standard") -> byte
     nr.font.name = "Times New Roman"
     nr.font.size = Pt(base_size + 11)
 
-    contact = _contact_line(resume)
-    if contact:
-        cp = doc.add_paragraph()
-        cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        cp.paragraph_format.space_after = Pt(4)
-        cr = cp.add_run(contact)
-        cr.font.name = "Times New Roman"
-        cr.font.size = Pt(base_size - 1)
+    cp = doc.add_paragraph()
+    cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    cp.paragraph_format.space_after = Pt(4)
+    _render_contact_docx(cp, resume, base_size - 1)
 
     def section_heading(text: str):
         p = doc.add_paragraph()
@@ -545,14 +636,44 @@ def _render_docx_standard(resume: Resume, density_key: str = "standard") -> byte
             for exp in resume.experience:
                 date = f"{exp.start_date or ''} – {exp.end_date or ''}".strip(" – ")
                 _two_col_row(doc, exp.title, date, bold_left=True, size=base_size)
-                _two_col_row(doc, exp.company or "", exp.location or "", italic_left=True, size=base_size - 1)
+                
+                # Company line with optional link
+                p_comp = doc.add_paragraph()
+                p_comp.paragraph_format.space_after = Pt(0)
+                from docx.enum.text import WD_TAB_ALIGNMENT
+                p_comp.paragraph_format.tab_stops.add_tab_stop(_doc_width(doc), alignment=WD_TAB_ALIGNMENT.RIGHT)
+                
+                if exp.company_url:
+                    _add_hyperlink(p_comp, exp.company, exp.company_url, size=base_size - 1)
+                else:
+                    r_c = p_comp.add_run(exp.company)
+                    r_c.italic = True
+                    r_c.font.size = Pt(base_size - 1)
+                
+                if exp.location:
+                    p_comp.add_run("\t")
+                    r_l = p_comp.add_run(exp.location)
+                    r_l.font.size = Pt(base_size - 1)
+                
                 for b in exp.bullets:
                     _bullet(doc, b, size=base_size)
                 close_entry()
         elif sec == "projects" and resume.projects:
             section_heading("Projects")
             for proj in resume.projects:
-                _two_col_row(doc, proj.name, "", bold_left=True, size=base_size)
+                p_proj = doc.add_paragraph()
+                p_proj.paragraph_format.space_after = Pt(0)
+                if proj.url:
+                    _add_hyperlink(p_proj, proj.name, proj.url, size=base_size)
+                else:
+                    r_n = p_proj.add_run(proj.name)
+                    r_n.bold = True
+                    r_n.font.size = Pt(base_size)
+                
+                if proj.demo_url:
+                    p_proj.add_run(" | ")
+                    _add_hyperlink(p_proj, "Demo", proj.demo_url, size=base_size - 1)
+
                 if proj.tech or proj.date:
                     right = proj.date or ""
                     _two_col_row(doc, proj.tech or "", right, italic_left=True, italic_right=True, size=base_size - 1)
@@ -576,15 +697,269 @@ def _render_docx_standard(resume: Resume, density_key: str = "standard") -> byte
             for sk in resume.skills:
                 p = doc.add_paragraph()
                 p.paragraph_format.space_after = Pt(1)
-                cat = p.add_run(f"{sk.category}: ")
-                cat.bold = True
-                cat.font.size = Pt(base_size)
+                if sk.category and sk.category.lower() != "skills":
+                    cat = p.add_run(f"{sk.category}: ")
+                    cat.bold = True
+                    cat.font.size = Pt(base_size)
                 rest = p.add_run(", ".join(sk.skills))
                 rest.font.size = Pt(base_size)
         elif sec == "certifications" and resume.certifications:
             section_heading("Certifications")
             for c in resume.certifications:
-                _bullet(doc, c, size=base_size)
+                p_cert = doc.add_paragraph(style="List Bullet")
+                p_cert.paragraph_format.space_after = Pt(1)
+                if c.credential_url:
+                    _add_hyperlink(p_cert, c.name, c.credential_url, size=base_size)
+                else:
+                    r_c = p_cert.add_run(c.name)
+                    r_c.font.size = Pt(base_size)
+                
+                extra_parts = []
+                if c.issuer: extra_parts.append(f" — {c.issuer}")
+                if c.date: extra_parts.append(f" ({c.date})")
+                if extra_parts:
+                    p_cert.add_run("".join(extra_parts)).font.size = Pt(base_size)
+        elif sec == "publications" and resume.publications:
+            section_heading("Publications")
+            for p in resume.publications:
+                _render_publication_docx(doc, p, size=base_size)
+        elif sec == "awards" and resume.awards:
+            section_heading("Honors & Awards")
+            for a in resume.awards:
+                _render_award_docx(doc, a, size=base_size)
+        elif sec == "languages" and resume.languages:
+            section_heading("Languages")
+            _render_languages_docx(doc, resume.languages, size=base_size)
+        elif sec == "volunteer" and resume.volunteer:
+            section_heading("Volunteer Experience")
+            for v in resume.volunteer:
+                _render_volunteer_docx(doc, v, size=base_size)
+                close_entry()
+        elif sec == "patents" and resume.patents:
+            section_heading("Patents")
+            for pat in resume.patents:
+                _render_patent_docx(doc, pat, size=base_size)
+        elif sec == "talks" and resume.talks:
+            section_heading("Talks & Presentations")
+            for t in resume.talks:
+                _render_talk_docx(doc, t, size=base_size)
+        elif sec.startswith("extra:"):
+            title = sec[6:]
+            for extra in resume.extra_sections:
+                if extra.title == title:
+                    _render_extra_section_docx(doc, extra, section_heading, size=base_size)
+                    break
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def _render_docx_modern_blue(resume: Resume, density_key: str = "standard") -> bytes:
+    """Modern sans-serif layout with blue accents and a multi-column skills grid.
+    Matches modern-blue.html."""
+    from docx import Document
+    from docx.shared import Pt, Inches, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    import math
+
+    density = DENSITY_PRESETS[density_key]
+    base_size = density["font_size_pt"]
+    margin_in = density["margin_inches"]
+    section_gap = density["section_gap_pt"]
+    entry_gap = density["entry_gap_pt"]
+    blue_rgb = RGBColor(30, 91, 216)  # #1E5BD8
+
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Inches(margin_in)
+        section.right_margin = Inches(margin_in)
+        section.bottom_margin = Inches(margin_in)
+        section.left_margin = Inches(margin_in)
+
+    style = doc.styles["Normal"]
+    style.font.name = "Arial"
+    style.font.size = Pt(base_size)
+
+    # Header: Name (Blue, Large, Bold, Uppercase, Left-aligned)
+    name_p = doc.add_paragraph()
+    name_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    nr = name_p.add_run((resume.name or "").upper())
+    nr.bold = True
+    nr.font.color.rgb = blue_rgb
+    nr.font.size = Pt(22)
+
+    # Job Title (Bold, Black, Uppercase, Left-aligned)
+    if resume.experience:
+        jt_p = doc.add_paragraph()
+        jt_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        jt_p.paragraph_format.space_after = Pt(2)
+        jr = jt_p.add_run(resume.experience[0].title.upper())
+        jr.bold = True
+        jr.font.size = Pt(13)
+
+    # Contact Line
+    cp = doc.add_paragraph()
+    cp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    cp.paragraph_format.space_after = Pt(6)
+    _render_contact_docx(cp, resume, 9.5, color="333333")
+
+    def section_heading(text: str):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(section_gap)
+        p.paragraph_format.space_after = Pt(4)
+        r = p.add_run(text.upper())
+        r.bold = True
+        r.font.color.rgb = blue_rgb
+        r.font.size = Pt(12)
+        
+        # Blue underline
+        pPr = p._p.get_or_add_pPr()
+        pBdr = OxmlElement("w:pBdr")
+        bottom = OxmlElement("w:bottom")
+        bottom.set(qn("w:val"), "single")
+        bottom.set(qn("w:sz"), "12")  # 1.5pt = 12/8pt
+        bottom.set(qn("w:space"), "2")
+        bottom.set(qn("w:color"), "1E5BD8")
+        pBdr.append(bottom)
+        pPr.append(pBdr)
+        return p
+
+    def close_entry():
+        if doc.paragraphs:
+            doc.paragraphs[-1].paragraph_format.space_after = Pt(entry_gap)
+
+    _hidden = set(resume.hidden_sections or [])
+    for sec in (resume.section_order or _DEFAULT_ORDER):
+        if sec in _hidden:
+            continue
+        if sec == "summary" and resume.summary:
+            section_heading("Summary")
+            doc.add_paragraph(resume.summary)
+        elif sec == "experience" and resume.experience:
+            section_heading("Experience")
+            for exp in resume.experience:
+                date = f"{exp.start_date or ''} – {exp.end_date or ''}".strip(" – ")
+                _two_col_row(doc, exp.title, date, bold_left=True, size=base_size)
+                
+                # Company line with optional link
+                p_comp = doc.add_paragraph()
+                p_comp.paragraph_format.space_after = Pt(0)
+                from docx.enum.text import WD_TAB_ALIGNMENT
+                p_comp.paragraph_format.tab_stops.add_tab_stop(_doc_width(doc), alignment=WD_TAB_ALIGNMENT.RIGHT)
+                
+                if exp.company_url:
+                    _add_hyperlink(p_comp, exp.company, exp.company_url, size=base_size - 1)
+                else:
+                    r_c = p_comp.add_run(exp.company)
+                    r_c.font.size = Pt(base_size - 1)
+                
+                if exp.location:
+                    p_comp.add_run("\t")
+                    r_l = p_comp.add_run(exp.location)
+                    r_l.font.size = Pt(base_size - 1)
+
+                for b in exp.bullets:
+                    _bullet(doc, b, size=base_size)
+                close_entry()
+        elif sec == "projects" and resume.projects:
+            section_heading("Projects")
+            for proj in resume.projects:
+                p_proj = doc.add_paragraph()
+                p_proj.paragraph_format.space_after = Pt(0)
+                from docx.enum.text import WD_TAB_ALIGNMENT
+                p_proj.paragraph_format.tab_stops.add_tab_stop(_doc_width(doc), alignment=WD_TAB_ALIGNMENT.RIGHT)
+                
+                if proj.url:
+                    _add_hyperlink(p_proj, proj.name, proj.url, size=base_size)
+                else:
+                    r_n = p_proj.add_run(proj.name)
+                    r_n.bold = True
+                    r_n.font.size = Pt(base_size)
+                
+                if proj.demo_url:
+                    p_proj.add_run(" | ")
+                    _add_hyperlink(p_proj, "Demo", proj.demo_url, size=base_size - 1)
+
+                if proj.date:
+                    p_proj.add_run("\t")
+                    r_d = p_proj.add_run(proj.date)
+                    r_d.font.size = Pt(base_size)
+                
+                if proj.tech:
+                    tp = doc.add_paragraph()
+                    tp.paragraph_format.space_after = Pt(1)
+                    tr = tp.add_run(proj.tech)
+                    tr.font.size = Pt(base_size - 1)
+                for b in proj.bullets:
+                    _bullet(doc, b, size=base_size)
+                close_entry()
+        elif sec == "education" and resume.education:
+            section_heading("Education")
+            for ed in resume.education:
+                _two_col_row(doc, ed.institution, ed.location or "", bold_left=True, size=base_size)
+                date = f"{ed.start_date or ''} – {ed.end_date or ''}".strip(" – ")
+                if ed.gpa:
+                    date = f"{date} · GPA: {ed.gpa}" if date else f"GPA: {ed.gpa}"
+                sub = f"{ed.degree or ''} {('in ' + ed.field) if ed.field else ''}".strip()
+                _two_col_row(doc, sub, date, size=base_size - 1)
+                for d in ed.details:
+                    _labeled_bullet(doc, d, size=base_size)
+                close_entry()
+        elif sec == "skills" and resume.skills:
+            section_heading("Technical Skills")
+            all_skills = []
+            for sk_cat in resume.skills:
+                for sk in sk_cat.skills:
+                    if sk not in all_skills:
+                        all_skills.append(sk)
+            all_skills.sort()
+            
+            if all_skills:
+                num_cols = 4
+                table = doc.add_table(rows=1, cols=num_cols)
+                table.autofit = True
+                
+                n = len(all_skills)
+                items_per_col = math.ceil(n / num_cols)
+                
+                for col in range(num_cols):
+                    cell = table.cell(0, col)
+                    start_idx = col * items_per_col
+                    end_idx = min(start_idx + items_per_col, n)
+                    col_skills = all_skills[start_idx:end_idx]
+                    
+                    if not col_skills:
+                        continue
+                        
+                    for idx, sk in enumerate(col_skills):
+                        if idx == 0:
+                            p = cell.paragraphs[0]
+                            p.text = sk
+                        else:
+                            p = cell.add_paragraph(sk)
+                        p.paragraph_format.space_after = Pt(2)
+                        for r in p.runs:
+                            r.font.size = Pt(9.5)
+        elif sec == "certifications" and resume.certifications:
+            section_heading("Certifications")
+            for c in resume.certifications:
+                p_cert = doc.add_paragraph(style="List Bullet")
+                p_cert.paragraph_format.space_after = Pt(1)
+                if c.credential_url:
+                    _add_hyperlink(p_cert, c.name, c.credential_url, size=base_size)
+                else:
+                    r_c = p_cert.add_run(c.name)
+                    r_c.font.size = Pt(base_size)
+                
+                extra_parts = []
+                if c.issuer: extra_parts.append(f" — {c.issuer}")
+                if c.date: extra_parts.append(f" ({c.date})")
+                if extra_parts:
+                    p_cert.add_run("".join(extra_parts)).font.size = Pt(base_size)
         elif sec == "publications" and resume.publications:
             section_heading("Publications")
             for p in resume.publications:
@@ -624,6 +999,7 @@ def _render_docx_standard(resume: Resume, density_key: str = "standard") -> byte
 
 _DOCX_BUILDERS = {
     "standard": _render_docx_standard,
+    "modern-blue": _render_docx_modern_blue,
 }
 
 
@@ -641,6 +1017,9 @@ def resume_to_plaintext(resume: Resume) -> str:
         resume.contact.phone, resume.contact.email, resume.contact.location,
         resume.contact.linkedin, resume.contact.github, resume.contact.website,
     ] if v]
+    for link in resume.custom_links:
+        if link.url:
+            parts.append(f"{link.label or 'Link'}: {link.url}")
     if parts:
         lines.append(" | ".join(parts))
 
@@ -681,11 +1060,14 @@ def resume_to_plaintext(resume: Resume) -> str:
         elif sec == "skills" and resume.skills:
             lines += ["", "SKILLS"]
             for sk in resume.skills:
-                lines.append(f"{sk.category}: {', '.join(sk.skills or [])}")
+                if sk.category and sk.category.lower() != "skills":
+                    lines.append(f"{sk.category}: {', '.join(sk.skills or [])}")
+                else:
+                    lines.append(f"{', '.join(sk.skills or [])}")
         elif sec == "certifications" and resume.certifications:
             lines += ["", "CERTIFICATIONS"]
             for c in (resume.certifications or []):
-                lines.append(f"- {c}")
+                lines.append(f"- {c.name}")
         elif sec.startswith("extra:"):
             extra_title = sec[6:]
             for extra in resume.extra_sections:

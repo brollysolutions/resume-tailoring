@@ -11,6 +11,7 @@ from .hybrid_scorer import score_resume_against_jd
 from .ceiling_detector import detect_ceiling, parse_jd_hard_requirements
 from .section_scorer import compute_section_scores
 from .gap_analyzer import compute_gap_analysis
+from .improvement_planner import build_improvement_plan
 
 __all__ = [
     "score_resume_against_jd",
@@ -18,4 +19,5 @@ __all__ = [
     "parse_jd_hard_requirements",
     "compute_section_scores",
     "compute_gap_analysis",
+    "build_improvement_plan",
 ]

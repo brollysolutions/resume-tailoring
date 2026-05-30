@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Sparkles, Loader2, Bot, User, Cpu, Compass, X, Check, Wand2, FolderPlus, ChevronDown, ChevronUp } from "lucide-react";
-import type { Suggestion, GeneratedProject } from "@/types/resume";
+import { Send, Sparkles, Loader2, Bot, Cpu, Compass, X, Check, Wand2, FolderPlus, ChevronDown, ChevronUp, ShieldCheck, Trash2 } from "lucide-react";
+import type { Suggestion, GeneratedProject, ATSReportPayload } from "@/types/resume";
 
 interface Message {
   id: string;
   sender: "user" | "copilot";
   text: string;
   suggestions?: Suggestion[];
+  atsReport?: ATSReportPayload;
   timestamp: Date;
 }
 
@@ -52,6 +53,7 @@ const PRESET_PILLS = [
   { text: "Tailor my experience to this JD", icon: Sparkles },
   { text: "Make my bullets metrics-driven", icon: Cpu },
   { text: "Align my skills to the JD", icon: Compass },
+  { text: "Run ATS check", icon: ShieldCheck },
 ];
 
 function describeSuggestion(s: Suggestion): { title: string; body?: React.ReactNode } {
@@ -176,6 +178,94 @@ function ChatProjectCard({
   );
 }
 
+function AtsReportCard({
+  report,
+  onAction,
+}: {
+  report: ATSReportPayload;
+  onAction: (prompt: string) => void;
+}) {
+  const scoreColor = (n: number) =>
+    n >= 75 ? "#22c55e" : n >= 50 ? "#f59e0b" : "#ef4444";
+  return (
+    <div className="rounded-lg border border-border bg-subtle p-3 text-xs space-y-3">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">ATS Report</p>
+
+      {/* Score bars */}
+      <div className="flex gap-4">
+        {(
+          [
+            ["Parse", report.parse_score],
+            ["Keywords", report.keyword_score],
+          ] as [string, number][]
+        ).map(([label, score]) => (
+          <div key={label} className="flex-1">
+            <div className="flex justify-between mb-1">
+              <span className="text-muted">{label}</span>
+              <span style={{ color: scoreColor(score) }} className="font-semibold">
+                {score}/100
+              </span>
+            </div>
+            <div className="h-1.5 rounded bg-zinc-700">
+              <div
+                className="h-1.5 rounded transition-all"
+                style={{ width: `${score}%`, background: scoreColor(score) }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Missing contact fields */}
+      {report.missing_fields.length > 0 && (
+        <div>
+          <span className="text-red-400 font-medium">Missing: </span>
+          <span className="text-muted">{report.missing_fields.join(", ")}</span>
+        </div>
+      )}
+
+      {/* Missing keywords — clickable to inject */}
+      {report.missing_keywords.length > 0 && (
+        <div>
+          <p className="text-muted mb-1.5">Missing keywords — click to inject:</p>
+          <div className="flex flex-wrap gap-1">
+            {report.missing_keywords.map((kw) => (
+              <button
+                key={kw}
+                onClick={() => onAction(`Add "${kw}" to my resume`)}
+                className="px-2 py-0.5 rounded border border-border hover:border-foreground/30 text-foreground hover:bg-subtle transition-colors"
+              >
+                {kw}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Section recognition */}
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {Object.entries(report.section_recognition).map(([sec, found]) => (
+          <span
+            key={sec}
+            className={found ? "text-green-600" : "text-red-500"}
+          >
+            {found ? "✓" : "✗"} {sec}
+          </span>
+        ))}
+      </div>
+
+      {/* Format warnings */}
+      {report.format_warnings.length > 0 && (
+        <ul className="text-amber-600 space-y-0.5">
+          {report.format_warnings.map((w, i) => (
+            <li key={i}>⚠ {w}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function CopilotChat({
   resumeId,
   jdText,
@@ -211,7 +301,7 @@ export function CopilotChat({
       {
         id: "initial",
         sender: "copilot",
-        text: "Tell me what to change — tailor a section, rewrite bullets, align skills, or generate projects. Click the wand on any line to target it directly.",
+        text: "Tell me what to change. Tailor a section, rewrite bullets, align skills, or generate projects. Click the wand on any line to target it directly.",
         timestamp: new Date(),
       },
     ];
@@ -317,10 +407,11 @@ export function CopilotChat({
       }
       const data = await response.json();
       const suggestions: Suggestion[] = data.suggestions || [];
-      const directives: { type: string }[] = data.directives || [];
+      const directives: { type: string; payload?: ATSReportPayload }[] = data.directives || [];
 
       onResult(suggestions, directives);
 
+      const atsDirective = directives.find((d) => d.type === "ats_report");
       setMessages((prev) => [
         ...prev,
         {
@@ -328,6 +419,7 @@ export function CopilotChat({
           sender: "copilot",
           text: data.response || "Done.",
           suggestions: suggestions.length > 0 ? suggestions : undefined,
+          atsReport: atsDirective?.payload,
           timestamp: new Date(),
         },
       ]);
@@ -347,6 +439,20 @@ export function CopilotChat({
     }
   };
 
+  const INITIAL_MESSAGE: Message = {
+    id: "initial",
+    sender: "copilot",
+    text: "Tell me what to change. Tailor a section, rewrite bullets, align skills, or generate projects. Click the wand on any line to target it directly.",
+    timestamp: new Date(),
+  };
+
+  const clearChat = () => {
+    setMessages([INITIAL_MESSAGE]);
+    setDecided({});
+    if (CHAT_STORAGE_KEY) sessionStorage.removeItem(CHAT_STORAGE_KEY);
+    if (DECIDED_STORAGE_KEY) sessionStorage.removeItem(DECIDED_STORAGE_KEY);
+  };
+
   const accept = (s: Suggestion) => {
     onAcceptSuggestion(s);
     setDecided((prev) => ({ ...prev, [s.id]: "accepted" }));
@@ -359,60 +465,77 @@ export function CopilotChat({
   };
 
   return (
-    <div className="flex flex-col h-full bg-card border border-border rounded-xl overflow-hidden shadow-lg shadow-blue-500/5">
+    <div className="flex flex-col h-full bg-card border border-border rounded-xl overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
-        <div className="flex items-center gap-2.5">
-          <div className="relative flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white border border-white/20 shadow-md">
-            <Bot className="w-4 h-4" />
-            <span className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 rounded-full border border-white" />
-          </div>
-          <h2 className="text-sm font-bold tracking-tight text-white">AI Tailoring Copilot</h2>
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Bot className="w-3.5 h-3.5 text-muted" />
+          <span className="text-[11px] font-semibold tracking-widest uppercase text-muted">Copilot</span>
         </div>
-        {onClose && (
+        <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-white/10 text-white/80 hover:text-white transition-colors cursor-pointer"
-            title="Close Chat"
+            onClick={clearChat}
+            className="p-1 rounded hover:bg-subtle text-muted hover:text-foreground transition-colors cursor-pointer"
+            title="Clear chat"
           >
-            <X className="w-4 h-4" />
+            <Trash2 className="w-3.5 h-3.5" />
           </button>
-        )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 rounded hover:bg-subtle text-muted hover:text-foreground transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Message Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin bg-card">
         {messages.map((msg) => (
           <div key={msg.id} className="space-y-2">
-            <div
-              className={`flex gap-3 max-w-[85%] ${
-                msg.sender === "user" ? "ml-auto flex-row-reverse" : "mr-auto"
-              }`}
-            >
+            <div className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
+              {msg.id === "initial" ? (
+                <div className="w-full bg-subtle border border-border rounded-xl p-3 space-y-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3 h-3 text-muted shrink-0" />
+                    <span className="text-xs font-semibold text-foreground">Tell me what to change</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {["Tailor a section", "Rewrite bullets", "Align skills", "Generate projects"].map((label) => (
+                      <span
+                        key={label}
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] bg-background border border-border text-muted"
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted flex items-center gap-1 leading-relaxed">
+                    <Wand2 className="w-3 h-3 shrink-0" />
+                    Click the wand on any line to target it directly.
+                  </p>
+                </div>
+              ) : (
               <div
-                className={`flex items-center justify-center w-7 h-7 rounded-full flex-shrink-0 shadow-sm ${
+                className={`max-w-[88%] px-3 py-2 rounded-xl text-xs leading-relaxed ${
                   msg.sender === "user"
-                    ? "bg-subtle text-muted"
-                    : "bg-gradient-to-tr from-blue-500 to-indigo-600 text-white"
-                }`}
-              >
-                {msg.sender === "user" ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
-              </div>
-              <div
-                className={`px-3.5 py-2 rounded-2xl text-xs leading-relaxed ${
-                  msg.sender === "user"
-                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-none shadow-md shadow-blue-500/10 font-medium"
-                    : "bg-subtle border border-border text-foreground rounded-tl-none shadow-sm"
+                    ? "bg-foreground text-background rounded-tr-none"
+                    : "bg-subtle text-foreground rounded-tl-none"
                 }`}
               >
                 {msg.text}
               </div>
+              )}
             </div>
 
             {/* In-chat review of proposed changes */}
             {msg.suggestions && msg.suggestions.length > 0 && (
-              <div className="ml-10 space-y-1.5">
+              <div className="space-y-1">
                 {msg.suggestions.map((s) => {
                   const state = decided[s.id];
                   const { title, body } = describeSuggestion(s);
@@ -421,32 +544,32 @@ export function CopilotChat({
                       key={s.id}
                       className={`rounded-lg border px-2.5 py-2 text-[11px] transition-colors ${
                         state === "accepted"
-                          ? "border-success/40 bg-success/5"
+                          ? "border-green-200/50 bg-green-50/30"
                           : state === "rejected"
-                          ? "border-border bg-subtle opacity-50"
-                          : "border-blue-200/60 bg-blue-50/40"
+                          ? "border-border bg-subtle opacity-40"
+                          : "border-border bg-background"
                       }`}
                     >
-                      <p className="font-semibold text-foreground mb-1">{title}</p>
+                      <p className="font-medium text-foreground mb-1">{title}</p>
                       {body && <div className="text-muted leading-relaxed mb-1.5">{body}</div>}
                       {!state && (
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => reject(s.id)}
-                            className="px-2 py-0.5 rounded text-[10px] text-muted hover:text-foreground hover:bg-subtle transition-colors"
+                            className="px-2 py-0.5 rounded text-[10px] text-muted hover:text-foreground transition-colors"
                           >
-                            Reject
+                            Dismiss
                           </button>
                           <button
                             onClick={() => accept(s)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-foreground text-background hover:opacity-80 transition-opacity"
                           >
-                            <Check className="w-3 h-3" /> Accept
+                            <Check className="w-3 h-3" /> Apply
                           </button>
                         </div>
                       )}
                       {state === "accepted" && (
-                        <p className="text-[10px] text-success font-medium flex items-center gap-1 justify-end">
+                        <p className="text-[10px] text-green-600 font-medium flex items-center gap-1 justify-end">
                           <Check className="w-3 h-3" /> Applied
                         </p>
                       )}
@@ -456,41 +579,46 @@ export function CopilotChat({
                 {msg.suggestions.some((s) => !decided[s.id]) && (
                   <button
                     onClick={() => acceptAll(msg.suggestions!)}
-                    className="text-[10px] font-semibold text-blue-700 hover:text-blue-900 transition-colors"
+                    className="text-[10px] text-muted hover:text-foreground transition-colors"
                   >
-                    Accept all
+                    Apply all
                   </button>
                 )}
               </div>
             )}
+
+            {/* ATS report card */}
+            {msg.atsReport && (
+              <AtsReportCard
+                report={msg.atsReport}
+                onAction={(prompt) => handleSendMessage(prompt)}
+              />
+            )}
           </div>
         ))}
         {isLoading && (
-          <div className="flex gap-3 max-w-[80%] mr-auto items-center">
-            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 text-white flex-shrink-0 shadow-sm animate-pulse">
-              <Bot className="w-3.5 h-3.5" />
-            </div>
-            <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-subtle border border-border text-xs text-muted rounded-tl-none shadow-sm animate-pulse">
-              <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-              <span>Working on it…</span>
+          <div className="flex max-w-[80%] mr-auto">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-subtle text-xs text-muted rounded-tl-none">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span>Thinking…</span>
             </div>
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Preset Pills — persistent so returning users can rediscover them */}
+      {/* Preset Pills */}
       {!isLoading && !focus && (
-        <div className="px-4 py-2.5 flex flex-wrap gap-2 border-t border-border bg-card">
+        <div className="px-3 py-2 flex flex-wrap gap-1.5 border-t border-border">
           {PRESET_PILLS.map((pill, idx) => {
             const Icon = pill.icon;
             return (
               <button
                 key={idx}
                 onClick={() => handleSendMessage(pill.text)}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-blue-100 bg-blue-50/50 hover:bg-blue-100/60 text-[10px] font-semibold text-blue-700 transition-all cursor-pointer hover:-translate-y-0.5 active:translate-y-0 shadow-sm"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-[10px] text-muted hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer"
               >
-                <Icon className="w-3 h-3 text-blue-500" />
+                <Icon className="w-3 h-3" />
                 {pill.text}
               </button>
             );
@@ -500,29 +628,29 @@ export function CopilotChat({
 
       {/* Focus chip */}
       {focus && (
-        <div className="px-3 pt-2 bg-card">
-          <div className="flex items-start gap-2 rounded-lg border border-blue-200/70 bg-blue-50/60 px-2.5 py-1.5">
-            <Wand2 className="w-3.5 h-3.5 text-blue-600 mt-0.5 shrink-0" />
+        <div className="px-3 pt-2">
+          <div className="flex items-start gap-2 rounded-lg border border-border bg-subtle px-2.5 py-1.5">
+            <Wand2 className="w-3 h-3 text-muted mt-0.5 shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-700">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                 {focus.targetType === "section"
-                  ? `Tailoring the ${focus.section} section`
+                  ? `${focus.section} section`
                   : focus.targetType === "entry"
-                  ? `Editing entry`
-                  : `Editing this ${focus.section} line`}
+                  ? `Entry`
+                  : `${focus.section} line`}
               </p>
               {(focus.targetType === "line" ? focus.original : focus.label) && (
-                <p className="text-[11px] text-muted truncate" title={focus.targetType === "line" ? focus.original : focus.label}>
+                <p className="text-[11px] text-foreground truncate" title={focus.targetType === "line" ? focus.original : focus.label}>
                   {focus.targetType === "line" ? focus.original : focus.label}
                 </p>
               )}
             </div>
             <button
               onClick={onClearFocus}
-              className="p-0.5 rounded hover:bg-blue-100 text-blue-500 shrink-0"
+              className="p-0.5 rounded hover:bg-border text-muted hover:text-foreground shrink-0"
               title="Clear focus"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-3 h-3" />
             </button>
           </div>
         </div>
@@ -530,8 +658,8 @@ export function CopilotChat({
 
       {/* Pending project review cards */}
       {pendingProjects.length > 0 && (
-        <div className="px-3 pb-2 space-y-2 bg-card border-t border-border pt-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
+        <div className="px-3 pb-2 space-y-2 border-t border-border pt-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted flex items-center gap-1">
             <FolderPlus className="w-3 h-3" />
             {pendingProjects.length} project{pendingProjects.length !== 1 ? "s" : ""} to review
           </p>
@@ -547,7 +675,7 @@ export function CopilotChat({
       )}
 
       {/* Input Form */}
-      <div className="p-3 border-t border-border bg-card">
+      <div className="p-3 border-t border-border">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -562,17 +690,17 @@ export function CopilotChat({
             disabled={isLoading}
             placeholder={
               !resumeId
-                ? "Awaiting resume load…"
+                ? "Awaiting resume…"
                 : focus
-                ? "What should I change about this line?"
-                : "Instruct the copilot to tailor your resume…"
+                ? "What should I change?"
+                : "Ask the copilot…"
             }
-            className="flex-1 min-w-0 bg-card border border-border focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 rounded-lg px-3 py-2 text-xs transition-all disabled:opacity-50 text-foreground outline-none"
+            className="flex-1 min-w-0 bg-transparent border border-border focus:border-foreground/40 rounded-lg px-3 py-2 text-xs transition-colors disabled:opacity-50 text-foreground outline-none"
           />
           <button
             type="submit"
             disabled={isLoading || !input.trim() || !resumeId}
-            className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium disabled:opacity-50 transition-all shadow-md shadow-blue-500/10 hover:shadow-lg hover:shadow-blue-500/20 active:scale-95 cursor-pointer"
+            className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg bg-foreground text-background hover:opacity-80 disabled:opacity-30 transition-opacity active:scale-95 cursor-pointer"
             aria-label="Send"
           >
             <Send className="w-3.5 h-3.5" />

@@ -165,6 +165,14 @@ def run_calibration_cycle() -> dict:
         gate_reasons.append(f"n_rows {n_rows} < min {MIN_TOTAL_LABELS}")
     if new_spearman < spearman_floor:
         gate_reasons.append(f"spearman {new_spearman} < floor {spearman_floor} (dynamic, N={n_rows})")
+    # Generalization gate: the floor above is on TRAIN spearman, which an overfit
+    # fit can clear while failing on held-out data (this is how the degenerate
+    # spearman_test=-0.0638 weight set once shipped). Reject any fit whose
+    # held-out test correlation is non-positive — it does not generalize.
+    if spearman_test is not None and float(spearman_test) <= 0.0:
+        gate_reasons.append(
+            f"test spearman {spearman_test} <= 0 (overfit; won't generalize, N_test={n_test})"
+        )
     consecutive_fails = int(state.get("consecutive_gate_failures") or 0)
     if consecutive_fails >= 3:
         effective_tolerance = REGRESSION_TOLERANCE * 3   # 0.06

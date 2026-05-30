@@ -16,6 +16,7 @@ offline calibration harness (scripts/calibration/) can grid-search weights.
 """
 from __future__ import annotations
 
+import os
 import json as _json
 import hashlib as _hashlib
 import logging
@@ -314,7 +315,12 @@ def _cosine_signal(
 # Pipeline
 # ---------------------------------------------------------------------------
 
-def compute_signals(inputs: ScoreInputs, weights: Optional[Weights] = None) -> RawSignals:
+def compute_signals(
+    inputs: ScoreInputs,
+    weights: Optional[Weights] = None,
+    p_low_override: Optional[float] = None,
+    p_high_override: Optional[float] = None,
+) -> RawSignals:
     """Compute all 6 raw signals. Pure (no I/O, no side effects).
 
     Accepts an optional weights override so per-section scoring can use a
@@ -323,12 +329,16 @@ def compute_signals(inputs: ScoreInputs, weights: Optional[Weights] = None) -> R
     if weights is None:
         weights = get_weights()
 
+    # Use overrides for cosine remapping if provided (Signal R5 section scoring)
+    p_low = p_low_override if p_low_override is not None else weights.p_low
+    p_high = p_high_override if p_high_override is not None else weights.p_high
+
     req_kw, pref_kw, kw = _kw_signal(inputs.jd_text, inputs.resume_text)
     skill_cov, domain_align, skill = _skill_signal(inputs.resume_json, inputs.jd_text)
     ngram, ngram_active = _ngram_signal(inputs.jd_text, inputs.resume_text)
     edu = _edu_signal(inputs.resume_json, inputs.jd_text, inputs.resume_obj)
     seniority = _seniority_signal(inputs.resume_json, inputs.jd_text, inputs.resume_obj)
-    whole_doc_cos, exp_cos, cosine, section_weighted_raw, raw_whole_doc_cos, raw_exp_cos = _cosine_signal(inputs, weights.p_low, weights.p_high)
+    whole_doc_cos, exp_cos, cosine, section_weighted_raw, raw_whole_doc_cos, raw_exp_cos = _cosine_signal(inputs, p_low, p_high)
 
     if ngram_active:
         raw = (
@@ -392,6 +402,8 @@ def score_resume_against_jd(
     hard_reqs: Optional[dict] = None,
     section_cosines: Optional[dict] = None,
     resume_obj: Optional[Resume] = None,
+    p_low_override: Optional[float] = None,
+    p_high_override: Optional[float] = None,
 ) -> dict:
     """Score a resume against a JD. Returns score + breakdown + feature_contributions.
 
@@ -402,6 +414,8 @@ def score_resume_against_jd(
         to override the active calibrated weights (used by per-section scoring).
     log_event: when False, skip writing to score_log.jsonl (use for per-section
         scoring so calibration is not polluted by partial-text events).
+    p_low_override / p_high_override: Manually override the cosine remapping bounds
+        (useful for section scoring where raw cosines are naturally lower).
     """
     weights = get_weights()
     if weights_override:
@@ -424,7 +438,12 @@ def score_resume_against_jd(
         section_cosines=section_cosines,
         resume_obj=resume_obj,
     )
-    signals = compute_signals(inputs, weights)
+    signals = compute_signals(
+        inputs,
+        weights,
+        p_low_override=p_low_override,
+        p_high_override=p_high_override,
+    )
     if log_event:
         _log_score_event(signals, resume_id, jd_text, ceiling=ceiling, hard_reqs=hard_reqs)
 
@@ -478,6 +497,8 @@ def _log_score_event(
     hard_reqs: Optional[dict] = None,
 ) -> None:
     """Best-effort append to score_log.jsonl. Never raises."""
+    if os.environ.get("TESTING") == "1":
+        return
     try:
         _SCORE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         excerpt = (jd_text or "")[:240].replace("\n", " ").strip()

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
-import { UploadCloud, FileText, X, ArrowRight, CheckCircle2 } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import FileUpload from "@/components/ui/file-upload";
 
 const ACCEPTED = [
   "application/pdf",
@@ -12,8 +12,9 @@ const MAX_BYTES = 10 * 1024 * 1024;
 
 interface UploadZoneProps {
   templateId: string;
-  onUploaded?: (data: { resume_id: string; keywords: string[] }) => void;
+  onUploaded?: (data: { resume_id: string; keywords: string[]; stack: string[] }) => void;
 }
+
 
 const ANALYZE_STEPS = [
   "Reading your document…",
@@ -24,7 +25,6 @@ const ANALYZE_STEPS = [
 ];
 
 export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
-  const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
@@ -38,17 +38,7 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
     return () => clearInterval(id);
   }, [isUploading]);
 
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const onDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  const accept = (f: File) => {
+  const handleFileSelect = (f: File) => {
     if (!ACCEPTED.includes(f.type)) {
       setError("Only PDF and DOCX files are supported.");
       return;
@@ -61,16 +51,14 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
     setFile(f);
   };
 
-  const onDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const dropped = e.dataTransfer.files?.[0];
-    if (dropped) accept(dropped);
-  }, []);
-
-  const onSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0];
-    if (selected) accept(selected);
+  const handleRemove = () => {
+    if (isUploading) {
+      abortRef.current?.abort();
+      setIsUploading(false);
+    }
+    setFile(null);
+    setUploaded(false);
+    setError(null);
   };
 
   const onUpload = async () => {
@@ -98,16 +86,22 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
       localStorage.setItem("current_resume_id", data.resume_id);
 
       if (onUploaded) {
-        onUploaded({ resume_id: data.resume_id, keywords: data.keywords || [] });
+        onUploaded({
+          resume_id: data.resume_id,
+          keywords: data.keywords || [],
+          stack: data.stack || [],
+        });
         setIsUploading(false);
         setUploaded(true);
         return;
       }
 
       const keywordsQuery = (data.keywords || []).join("|");
+      const stackQuery = (data.stack || []).join("|");
       window.location.href = `/job-search?keywords=${encodeURIComponent(
         keywordsQuery
-      )}&resume_id=${data.resume_id}`;
+      )}&stack=${encodeURIComponent(stackQuery)}&resume_id=${data.resume_id}`;
+
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -115,110 +109,37 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
     }
   };
 
-  if (!file) {
-    return (
-      <div className="space-y-3">
-        <label
-          htmlFor="file-input"
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          className={`block w-full border border-dashed rounded-lg px-8 py-20 text-center cursor-pointer transition-colors ${
-            isDragging
-              ? "border-foreground bg-subtle"
-              : "border-border hover:border-foreground/40 hover:bg-subtle/50"
-          }`}
-        >
-          <input
-            id="file-input"
-            type="file"
-            accept=".pdf,.docx"
-            className="hidden"
-            onChange={onSelect}
-          />
-          <UploadCloud className="w-6 h-6 mx-auto mb-3 text-muted" />
-          <p className="text-sm font-medium mb-1">
-            Click or drag your resume to upload
-          </p>
-          <p className="text-xs text-muted">PDF or DOCX · up to 10MB</p>
-        </label>
-        {error && <p className="text-xs text-danger">{error}</p>}
-      </div>
-    );
-  }
+  // Map 5 steps to 20-95% progress
+  const currentProgress = uploaded ? 100 : isUploading ? (20 + (analyzeStep * 15)) : 0;
 
   return (
-    <div className="space-y-3">
-      <div className="card p-4 flex items-center justify-between relative overflow-hidden">
-        {isUploading && (
-          <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[inherit]">
-            <div
-              className="absolute top-0 bottom-0 w-1/2"
-              style={{
-                background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)",
-                animation: "shimmer 1.6s ease-in-out infinite",
-              }}
-            />
-          </div>
-        )}
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={`w-9 h-9 rounded bg-subtle text-foreground flex items-center justify-center shrink-0 transition-colors ${isUploading ? "text-muted" : ""}`}>
-            <FileText className="w-4 h-4" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{file.name}</p>
-            <p className={`text-xs transition-colors ${isUploading ? "text-foreground/70" : uploaded ? "text-success" : "text-muted"}`}>
-              {isUploading ? ANALYZE_STEPS[analyzeStep] : `${(file.size / 1024 / 1024).toFixed(2)} MB`}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={() => {
-            if (isUploading) {
-              abortRef.current?.abort();
-              setIsUploading(false);
-            }
-            setFile(null);
-            setUploaded(false);
-          }}
-          className="btn-ghost p-2"
-          aria-label={isUploading ? "Cancel upload" : "Remove file"}
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+    <div className="space-y-4">
+      <FileUpload
+        file={file}
+        onFileSelect={handleFileSelect}
+        onRemove={handleRemove}
+        isUploading={isUploading}
+        progress={currentProgress}
+        error={error}
+        analyzeStepLabel={ANALYZE_STEPS[analyzeStep]}
+      />
 
-      {uploaded ? (
-        <div className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-success">
-          <CheckCircle2 className="w-4 h-4" />
-          Uploaded successfully
-        </div>
-      ) : (
+      {file && !isUploading && !uploaded && (
         <button
           onClick={onUpload}
-          disabled={isUploading}
-          aria-live="polite"
-          aria-label={isUploading ? "Analyzing resume" : "Continue with this file"}
-          className="w-full rounded-lg px-4 py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-all text-white"
-          style={isUploading ? {
-            background: "linear-gradient(90deg, var(--color-accent), var(--color-foreground), var(--color-accent))",
-            backgroundSize: "300% 100%",
-            animation: "gradientShift 2s ease infinite",
-            cursor: "default",
-          } : { background: "var(--color-accent)" }}
+          className="w-full btn-primary py-3"
+          aria-label="Continue with this file"
         >
-          {isUploading ? (
-            <span className="text-white">Analyzing…</span>
-          ) : (
-            <>
-              Continue
-              <ArrowRight className="w-4 h-4" />
-            </>
-          )}
+          Continue
         </button>
       )}
 
-      {error && <p className="text-xs text-danger">{error}</p>}
+      {uploaded && (
+        <div className="text-center text-sm font-medium text-success animate-in fade-in slide-in-from-bottom-2">
+          Uploaded successfully! Redirecting...
+        </div>
+      )}
     </div>
   );
 }
+

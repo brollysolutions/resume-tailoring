@@ -40,6 +40,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   const [html, setHtml] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unapplied, setUnapplied] = useState<Array<{ section: string; mode: string; original: string; reason: string }>>([]);
   const [layoutDensity, setLayoutDensity] = useState<string>("auto");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -58,7 +59,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
     if (!el) return;
     const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (el.clientWidth - 24) / BASE_WIDTH));
     setZoom(z);
-    setPan({ x: (el.clientWidth - BASE_WIDTH * z) / 2, y: 12 });
+    setPan({ x: Math.round((el.clientWidth - BASE_WIDTH * z) / 2), y: 12 });
   }, []);
 
   const fitPage = useCallback(() => {
@@ -69,8 +70,8 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
     const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(zw, zh)));
     setZoom(z);
     setPan({
-      x: (el.clientWidth - BASE_WIDTH * z) / 2,
-      y: (el.clientHeight - BASE_HEIGHT * z) / 2,
+      x: Math.round((el.clientWidth - BASE_WIDTH * z) / 2),
+      y: Math.round((el.clientHeight - BASE_HEIGHT * z) / 2),
     });
   }, []);
 
@@ -80,15 +81,22 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
     const maxFit = (el.clientWidth - 24) / BASE_WIDTH;
     const z = Math.max(MIN_ZOOM, Math.min(0.76, maxFit));
     setZoom(z);
-    setPan({ x: (el.clientWidth - BASE_WIDTH * z) / 2, y: 12 });
+    setPan({ x: Math.round((el.clientWidth - BASE_WIDTH * z) / 2), y: 12 });
   }, []);
 
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => fitPage());
+    let timer: ReturnType<typeof setTimeout>;
+    const ro = new ResizeObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fitPage(), 100);
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      clearTimeout(timer);
+    };
   }, [fitPage]);
 
   useEffect(() => {
@@ -127,6 +135,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
         }
         const data = await res.json();
         setHtml(data.html || "");
+        setUnapplied(Array.isArray(data.unapplied) ? data.unapplied : []);
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Could not load preview.");
       } finally {
@@ -155,15 +164,15 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
           setPan((prevPan) => {
             const ratio = next / prevZoom;
             return {
-              x: mouseX - (mouseX - prevPan.x) * ratio,
-              y: mouseY - (mouseY - prevPan.y) * ratio,
+              x: Math.round(mouseX - (mouseX - prevPan.x) * ratio),
+              y: Math.round(mouseY - (mouseY - prevPan.y) * ratio),
             };
           });
           return next;
         });
       } else {
         // Plain scroll → pan vertically.
-        setPan((prev) => ({ x: prev.x, y: prev.y - e.deltaY }));
+        setPan((prev) => ({ x: prev.x, y: Math.round(prev.y - e.deltaY) }));
       }
     };
 
@@ -183,8 +192,8 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isDragging.current) return;
     setPan({
-      x: dragStart.current.panX + (e.clientX - dragStart.current.x),
-      y: dragStart.current.panY + (e.clientY - dragStart.current.y),
+      x: Math.round(dragStart.current.panX + (e.clientX - dragStart.current.x)),
+      y: Math.round(dragStart.current.panY + (e.clientY - dragStart.current.y)),
     });
   };
 
@@ -202,12 +211,13 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
       const scaledW = BASE_WIDTH * z;
       const scaledH = pageHeight * z;
       setPan({
-        x: Math.max(12, (cw - scaledW) / 2),
-        y: scaledH < ch ? Math.max(12, (ch - scaledH) / 2) : 12,
+        x: Math.round(Math.max(12, (cw - scaledW) / 2)),
+        y: Math.round(scaledH < ch ? Math.max(12, (ch - scaledH) / 2) : 12),
       });
     }
     setZoom(z);
   }, [pageHeight]);
+
 
   // Per-section line-count estimate. Wrapping is approximated as
   // ceil(chars / CHARS_PER_LINE) — good enough for advisory math.
@@ -289,16 +299,24 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
       const body = doc.body;
       const measure = () => {
         const h = Math.max(BASE_HEIGHT, body.scrollHeight);
-        setPageHeight((cur) => (h !== cur ? h : cur));
+        setPageHeight((cur) => (Math.abs(h - cur) > 1 ? h : cur));
       };
       measure();
       // Re-measure on layout changes inside the iframe (font swap, image
       // load, late paint) so pageHeight always covers the real content.
       const teardown = (iframe as unknown as { _cleanupRO?: () => void });
       teardown._cleanupRO?.();
-      const ro = new ResizeObserver(measure);
+      let measureTimer: ReturnType<typeof setTimeout>;
+      const ro = new ResizeObserver(() => {
+        clearTimeout(measureTimer);
+        measureTimer = setTimeout(measure, 100);
+      });
       ro.observe(body);
-      teardown._cleanupRO = () => ro.disconnect();
+      teardown._cleanupRO = () => {
+        ro.disconnect();
+        clearTimeout(measureTimer);
+      };
+
     } catch {
       // Cross-origin fallback ignored — srcDoc keeps us same-origin.
     }
@@ -307,11 +325,11 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-2 mb-2 px-2 py-1.5 rounded-lg bg-subtle/50 border border-border">
+      <div className="flex items-center justify-between gap-2 mb-2 px-2 py-1.5 rounded-lg bg-subtle/50 border border-border flex-wrap">
         <span className="text-xs font-semibold uppercase tracking-wider text-foreground/70 shrink-0">
           Preview
         </span>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           <select
             value={layoutDensity}
             onChange={(e) => setLayoutDensity(e.target.value)}
@@ -438,6 +456,34 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
         </div>
       )}
 
+      {/* Edits that couldn't be auto-applied — surfaced so accepted suggestions
+          don't vanish silently when their target line can't be matched. */}
+      {unapplied.length > 0 && !isLoading && (
+        <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-snug">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-700 mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="font-semibold text-amber-900">
+                {unapplied.length} edit{unapplied.length !== 1 ? "s" : ""} couldn&apos;t be applied automatically.
+              </p>
+              <p className="text-amber-800">
+                The original text couldn&apos;t be matched in your resume (it may have changed). Re-edit{" "}
+                {unapplied.length !== 1 ? "those lines" : "that line"} directly:
+              </p>
+              <ul className="list-disc pl-4 text-amber-700/90 space-y-0.5">
+                {unapplied.slice(0, 4).map((u, i) => (
+                  <li key={i}>
+                    <span className="font-medium">{u.section || "Resume"}</span>
+                    {u.original ? <>: &ldquo;{u.original.slice(0, 60)}{u.original.length > 60 ? "…" : ""}&rdquo;</> : null}
+                  </li>
+                ))}
+                {unapplied.length > 4 && <li>+{unapplied.length - 4} more</li>}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Canvas */}
       <div
         ref={canvasRef}
@@ -477,11 +523,14 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
               width: BASE_WIDTH,
               height: pageHeight,
               transformOrigin: "0 0",
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+              willChange: "transform",
               boxShadow: "0 4px 24px rgba(0,0,0,0.10)",
               background: "white",
+              backfaceVisibility: "hidden",
             }}
           >
+
             {!html ? (
               <div className="w-full h-full p-16 space-y-8 animate-pulse bg-white select-none">
                 {/* Header */}
@@ -532,6 +581,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
                 title="Resume preview"
                 onLoad={onIframeLoad}
                 scrolling="no"
+                sandbox="allow-same-origin"
                 style={{
                   width: BASE_WIDTH,
                   height: pageHeight,

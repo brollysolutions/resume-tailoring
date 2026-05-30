@@ -7,6 +7,7 @@ from app.models.resume_schema import (
     EducationEntry,
     ProjectEntry,
     SkillCategory,
+    Certification,
 )
 from app.core.renderer import _DEFAULT_ORDER
 
@@ -21,6 +22,7 @@ def build_sample_resume() -> Resume:
             location="San Francisco, CA",
             linkedin="linkedin.com/in/johndoe",
             github="github.com/johndoe",
+            website="johndoe.dev",
         ),
         summary=(
             "Software engineer with experience building backend services and data "
@@ -30,6 +32,7 @@ def build_sample_resume() -> Resume:
             ExperienceEntry(
                 title="Software Engineer",
                 company="Acme Corp",
+                company_url="https://acme.example.com",
                 location="San Francisco, CA",
                 start_date="Jan 2023",
                 end_date="Present",
@@ -56,6 +59,8 @@ def build_sample_resume() -> Resume:
                 name="Resume Matcher",
                 tech="Python, FastAPI, Qdrant",
                 date="2024",
+                url="https://github.com/johndoe/resume-matcher",
+                demo_url="https://resume-matcher.johndoe.dev",
                 bullets=[
                     "Open-source tool that scores resumes against job descriptions using hybrid keyword + semantic matching.",
                     "Reduced false-positive matches by 35% with skill taxonomy normalization.",
@@ -97,7 +102,12 @@ def build_sample_resume() -> Resume:
             ),
         ],
         certifications=[
-            "AWS Certified Solutions Architect – Associate",
+            Certification(
+                name="AWS Certified Solutions Architect – Associate",
+                issuer="Amazon Web Services",
+                date="2023",
+                credential_url="https://www.credly.com/badges/johndoe-aws-saa",
+            ),
         ],
         section_order=list(_DEFAULT_ORDER),
         hidden_sections=[],

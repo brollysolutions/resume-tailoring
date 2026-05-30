@@ -162,9 +162,18 @@ const TAILOR_MESSAGES = [
   "Almost ready...",
 ];
 
-function buildLinkedInUrl(kw: string, f: LinkedInFilters): string {
+function buildLinkedInUrl(kw: string, f: LinkedInFilters, stack: string[] = []): string {
   const p = new URLSearchParams();
-  p.set("keywords", kw);
+  
+  // Append relevant stack tokens not already in the keyword string (case-insensitive)
+  const lowerKw = kw.toLowerCase();
+  const extra = stack
+    .filter(s => !lowerKw.includes(s.toLowerCase()))
+    .slice(0, 2);
+  
+  const finalKw = extra.length ? `${kw} ${extra.join(" ")}` : kw;
+  p.set("keywords", finalKw);
+
   if (f.location.trim()) {
     p.set("location", f.location.trim());
     if (f.distance) p.set("distance", f.distance);
@@ -177,6 +186,7 @@ function buildLinkedInUrl(kw: string, f: LinkedInFilters): string {
   if (f.easyApply) p.set("f_AL", "true");
   return `https://www.linkedin.com/jobs/search/?${p.toString()}`;
 }
+
 
 function countActiveFilters(f: LinkedInFilters): number {
   let n = 0;
@@ -293,22 +303,6 @@ function OverviewPanel({
           );
         })()
       )}
-
-      {matchCeiling &&
-        typeof matchCeiling.exp_required === "number" &&
-        matchCeiling.exp_required > 0 &&
-        matchCeiling.exp_actual !== null &&
-        matchCeiling.exp_actual !== undefined &&
-        matchCeiling.exp_actual < matchCeiling.exp_required && (
-          <div className="card p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">Experience gap</p>
-            <div className="flex items-center gap-6 text-sm mb-1">
-              <span className="text-muted">Job Description requires <span className="font-semibold text-foreground">{matchCeiling.exp_required}+ yrs</span></span>
-              <span className="text-muted">Your resume <span className="font-semibold text-foreground">~{matchCeiling.exp_actual} yrs</span></span>
-            </div>
-            <p className="text-xs text-muted">Tailoring can still help, but expect a lower match ceiling.</p>
-          </div>
-        )}
     </div>
   );
 }
@@ -462,7 +456,9 @@ function JobSearchContent() {
   const [tailorStep, setTailorStep] = useState(0);
 
   const [keywords, setKeywords] = useState<string[]>([]);
+  const [stack, setStack] = useState<string[]>([]);
   const [jdText, setJdText] = useState("");
+
   const [isMatching, setIsMatching] = useState(false);
   const [matchScore, setMatchScore] = useState<number | null>(null);
   // matchBreakdown is hydrated from localStorage and used by the conditional weights blend below; the destructured read is unused but the setter side-channel matters.
@@ -661,8 +657,10 @@ function JobSearchContent() {
     /* eslint-disable react-hooks/set-state-in-effect */
     // 1. Initial setup from URL
     const kw = searchParams.get("keywords");
+    const st = searchParams.get("stack");
     if (kw) {
       setKeywords(kw.split("|").map((k) => k.trim()).filter(Boolean));
+      if (st) setStack(st.split("|").map((s) => s.trim()).filter(Boolean));
       const rid = searchParams.get("resume_id");
       if (rid) localStorage.setItem("current_resume_id", rid);
     } else if (!localStorage.getItem("current_resume_id")) {
@@ -688,8 +686,10 @@ function JobSearchContent() {
         if (s.diagnosis) setMatchDiagnosis(s.diagnosis);
         if (s.lastJd) setLastMatchedJd(s.lastJd);
         if (s.keywords?.length) setKeywords(s.keywords);
+        if (s.stack?.length) setStack(s.stack);
       } catch { /* ignore corrupt data */ }
     }
+
 
     // 3. UI State (Template & Filters)
     const stored = localStorage.getItem("template_id");
@@ -801,7 +801,9 @@ function JobSearchContent() {
         diagnosis: data.diagnosis ?? null,
         lastJd: jdText,
         keywords,
+        stack,
       }));
+
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -1042,12 +1044,13 @@ function JobSearchContent() {
             {keywords.map((kw, i) => (
               <a
                 key={i}
-                href={buildLinkedInUrl(kw, filters)}
+                href={buildLinkedInUrl(kw, filters, stack)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between px-4 py-3 hover:bg-subtle transition-colors text-sm group"
                 title={`Search LinkedIn for "${kw}" jobs`}
               >
+
                 <span className="font-medium group-hover:text-accent group-hover:underline underline-offset-4">{kw}</span>
                 <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted group-hover:text-accent">
                   Open
@@ -1077,13 +1080,13 @@ function JobSearchContent() {
               </button>
             ) : (
               <div className="flex items-center gap-3">
-                <button
+                {/* <button
                   type="button"
                   onClick={openSections}
                   className="text-[11px] text-muted hover:text-foreground underline underline-offset-2"
                 >
                   Manage sections
-                </button>
+                </button> */}
                 {previewHtml && (
                   <div className="flex items-center gap-2">
                     <button
@@ -1444,6 +1447,7 @@ function JobSearchContent() {
                   title="Full preview"
                   srcDoc={previewHtml || ""}
                   scrolling="no"
+                  sandbox="allow-same-origin"
                   onLoad={(e) => {
                     const f = e.currentTarget;
                     const doc = f.contentDocument;
