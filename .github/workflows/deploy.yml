@@ -18,6 +18,6 @@ jobs:
           script: |
             cd /root/resume_optimize/resume-tailoring
             # Pull latest code
-            git pull origin prod
+            git pull origin main
             docker-compose up --build -d
             
