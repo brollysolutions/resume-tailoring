@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     PRELOAD_EMBEDDING_MODEL: bool = True
 
     # CORS allowed origins (comma-separated or from env var)
-    CORS_ALLOWED_ORIGINS: str = "http://localhost:3004,http://127.0.0.1:3004"
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:3004,http://127.0.0.1:3004,https://brollysolutions.in"
 
     class Config:
         env_file = "../.env" # Points to the root .env file

@@ -27,11 +27,11 @@ GROQ_API_KEY=gsk_...
 # --- Frontend URL (the public URL users will hit) ---
 # This is BAKED INTO the Next.js build at compile time.
 # Must be the URL your users' browsers can reach.
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com
+NEXT_PUBLIC_API_URL=https://brollysolutions.in/brollyresume
 
 # --- CORS ---
 # Must include your frontend's public origin.
-CORS_ALLOWED_ORIGINS=https://yourdomain.com
+CORS_ALLOWED_ORIGINS=https://brollysolutions.in
 
 # --- Internal service addresses (Docker default — usually leave these alone) ---
 QDRANT_HOST=qdrant
@@ -172,8 +172,8 @@ location /api/admin/ {
 # Required
 LLM_PROVIDER=groq
 GROQ_API_KEY=gsk_...              # or OPENAI_API_KEY
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com
-CORS_ALLOWED_ORIGINS=https://yourdomain.com
+NEXT_PUBLIC_API_URL=https://brollysolutions.in/brollyresume
+CORS_ALLOWED_ORIGINS=https://brollysolutions.in
 
 # Recommended in production
 CACHE_ENABLED=True                 # Redis caches embeddings (30-day TTL)

@@ -502,7 +502,7 @@ function JobSearchContent() {
     if (!rid) return;
     setIsDownloading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/brollyresume";
       const res = await fetch(`${apiUrl}/api/tailor/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -540,7 +540,7 @@ function JobSearchContent() {
     setPreviewError(false);
     setPreviewHtml(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/brollyresume";
       const res = await fetch(`${apiUrl}/api/tailor/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -567,7 +567,7 @@ function JobSearchContent() {
     const rid = localStorage.getItem("current_resume_id");
     if (!rid) { setSectionsLoading(false); return; }
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/brollyresume";
       const res = await fetch(`${apiUrl}/api/resume/${rid}/json`);
       if (!res.ok) throw new Error("Failed to load resume");
       const r: ResumeShape = await res.json();
@@ -586,7 +586,7 @@ function JobSearchContent() {
     setSectionsSaving(true);
     setSectionsError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/brollyresume";
       const res = await fetch(`${apiUrl}/api/resume/${rid}/sections`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -741,7 +741,7 @@ function JobSearchContent() {
     setResultsTab("overview");
     setError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/brollyresume";
       const res = await fetch(`${apiUrl}/api/match/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -817,7 +817,7 @@ function JobSearchContent() {
     setIsTailoring(true);
     setTailorStep(0);
  
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/brollyresume";
     const rid = localStorage.getItem("current_resume_id") || "";
     try {
       const resumeRes = await fetch(`${apiUrl}/api/resume/${rid}/json`);

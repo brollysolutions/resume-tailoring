@@ -9,11 +9,11 @@ RUN npm ci
 COPY . .
 
 # Set the API URL at build time so it's baked into the client bundle
-ARG NEXT_PUBLIC_API_URL=http://localhost:8004
+ARG NEXT_PUBLIC_API_URL=https://brollysolutions.in/brollyresume
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Subpath the app is served under (empty = root). Baked at build time.
-ARG NEXT_PUBLIC_BASE_PATH=
+ARG NEXT_PUBLIC_BASE_PATH=/brollyresume
 ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 
 RUN npm run build

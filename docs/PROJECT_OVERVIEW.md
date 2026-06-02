@@ -322,7 +322,7 @@ Mount points: `/api/resume`, `/api/match`, `/api/tailor`, `/api/admin`.
 | `components/SkillsStep.tsx` / `SkillsAiChat.tsx` / `SkillsRegenStep.tsx` / `SkillsSuggestionsInline.tsx` | Skills flows |
 | `components/ErrorBoundary.tsx` | React error boundary |
 
-All API calls target `process.env.NEXT_PUBLIC_API_URL` (default `http://localhost:8004`).
+All API calls target `process.env.NEXT_PUBLIC_API_URL` (default `https://brollysolutions.in/brollyresume`).
 
 ---
 

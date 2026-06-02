@@ -79,7 +79,7 @@ services:
     ports:
       - "3004:3004"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8004}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://brollysolutions.in/brollyresume}
       - WATCHPACK_POLLING=true
     depends_on:
       - backend

@@ -40,7 +40,7 @@ export function TemplatePickerModal({
 
   useEffect(() => {
     if (!templates.length) return;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/brollyresume";
     Promise.all(
       templates.map((t) =>
         fetch(`${apiUrl}/api/tailor/sample-preview?template_id=${t.id}`)
