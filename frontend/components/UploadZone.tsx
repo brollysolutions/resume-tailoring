@@ -71,7 +71,7 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/brollyresume";
       const res = await fetch(`${apiUrl}/api/resume/upload`, {
         method: "POST",
         body: formData,
