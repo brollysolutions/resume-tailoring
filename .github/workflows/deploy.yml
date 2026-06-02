@@ -3,7 +3,7 @@ name: Deploy to DigitalOcean
 on:
   push:
     branches:
-      - prod
+      - main
 
 jobs:
   deploy:
@@ -18,7 +18,7 @@ jobs:
           script: |
             cd /resume_optimize/resume-tailoring
             # Pull latest code
-            git pull origin prod
+            git pull origin main
             # Rebuild and restart containers
             # Note: NEXT_PUBLIC_API_URL is baked at build time, so --build is essential.
             docker-compose down
