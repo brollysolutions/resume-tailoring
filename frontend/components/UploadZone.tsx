@@ -98,7 +98,9 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
 
       const keywordsQuery = (data.keywords || []).join("|");
       const stackQuery = (data.stack || []).join("|");
-      window.location.href = `/job-search?keywords=${encodeURIComponent(
+      // Prepend NEXT_PUBLIC_BASE_PATH to support deployment under a subpath (e.g. /resume_generator)
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+      window.location.href = `${basePath}/job-search?keywords=${encodeURIComponent(
         keywordsQuery
       )}&stack=${encodeURIComponent(stackQuery)}&resume_id=${data.resume_id}`;
 
