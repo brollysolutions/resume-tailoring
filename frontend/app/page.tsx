@@ -45,7 +45,7 @@ export default function Home() {
   const goToStage = (s: Stage) => { setStage(s); saveStage(s); };
 
   useEffect(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/brollyresume";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
     fetch(`${apiUrl}/api/tailor/templates`)
       .then((r) => r.json())
       .then((data) => {

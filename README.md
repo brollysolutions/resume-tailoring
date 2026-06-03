@@ -32,9 +32,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
-- Frontend: http://localhost:3004
-- Backend API: https://brollysolutions.in/brollyresume/api
-- API docs: https://brollysolutions.in/brollyresume/api/docs
+- Frontend: http://localhost:3004/resume_generator
+- Backend API: https://brollysolutions.in/resume_generator/api
+- API docs: https://brollysolutions.in/resume_generator/api/docs
 
 The HuggingFace embedding model (~270 MB) downloads automatically on first backend startup and is cached in the `hf_cache` Docker volume.
 
@@ -68,7 +68,7 @@ npm run dev   # http://localhost:3004
 | `OPENAI_API_KEY` | If using OpenAI | — | |
 | `QDRANT_HOST` | Yes | `localhost` | |
 | `QDRANT_PORT` | Yes | `6334` (local) / `6333` (Docker) | |
-| `NEXT_PUBLIC_API_URL` | Yes | `https://brollysolutions.in/brollyresume` | **Baked into frontend build** |
+| `NEXT_PUBLIC_API_URL` | Yes | `https://brollysolutions.in/resume_generator` | **Baked into frontend build** |
 | `CORS_ALLOWED_ORIGINS` | Yes | `http://localhost:3004` | Comma-separated |
 | `REDIS_HOST` / `REDIS_PORT` | No | `localhost:6379` | |
 | `CACHE_ENABLED` | No | `True` | Set `False` to skip Redis |
