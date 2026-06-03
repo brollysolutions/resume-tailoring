@@ -108,7 +108,9 @@ export function ImportResumeModal({
 
     const kw = keywords.join("|");
     const st = stack.join("|");
-    window.location.href = `/job-search?keywords=${encodeURIComponent(
+    // Prepend NEXT_PUBLIC_BASE_PATH to support deployment under a subpath (e.g. /resume_generator)
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+    window.location.href = `${basePath}/job-search?keywords=${encodeURIComponent(
       kw
     )}&stack=${encodeURIComponent(st)}&resume_id=${resumeId}`;
   };
