@@ -98,8 +98,15 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
 
       const keywordsQuery = (data.keywords || []).join("|");
       const stackQuery = (data.stack || []).join("|");
-      // Prepend NEXT_PUBLIC_BASE_PATH to support deployment under a subpath (e.g. /resume_generator)
-      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+      // Prepend NEXT_PUBLIC_BASE_PATH to support deployment under a subpath (e.g. /resume_generator).
+      // Fallback to extracting the subpath from window.location if the environment variable is not baked in.
+      let basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+      if (!basePath && typeof window !== "undefined") {
+        const match = window.location.pathname.match(/^(\/[^\/]+)/);
+        if (match && match[1] !== "/") {
+          basePath = match[1];
+        }
+      }
       window.location.href = `${basePath}/job-search?keywords=${encodeURIComponent(
         keywordsQuery
       )}&stack=${encodeURIComponent(stackQuery)}&resume_id=${data.resume_id}`;
