@@ -35,7 +35,6 @@ services:
       - resume_network_dev
 
   backend:
-
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
@@ -56,8 +55,6 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-groq}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
       - HF_HUB_OFFLINE=1
       - PRELOAD_EMBEDDING_MODEL=false
     depends_on:
@@ -74,12 +71,16 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3004/resume_generator}
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/resume_generator}
     container_name: resume_frontend_dev
     restart: always
     ports:
       - "3004:3004"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://brollysolutions.in/brollyresume}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3004/resume_generator}
+      - NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH:-/resume_generator}
       - WATCHPACK_POLLING=true
     depends_on:
       - backend

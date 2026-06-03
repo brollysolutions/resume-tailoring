@@ -62,7 +62,7 @@ is hidden on all three (they are a focused linear funnel).
 |-----|-------|---------|
 | `home_selected_template` | localStorage | Template chosen on landing, persists across pages |
 | `current_resume_id` | localStorage | The uploaded resume's Qdrant ID |
-| `template_id` | localStorage | Active render template |
+| `template_id" | localStorage | Active render template |
 | `tailor_jd_text` | localStorage | JD carried from job-search to tailor |
 | `match_state` | localStorage | Full match result (score, breakdown, section scores, gaps, diagnosis) |
 | `tailor_prefetch` | sessionStorage | Pre-fetched resume JSON for instant tailor-page load |
@@ -246,7 +246,7 @@ Mount points: `/api/resume`, `/api/match`, `/api/tailor`, `/api/admin`.
 | POST | `/preview` | Render HTML (no storage) |
 | POST | `/apply` | Stream PDF/DOCX download |
 | POST | `/ats-check` | Rule-based ATS simulation |
-| POST | `/regenerate` | Fresh alternative for one suggestion |
+| POST | `/regenerate" | Fresh alternative for one suggestion |
 | POST | `/chat-line` | Per-line interactive rewrite |
 | POST | `/chat-entry` | Per-entry bullets rewrite (keeps count) |
 | POST | `/generate-skills` | Wholesale Skills regen from tailored content |
@@ -274,9 +274,9 @@ Mount points: `/api/resume`, `/api/match`, `/api/tailor`, `/api/admin`.
 | `app/api/match_logic/hybrid_scorer.py` | 6-signal calibrated blend |
 | `app/api/match_logic/section_scorer.py` | Per-section scores + plaintext |
 | `app/api/match_logic/section_embedder.py` | Per-section max-pair cosine |
-| `app/api/match_logic/ceiling_detector.py` | Ceiling + hard-requirement parsing |
-| `app/api/match_logic/gap_analyzer.py` | Missing keywords / section gaps / low sections |
-| `app/api/match_logic/improvement_planner.py` | **New** — deterministic improvement plan |
+| `app/api/match_logic/ceiling_detector.py" | Ceiling + hard-requirement parsing |
+| `app/api/match_logic/gap_analyzer.py" | Missing keywords / section gaps / low sections |
+| `app/api/match_logic/improvement_planner.py" | **New** — deterministic improvement plan |
 | `app/api/match_logic/nlp_utils.py` | BM25, skill extraction |
 | `app/core/extractor.py` | LLM parse → `Resume` + hallucination guard |
 | `app/core/keyword_utils.py` | Shared token logic (injection ↔ scoring); two spaCy pipelines |
@@ -322,7 +322,7 @@ Mount points: `/api/resume`, `/api/match`, `/api/tailor`, `/api/admin`.
 | `components/SkillsStep.tsx` / `SkillsAiChat.tsx` / `SkillsRegenStep.tsx` / `SkillsSuggestionsInline.tsx` | Skills flows |
 | `components/ErrorBoundary.tsx` | React error boundary |
 
-All API calls target `process.env.NEXT_PUBLIC_API_URL` (default `https://brollysolutions.in/brollyresume`).
+All API calls target `process.env.NEXT_PUBLIC_API_URL` (default `https://brollysolutions.in/resume_generator`).
 
 ---
 
@@ -425,6 +425,4 @@ Living to-do for reaching a clean, bottleneck-free deploy. Items are concerns to
 ---
 
 *This document supersedes nothing in `CLAUDE.md` — it complements it as the product-level
-overview. When architecture changes, update both.*
-ts it as the product-level
 overview. When architecture changes, update both.*

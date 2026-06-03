@@ -67,7 +67,7 @@ export function ImportResumeModal({
       setError(null);
       try {
         const apiUrl =
-          process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/brollyresume";
+          process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
         const res = await fetch(`${apiUrl}/api/tailor/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

@@ -27,7 +27,7 @@ GROQ_API_KEY=gsk_...
 # --- Frontend URL (the public URL users will hit) ---
 # This is BAKED INTO the Next.js build at compile time.
 # Must be the URL your users' browsers can reach.
-NEXT_PUBLIC_API_URL=https://brollysolutions.in/brollyresume
+NEXT_PUBLIC_API_URL=https://brollysolutions.in/resume_generator
 
 # --- CORS ---
 # Must include your frontend's public origin.
@@ -109,7 +109,7 @@ Key files inside `backend/data/`:
 | `upload_events.jsonl` | Upload events that trigger auto-calibration |
 | `suggestion_events.jsonl` | Raw acceptance/rejection events |
 | `score_log.jsonl` | Per-match scoring history |
-| `section_score_log.jsonl` | Per-section scoring history |
+| `section_score_log.jsonl" | Per-section scoring history |
 
 If `weights_active.json` is missing, the scorer falls back to built-in defaults — the app still works, just with uncalibrated weights.
 
@@ -117,9 +117,11 @@ If `weights_active.json` is missing, the scorer falls back to built-in defaults 
 
 ## Step 5 — Reverse Proxy (nginx or Caddy)
 
-`NEXT_PUBLIC_API_URL` is baked into the frontend bundle, so the backend must be reachable at that exact URL from the user's browser.
+`NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_BASE_PATH` are baked into the frontend bundle. Your reverse proxy must be configured to pass the correct paths through to the containers.
 
-Minimal nginx config:
+### Option A: Root Domain (e.g., https://yourdomain.com)
+
+Minimal nginx config when running at the root:
 
 ```nginx
 server {
@@ -131,24 +133,48 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
-}
 
-server {
-    listen 443 ssl;
-    server_name api.yourdomain.com;
-
-    # Larger body for resume uploads
-    client_max_body_size 20M;
-
-    location / {
-        proxy_pass http://localhost:8004;
+    # API on a subpath of the same domain
+    location /api/ {
+        proxy_pass http://localhost:8004/api/;
         proxy_set_header Host $host;
-        proxy_read_timeout 120s;   # LangGraph tailoring can take 30-60 s
+        proxy_read_timeout 120s;
+        client_max_body_size 20M;
     }
 }
 ```
 
-Important: set `proxy_read_timeout` to at least 120 s — the tailoring pipeline runs multiple LLM calls and can take 30–60 seconds.
+### Option B: Subpath (e.g., https://brollysolutions.in/resume_generator)
+
+If your app is hosted at a subpath, **do not add a trailing slash or extra path** to the `proxy_pass` for the frontend. Next.js expects the full path including the base path.
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name brollysolutions.in;
+
+    # Backend API
+    # Note: proxy_pass ends with /api/ to map /resume_generator/api/foo -> /api/foo
+    location /resume_generator/api/ {
+        proxy_pass http://127.0.0.1:8004/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 120s;
+        client_max_body_size 20M;
+    }
+
+    # Frontend
+    # CRITICAL: proxy_pass should NOT have a trailing slash or path.
+    # This ensures /resume_generator/ is passed exactly as is to the frontend container.
+    location /resume_generator/ {
+        proxy_pass http://127.0.0.1:3004;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+> **Important:** Set `proxy_read_timeout` to at least 120s — the tailoring pipeline runs multiple LLM calls and can take 30–60 seconds.
 
 ---
 
@@ -172,7 +198,7 @@ location /api/admin/ {
 # Required
 LLM_PROVIDER=groq
 GROQ_API_KEY=gsk_...              # or OPENAI_API_KEY
-NEXT_PUBLIC_API_URL=https://brollysolutions.in/brollyresume
+NEXT_PUBLIC_API_URL=https://brollysolutions.in/resume_generator
 CORS_ALLOWED_ORIGINS=https://brollysolutions.in
 
 # Recommended in production
