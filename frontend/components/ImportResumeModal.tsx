@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowRight, FileText, ArrowLeft, X } from "lucide-react";
 import { UploadZone } from "@/components/UploadZone";
-import { getApiUrl, getBasePath } from "@/lib/api";
+import { getApiUrl } from "@/lib/api";
 import { TemplatePreview } from "@/components/TemplatePreview";
 import { TemplateSkeleton } from "@/components/TemplateSkeleton";
 import { useFocusTrap } from "@/lib/useFocusTrap";
@@ -19,6 +20,7 @@ export function ImportResumeModal({
   onClose,
   onBack,
 }: ImportResumeModalProps) {
+  const router = useRouter();
   const [resumeId, setResumeId] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
       return sessionStorage.getItem("import_resume_id") || null;
@@ -108,10 +110,9 @@ export function ImportResumeModal({
 
     const kw = keywords.join("|");
     const st = stack.join("|");
-    const basePath = getBasePath();
-    window.location.href = `${basePath}/job-search?keywords=${encodeURIComponent(
+    router.push(`/job-search?keywords=${encodeURIComponent(
       kw
-    )}&stack=${encodeURIComponent(st)}&resume_id=${resumeId}`;
+    )}&stack=${encodeURIComponent(st)}&resume_id=${resumeId}`);
   };
 
 

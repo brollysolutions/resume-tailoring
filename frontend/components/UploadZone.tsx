@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import FileUpload from "@/components/ui/file-upload";
-import { getApiUrl, getBasePath } from "@/lib/api";
+import { getApiUrl } from "@/lib/api";
 
 const ACCEPTED = [
   "application/pdf",
@@ -26,6 +27,7 @@ const ANALYZE_STEPS = [
 ];
 
 export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
@@ -99,10 +101,9 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
 
       const keywordsQuery = (data.keywords || []).join("|");
       const stackQuery = (data.stack || []).join("|");
-      const basePath = getBasePath();
-      window.location.href = `${basePath}/job-search?keywords=${encodeURIComponent(
+      router.push(`/job-search?keywords=${encodeURIComponent(
         keywordsQuery
-      )}&stack=${encodeURIComponent(stackQuery)}&resume_id=${data.resume_id}`;
+      )}&stack=${encodeURIComponent(stackQuery)}&resume_id=${data.resume_id}`);
 
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") return;
