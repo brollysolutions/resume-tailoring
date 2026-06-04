@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Minus, Plus, Maximize, FileText, Download, ChevronDown, AlertTriangle, Info } from "lucide-react";
 import type { ResumeData, Suggestion, GeneratedProject } from "@/types/resume";
+import { getApiUrl } from "@/lib/api";
 
 type NewProject = Pick<GeneratedProject, "name" | "tech" | "bullets">;
 
@@ -106,7 +107,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
       setIsLoading(true);
       setError(null);
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
+        const apiUrl = getApiUrl();
         const res = await fetch(`${apiUrl}/api/tailor/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

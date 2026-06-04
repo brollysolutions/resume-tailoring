@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, FileText, ArrowLeft, X } from "lucide-react";
 import { UploadZone } from "@/components/UploadZone";
+import { getApiUrl } from "@/lib/api";
 import { TemplatePreview } from "@/components/TemplatePreview";
 import { TemplateSkeleton } from "@/components/TemplateSkeleton";
 import { useFocusTrap } from "@/lib/useFocusTrap";
@@ -66,8 +67,7 @@ export function ImportResumeModal({
       setIsLoadingPreview(true);
       setError(null);
       try {
-        const apiUrl =
-          process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
+        const apiUrl = getApiUrl();
         const res = await fetch(`${apiUrl}/api/tailor/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

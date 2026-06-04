@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { ExternalLink, ArrowRight, Loader2, Target, Maximize2, X, SlidersHorizontal, Wand2, GripVertical, Save, Eye, EyeOff, Download, AlertTriangle, CheckCircle2, Sparkles, HelpCircle, Info } from "lucide-react";
 import { Tabs } from "@/components/Tabs";
 import { TemplatePreview } from "@/components/TemplatePreview";
+import { getApiUrl } from "@/lib/api";
 
 type LowSection = { section: string; score: number; reason: string; explanation: string };
 
@@ -451,6 +452,7 @@ function SuggestionsPanel({
 function JobSearchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const apiUrl = getApiUrl();
 
   const [isTailoring, setIsTailoring] = useState(false);
   const [tailorStep, setTailorStep] = useState(0);
@@ -502,7 +504,6 @@ function JobSearchContent() {
     if (!rid) return;
     setIsDownloading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
       const res = await fetch(`${apiUrl}/api/tailor/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -540,7 +541,6 @@ function JobSearchContent() {
     setPreviewError(false);
     setPreviewHtml(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
       const res = await fetch(`${apiUrl}/api/tailor/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -558,7 +558,7 @@ function JobSearchContent() {
     } catch {
       setPreviewError(true);
     }
-  }, []);
+  }, [apiUrl]);
 
   const openSections = useCallback(async () => {
     setSectionsOpen(true);
@@ -567,7 +567,6 @@ function JobSearchContent() {
     const rid = localStorage.getItem("current_resume_id");
     if (!rid) { setSectionsLoading(false); return; }
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
       const res = await fetch(`${apiUrl}/api/resume/${rid}/json`);
       if (!res.ok) throw new Error("Failed to load resume");
       const r: ResumeShape = await res.json();
@@ -578,7 +577,7 @@ function JobSearchContent() {
     } finally {
       setSectionsLoading(false);
     }
-  }, []);
+  }, [apiUrl]);
 
   const saveSections = useCallback(async () => {
     const rid = localStorage.getItem("current_resume_id");
@@ -586,7 +585,6 @@ function JobSearchContent() {
     setSectionsSaving(true);
     setSectionsError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
       const res = await fetch(`${apiUrl}/api/resume/${rid}/sections`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -605,7 +603,7 @@ function JobSearchContent() {
     } finally {
       setSectionsSaving(false);
     }
-  }, [sectionsOrder, sectionsHidden, loadPreview]);
+  }, [sectionsOrder, sectionsHidden, loadPreview, apiUrl]);
 
   const onDragStart = (e: React.DragEvent, idx: number) => {
     setDragIndex(idx);
@@ -741,7 +739,6 @@ function JobSearchContent() {
     setResultsTab("overview");
     setError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
       const res = await fetch(`${apiUrl}/api/match/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -817,7 +814,6 @@ function JobSearchContent() {
     setIsTailoring(true);
     setTailorStep(0);
  
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
     const rid = localStorage.getItem("current_resume_id") || "";
     try {
       const resumeRes = await fetch(`${apiUrl}/api/resume/${rid}/json`);
