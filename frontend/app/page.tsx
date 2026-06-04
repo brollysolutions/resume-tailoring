@@ -8,6 +8,7 @@ import {
   type Template,
 } from "@/components/TemplatePickerModal";
 import { ImportResumeModal } from "@/components/ImportResumeModal";
+import { getApiUrl } from "@/lib/api";
 
 type Stage = "landing" | "choice" | "templates" | "import";
 
@@ -45,7 +46,7 @@ export default function Home() {
   const goToStage = (s: Stage) => { setStage(s); saveStage(s); };
 
   useEffect(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
+    const apiUrl = getApiUrl();
     fetch(`${apiUrl}/api/tailor/templates`)
       .then((r) => r.json())
       .then((data) => {

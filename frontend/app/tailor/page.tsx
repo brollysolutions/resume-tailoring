@@ -10,6 +10,7 @@ import { applySuggestionsClient } from "@/lib/applyResume";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CopilotChat, type CopilotFocus } from "@/components/CopilotChat";
 import { GlobalIntensitySelector } from "@/components/IntensitySelector";
+import { getApiUrl } from "@/lib/api";
 
 /** Merge button-replacement projects and chat-appended projects into the payload
  *  expected by backend's _replace_projects(). keptProjects replace by index;
@@ -34,6 +35,7 @@ function buildMergedProjectPayload(
 }
 
 function TailorPageContent() {
+  const apiUrl = getApiUrl();
   const [originalResume, setOriginalResume] = useState<ResumeData | null>(null);
   const [approved, setApproved] = useState<Suggestion[]>([]);
   const [resumeId, setResumeId] = useState<string | null>(null);
@@ -142,7 +144,6 @@ function TailorPageContent() {
   // Stable initial score function for the loader
   const initialScore = useCallback(async (rid: string, jd: string, apprv: Suggestion[], projs: GeneratedProject[]) => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
       const res = await fetch(`${apiUrl}/api/match/tailored`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -173,7 +174,7 @@ function TailorPageContent() {
         setStaleScore(false);
       }
     } catch { /* ignore */ }
-  }, []);
+  }, [apiUrl]);
 
   // ----- Initial load -----
   useEffect(() => {
@@ -236,7 +237,6 @@ function TailorPageContent() {
           } catch { /* fall through to normal fetch */ }
         }
 
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
         const resumeRes = await fetch(`${apiUrl}/api/resume/${rid}/json`);
 
         let fetchedResume: ResumeData | null = null;
@@ -269,7 +269,6 @@ function TailorPageContent() {
     if (!resumeId || !jdText) return;
     setIsScoreLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
       const res = await fetch(`${apiUrl}/api/match/tailored`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -304,7 +303,7 @@ function TailorPageContent() {
     } finally {
       setIsScoreLoading(false);
     }
-  }, [resumeId, jdText, approved, keptProjects, appendedProjects, originalResume]);
+  }, [resumeId, jdText, approved, keptProjects, appendedProjects, originalResume, apiUrl]);
 
   // ----- AI "how to improve" guidance (LLM-backed, on editing pause only) -----
   const lastGuidanceScoreRef = useRef<number | null>(null);
@@ -316,7 +315,6 @@ function TailorPageContent() {
     lastGuidanceScoreRef.current = score;
     setIsGuidanceLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
       const res = await fetch(`${apiUrl}/api/match/guidance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -343,7 +341,7 @@ function TailorPageContent() {
     } finally {
       setIsGuidanceLoading(false);
     }
-  }, [resumeId, jdText, approved, keptProjects, appendedProjects, originalResume, matchScore, sectionScores]);
+  }, [resumeId, jdText, approved, keptProjects, appendedProjects, originalResume, matchScore, sectionScores, apiUrl]);
 
   // Refs to avoid stale closure issues in debounced recalc
   const recalcMatchRef = useRef(recalcMatch);
@@ -449,7 +447,6 @@ function TailorPageContent() {
         ]
       : [];
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
       const res = await fetch(`${apiUrl}/api/tailor/generate-projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -468,7 +465,7 @@ function TailorPageContent() {
         }
       }
     } catch { /* non-fatal */ }
-  }, [resumeId, jdText, projectNames, keptProjects, appendedProjects, chatGenProjects]);
+  }, [resumeId, jdText, projectNames, keptProjects, appendedProjects, chatGenProjects, apiUrl]);
 
   // ----- Copilot: accept one proposed suggestion -----
   const handleAcceptCopilot = useCallback((s: Suggestion) => {
@@ -522,7 +519,6 @@ function TailorPageContent() {
     if (!resumeId) return;
     setIsDownloading(format);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
       const projPayload = buildMergedProjectPayload(keptProjects, appendedProjects, originalResume?.projects || []);
       const res = await fetch(`${apiUrl}/api/tailor/apply`, {
         method: "POST",
@@ -802,7 +798,7 @@ function TailorPageContent() {
               onAcceptPending={handleAcceptPending}
               onRejectPending={handleRejectPending}
               onReorderSections={handleReorderSections}
-              apiUrl={process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator"}
+              apiUrl={apiUrl}
               resumeId={resumeId}
               jdText={jdText}
               newProjects={mergedProjects}
@@ -843,7 +839,7 @@ function TailorPageContent() {
               <CopilotChat
                 resumeId={resumeId}
                 jdText={jdText}
-                apiUrl={process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator"}
+                apiUrl={apiUrl}
                 approved={approved}
                 keptProjects={keptProjects}
                 nextSuggestionId={nextSuggestionId}

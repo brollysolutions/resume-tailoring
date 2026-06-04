@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { TemplatePreview } from "./TemplatePreview";
+import { getApiUrl } from "@/lib/api";
 import { TemplateSkeleton } from "./TemplateSkeleton";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 
@@ -40,7 +41,7 @@ export function TemplatePickerModal({
 
   useEffect(() => {
     if (!templates.length) return;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
+    const apiUrl = getApiUrl();
     Promise.all(
       templates.map((t) =>
         fetch(`${apiUrl}/api/tailor/sample-preview?template_id=${t.id}`)

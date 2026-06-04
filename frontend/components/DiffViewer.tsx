@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check, X, Pencil, Plus, RefreshCw, Loader2 } from "lucide-react";
+import { getApiUrl } from "@/lib/api";
 
 interface DiffProps {
   section: string;
@@ -39,7 +40,7 @@ export function DiffViewer({
     setIsRegenerating(true);
     setRegenError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
+      const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/api/tailor/regenerate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
