@@ -1,4 +1,32 @@
 /**
+ * Resolves the base path prefix for client-side navigation that uses
+ * window.location.href (bypassing Next.js router). In production the app is
+ * served under /resume_generator, locally it's at root.
+ *
+ * Priority:
+ *  1. NEXT_PUBLIC_BASE_PATH env var (baked at build time)
+ *  2. Runtime detection from current URL pathname
+ *  3. Empty string (root)
+ */
+export function getBasePath(): string {
+  // 1. Build-time env var (Next.js inlines NEXT_PUBLIC_* at build)
+  const envBase = process.env.NEXT_PUBLIC_BASE_PATH;
+  if (envBase) return envBase;
+
+  // 2. Runtime fallback — extract first path segment if it looks like a subpath
+  if (typeof window !== "undefined") {
+    const match = window.location.pathname.match(/^(\/[^/]+)/);
+    // Only treat it as a basePath if it's not one of our known route segments
+    if (match && !["/job-search", "/tailor"].includes(match[1])) {
+      return match[1];
+    }
+  }
+
+  // 3. Root — local dev or no subpath
+  return "";
+}
+
+/**
  * Resolves the correct API base URL depending on whether the app is running
  * locally (development) or on the production server.
  */
