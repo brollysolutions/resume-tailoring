@@ -1,238 +1,156 @@
-# Production Deployment Guide
+# Production Deployment Runbook
 
-## Prerequisites
-
-- Docker + Docker Compose v2 on the host
-- A Groq API key (free tier works) or OpenAI API key
-- At least 2 GB RAM for the embedding model, 4 GB recommended
-- Ports 3055 and 8055 open (or use a reverse proxy on 80/443)
+This guide ensures a bug-free, zero-downtime production deployment for the **Resume Tailor** application under the `/resume-tailor` sub-path.
 
 ---
 
-## Step 1 — Environment Configuration
+## 1. Prerequisites
 
-Copy and fill the env file **before** building:
+- **OS:** Ubuntu 22.04 LTS (Minimum 4 GB RAM required for the embedding model)
+- **Software:** Docker, Docker Compose v2, Nginx, Certbot
+- **Firewall:** Open ONLY ports `22` (SSH), `80` (HTTP), and `443` (HTTPS). **Do not expose Docker ports directly to the internet.**
 
-```bash
-cp .env.example .env
-```
+---
 
-Edit `.env`:
+## 2. Environment Configuration (`.env`)
+
+Always copy `.env.example` to `.env` and fill in the missing values. 
+
+> ⚠️ **CRITICAL:** `NEXT_PUBLIC_*` variables are baked into the Next.js bundle at compile time. Any changes require a full `docker compose up --build -d`.
 
 ```env
-# --- LLM (pick one) ---
+# --- LLM Provider ---
 LLM_PROVIDER=groq
-GROQ_API_KEY=gsk_...
+GROQ_API_KEY=gsk_YOUR_API_KEY_HERE
 
-# --- Frontend URL (the public URL users will hit) ---
-# This is BAKED INTO the Next.js build at compile time.
-# Must be the URL your users' browsers can reach.
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com
+# --- Production Sub-path Routing ---
+# These are baked into Next.js at build time to serve the app under /resume-tailor
+NEXT_PUBLIC_API_URL=https://brollysolutions.in/resume-tailor/api
+NEXT_PUBLIC_BASE_PATH=/resume-tailor
+BACKEND_ROOT_PATH=/resume-tailor/api
 
-# --- CORS ---
-# Must include your frontend's public origin.
-CORS_ALLOWED_ORIGINS=https://yourdomain.com
+# --- CORS Security ---
+# Ensure no trailing slash
+CORS_ALLOWED_ORIGINS=https://brollysolutions.in
 
-# --- Internal service addresses (Docker default — usually leave these alone) ---
-QDRANT_HOST=qdrant
-QDRANT_PORT=6333
-REDIS_HOST=redis
-REDIS_PORT=6379
+# --- Internal Database Credentials ---
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=secure_password_here
+POSTGRES_DB=resumedb
+
+# --- Performance Flags ---
+CACHE_ENABLED=True
+PRELOAD_EMBEDDING_MODEL=True
 ```
-
-> **`NEXT_PUBLIC_API_URL` is baked in at build time.** If you change it later, you must rebuild the frontend image. It is not an environment variable you can inject at runtime.
 
 ---
 
-## Step 2 — Build and Start
+## 3. Build & Run Containers
+
+Start the containers. The initial boot will take 10-20 minutes as it downloads PyTorch, SpaCy models, and the local HuggingFace embedding model.
 
 ```bash
+# Pull latest code
+git pull origin main
+
+# Build and start in detached mode
 docker compose up --build -d
+
+# Monitor startup until "Application startup complete"
+docker compose logs -f backend
 ```
 
-What happens on first start:
-1. Backend Dockerfile installs PyTorch (CPU), spaCy, WeasyPrint + system libs, all Python deps.
-2. spaCy downloads `en_core_web_sm` during image build (`python -m spacy download en_core_web_sm`).
-3. On container startup, `nomic-ai/nomic-embed-text-v1.5` (~270 MB) downloads from HuggingFace and is cached in the `hf_cache` Docker volume. This happens once; subsequent restarts load from cache instantly (5–10 s).
-4. Qdrant auto-creates the three collections (`resumes`, `generated_projects`, `candidate_evidence`) on first use.
-
-Expected startup log (backend):
-```
-Preloading embedding model...
-Embedding model ready.
-Application startup complete.
-```
-
-Verify health:
+### Health Checks
+Run these locally on the server to verify container health before touching Nginx:
 ```bash
-curl http://localhost:8055/health   # {"status":"ok"}
+# Backend
+curl http://127.0.0.1:8055/health
+
+# Frontend
+curl -I http://127.0.0.1:3055/resume-tailor
 ```
 
 ---
 
-## Step 3 — Persistent Volumes
+## 4. Nginx Reverse Proxy (Zero Bugs Routing)
 
-Docker Compose creates four named volumes automatically. **Do not delete them** — they hold all user data:
+To serve the app under the `brollysolutions.in/resume-tailor` sub-path without routing bugs, add these location blocks to your **existing** `brollysolutions.in` server block in Nginx.
 
-| Volume | Contents |
-|--------|----------|
-| `qdrant_data` | All resume vectors + payloads (primary data store) |
-| `hf_cache` | Downloaded HuggingFace model weights |
-| `backend_uploads` | Uploaded PDF/DOCX files |
-| `postgres_data` | Postgres (currently unused but provisioned) |
-
-Back up `qdrant_data` and `backend_uploads` regularly.
-
----
-
-## Step 4 — Calibration Data
-
-The `backend/data/` directory holds scoring weights, labels, and logs. In Docker, this is inside the container at `/app/data/` — **not in a named volume by default**, so it is lost on container replacement.
-
-To persist it, add a bind mount to `docker-compose.yml`:
-
-```yaml
-backend:
-  volumes:
-    - hf_cache:/root/.cache/huggingface
-    - backend_uploads:/app/uploads
-    - ./backend/data:/app/data        # add this line
-```
-
-Key files inside `backend/data/`:
-
-| File | Purpose |
-|------|---------|
-| `weights_active.json` | Live scoring weights (hot-reloaded by mtime) |
-| `weights_history/` | Weight snapshots after each calibration run |
-| `labels.jsonl` | Implicit labels derived from user suggestion acceptance |
-| `upload_events.jsonl` | Upload events that trigger auto-calibration |
-| `suggestion_events.jsonl` | Raw acceptance/rejection events |
-| `score_log.jsonl` | Per-match scoring history |
-| `section_score_log.jsonl` | Per-section scoring history |
-
-If `weights_active.json` is missing, the scorer falls back to built-in defaults — the app still works, just with uncalibrated weights.
-
----
-
-## Step 5 — Reverse Proxy (nginx or Caddy)
-
-`NEXT_PUBLIC_API_URL` is baked into the frontend bundle, so the backend must be reachable at that exact URL from the user's browser.
-
-Minimal nginx config:
+> ⚠️ **CRITICAL ORDER:** The API block (`/resume-tailor/api/`) MUST come before the frontend block (`/resume-tailor`).
 
 ```nginx
-server {
-    listen 443 ssl;
-    server_name yourdomain.com;
+# 1. API Block (FastAPI)
+location /resume-tailor/api/ {
+    # Strip the prefix so FastAPI receives /api/... internally
+    rewrite ^/resume-tailor/api/(.*)$ /api/$1 break;
 
-    location / {
-        proxy_pass http://localhost:3055;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
+    proxy_pass http://127.0.0.1:8055;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
 
-server {
-    listen 443 ssl;
-    server_name api.yourdomain.com;
-
-    # Larger body for resume uploads
+    # Allow large PDF/DOCX uploads
     client_max_body_size 20M;
-
-    location / {
-        proxy_pass http://localhost:8055;
-        proxy_set_header Host $host;
-        proxy_read_timeout 120s;   # LangGraph tailoring can take 30-60 s
-    }
+    
+    # LangGraph LLM tailoring takes 30-60s
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
 }
-```
 
-Important: set `proxy_read_timeout` to at least 120 s — the tailoring pipeline runs multiple LLM calls and can take 30–60 seconds.
-
----
-
-## Step 6 — Admin Endpoint
-
-`GET /api/admin/dashboard` serves a self-contained HTML calibration dashboard. It has **no auth gate** — block it at the proxy level if the API is public:
-
-```nginx
-location /api/admin/ {
-    allow 10.0.0.0/8;   # internal only
+# 2. Block Admin Dashboard from Public Access
+location /resume-tailor/api/admin/ {
+    allow 127.0.0.1;
     deny all;
-    proxy_pass http://localhost:8055;
+    rewrite ^/resume-tailor/api/(.*)$ /api/$1 break;
+    proxy_pass http://127.0.0.1:8055;
+}
+
+# 3. Frontend Block (Next.js)
+location /resume-tailor {
+    proxy_pass http://127.0.0.1:3055;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+
+# 4. Aggressive Cache for Static Assets
+location /resume-tailor/_next/static/ {
+    proxy_pass http://127.0.0.1:3055;
+    add_header Cache-Control "public, max-age=31536000, immutable";
 }
 ```
 
----
-
-## Step 7 — Production Env Vars Checklist
-
-```env
-# Required
-LLM_PROVIDER=groq
-GROQ_API_KEY=gsk_...              # or OPENAI_API_KEY
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com
-CORS_ALLOWED_ORIGINS=https://yourdomain.com
-
-# Recommended in production
-CACHE_ENABLED=True                 # Redis caches embeddings (30-day TTL)
-PRELOAD_EMBEDDING_MODEL=True       # default; loads model at startup, not on first request
-
-# Internal (Docker default — change only if your compose networking differs)
-QDRANT_HOST=qdrant
-QDRANT_PORT=6333
-REDIS_HOST=redis
-REDIS_PORT=6379
-```
-
----
-
-## Updating
-
+Reload Nginx safely:
 ```bash
-git pull
-docker compose up --build -d
+nginx -t && systemctl reload nginx
 ```
 
-The frontend bundle is rebuilt from scratch each time (includes the new `NEXT_PUBLIC_API_URL` bake). HuggingFace model cache is preserved in `hf_cache` volume so there is no re-download on update.
+---
+
+## 5. Data Backup Protocol
+
+Docker volumes handle all persistence. The database, uploaded resumes, and cached AI weights are stored here:
+
+- `qdrant_data`: All vector embeddings and JSON parsed resumes.
+- `backend_uploads`: The original raw PDF/DOCX files.
+
+Backup command (cron recommended):
+```bash
+docker run --rm -v resume-tailoring_qdrant_data:/data -v $(pwd):/backup alpine tar czf /backup/qdrant_$(date +%Y%m%d).tar.gz /data
+docker run --rm -v resume-tailoring_backend_uploads:/data -v $(pwd):/backup alpine tar czf /backup/uploads_$(date +%Y%m%d).tar.gz /data
+```
 
 ---
 
-## Step 8 — CI/CD with GitHub Actions
+## 6. Troubleshooting Cheat Sheet
 
-The repository includes a GitHub Actions workflow in `.github/workflows/deploy.yml` that automates deployment to your DigitalOcean Droplet on every push to `main`.
-
-### Required GitHub Secrets
-
-To use the automated deployment, you must add the following secrets to your GitHub repository (**Settings > Secrets and variables > Actions**):
-
-| Secret | Description | Example |
-|--------|-------------|---------|
-| `DO_HOST` | The IP address or hostname of your Droplet. | `123.456.78.90` |
-| `DO_USERNAME` | The SSH user (usually `root` or a dedicated deploy user). | `root` |
-| `DO_SSH_KEY` | The **private** SSH key used to access the Droplet. | `-----BEGIN OPENSSH PRIVATE KEY----- ...` |
-| `DEPLOY_DIR` | The absolute path on the Droplet where the repo is cloned. | `/home/root/resume-tailoring` |
-
-### Security Recommendation
-
-It is recommended to use a dedicated SSH key for deployment and add the corresponding public key to `/root/.ssh/authorized_keys` on your Droplet.
-
----
-
-## Troubleshooting
-
-**Embedding model download hangs on first start**
-The `hf_cache` volume is populated on first `up`. On a slow connection this can take several minutes. Watch logs with `docker compose logs -f backend`.
-
-**"CORS policy" errors in browser**
-`CORS_ALLOWED_ORIGINS` in `.env` must exactly match the origin in the browser's request (including scheme and port). Wildcard `*` is not supported.
-
-**Tailoring requests time out**
-Increase `proxy_read_timeout` on your reverse proxy (see Step 5). The LangGraph pipeline runs up to 2 critique loops × multiple LLM calls.
-
-**Weights not updating after calibration**
-`weights_active.json` must be writable inside the container. If using a bind mount (Step 4), ensure the host directory has write permissions for the container user.
-
-**`/api/admin/calibration/run` returns empty results**
-Auto-calibration requires at least 50 labels (`MIN_TOTAL_LABELS` in `auto_calibrator.py`). Upload a few resumes and accept/reject suggestions to generate labels first.
+- **CORS Errors:** Verify `CORS_ALLOWED_ORIGINS` exactly matches the browser URL. No trailing slashes.
+- **Wrong API Calls in Browser:** Re-verify `NEXT_PUBLIC_API_URL` in `.env` and run `docker compose up --build -d` (the variable is baked into the React bundle).
+- **FastAPI /docs Empty:** Verify `BACKEND_ROOT_PATH` is set correctly so FastAPI knows it's behind a proxy.
+- **504 Gateway Timeout:** Increase `proxy_read_timeout` in Nginx to `120s` or higher.
