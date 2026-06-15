@@ -54,6 +54,12 @@ services:
     depends_on:
       - db
       - qdrant
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
     volumes:
       - hf_cache:/root/.cache/huggingface
       - backend_uploads:/app/uploads
@@ -72,7 +78,8 @@ services:
     ports:
       - "127.0.0.1:3055:3004"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - resume_network
 
