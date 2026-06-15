@@ -6,6 +6,7 @@ import { UploadZone } from "@/components/UploadZone";
 import { TemplatePreview } from "@/components/TemplatePreview";
 import { TemplateSkeleton } from "@/components/TemplateSkeleton";
 import { useFocusTrap } from "@/lib/useFocusTrap";
+import { getBasePath } from "@/lib/api";
 
 interface ImportResumeModalProps {
   templateId: string;
@@ -108,7 +109,8 @@ export function ImportResumeModal({
 
     const kw = keywords.join("|");
     const st = stack.join("|");
-    window.location.href = `/job-search?keywords=${encodeURIComponent(
+    const basePath = getBasePath();
+    window.location.href = `${basePath}/job-search?keywords=${encodeURIComponent(
       kw
     )}&stack=${encodeURIComponent(st)}&resume_id=${resumeId}`;
   };
