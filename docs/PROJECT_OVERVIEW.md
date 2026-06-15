@@ -341,10 +341,10 @@ All API calls target `process.env.NEXT_PUBLIC_API_URL` (default `http://localhos
 
 | Service | Local port | Docker-internal |
 |---------|-----------|-----------------|
-| Backend API | 8004 | — |
-| Frontend | 3004 | — |
-| Qdrant | 6334 | 6333 |
-| Postgres (unused) | 5434 | 5432 |
+| Backend API | 8055 | — |
+| Frontend | 3055 | — |
+| Qdrant | 6355 | 6333 |
+| Postgres (unused) | 5455 | 5432 |
 | Redis (optional) | 6379 | 6379 |
 
 ---
@@ -361,7 +361,7 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
-uvicorn app.main:app --host 0.0.0.0 --port 8004 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8055 --reload
 
 # 3. Frontend
 cd frontend

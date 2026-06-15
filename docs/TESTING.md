@@ -17,7 +17,7 @@ reference, §10 hardening checklist).
    ```powershell
    cd backend
    .\venv\Scripts\Activate.ps1
-   uvicorn app.main:app --host 0.0.0.0 --port 8004 --reload
+   uvicorn app.main:app --host 0.0.0.0 --port 8055 --reload
    ```
 3. **Frontend up** (for UI testing):
    ```powershell
