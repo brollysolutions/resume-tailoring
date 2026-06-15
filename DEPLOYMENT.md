@@ -1,6 +1,6 @@
 # Production Deployment Runbook
 
-This guide ensures a bug-free, zero-downtime production deployment for the **Resume Tailor** application under the `/resume-tailor` sub-path.
+This guide ensures a bug-free, zero-downtime production deployment for the **Resume Tailor** application under the `/resume_generator` sub-path.
 
 ---
 
@@ -24,10 +24,10 @@ LLM_PROVIDER=groq
 GROQ_API_KEY=gsk_YOUR_API_KEY_HERE
 
 # --- Production Sub-path Routing ---
-# These are baked into Next.js at build time to serve the app under /resume-tailor
-NEXT_PUBLIC_API_URL=https://brollysolutions.in/resume-tailor/api
-NEXT_PUBLIC_BASE_PATH=/resume-tailor
-BACKEND_ROOT_PATH=/resume-tailor/api
+# These are baked into Next.js at build time to serve the app under /resume_generator
+NEXT_PUBLIC_API_URL=https://brollysolutions.in/resume_generator/api
+NEXT_PUBLIC_BASE_PATH=/resume_generator
+BACKEND_ROOT_PATH=/resume_generator/api
 
 # --- CORS Security ---
 # Ensure no trailing slash
@@ -67,22 +67,22 @@ Run these locally on the server to verify container health before touching Nginx
 curl http://127.0.0.1:8055/health
 
 # Frontend
-curl -I http://127.0.0.1:3055/resume-tailor
+curl -I http://127.0.0.1:3055/resume_generator
 ```
 
 ---
 
 ## 4. Nginx Reverse Proxy (Zero Bugs Routing)
 
-To serve the app under the `brollysolutions.in/resume-tailor` sub-path without routing bugs, add these location blocks to your **existing** `brollysolutions.in` server block in Nginx.
+To serve the app under the `brollysolutions.in/resume_generator` sub-path without routing bugs, add these location blocks to your **existing** `brollysolutions.in` server block in Nginx.
 
-> ⚠️ **CRITICAL ORDER:** The API block (`/resume-tailor/api/`) MUST come before the frontend block (`/resume-tailor`).
+> ⚠️ **CRITICAL ORDER:** The API block (`/resume_generator/api/`) MUST come before the frontend block (`/resume_generator`).
 
 ```nginx
 # 1. API Block (FastAPI)
-location /resume-tailor/api/ {
+location /resume_generator/api/ {
     # Strip the prefix so FastAPI receives /api/... internally
-    rewrite ^/resume-tailor/api/(.*)$ /api/$1 break;
+    rewrite ^/resume_generator/api/(.*)$ /api/$1 break;
 
     proxy_pass http://127.0.0.1:8055;
     proxy_http_version 1.1;
@@ -100,15 +100,15 @@ location /resume-tailor/api/ {
 }
 
 # 2. Block Admin Dashboard from Public Access
-location /resume-tailor/api/admin/ {
+location /resume_generator/api/admin/ {
     allow 127.0.0.1;
     deny all;
-    rewrite ^/resume-tailor/api/(.*)$ /api/$1 break;
+    rewrite ^/resume_generator/api/(.*)$ /api/$1 break;
     proxy_pass http://127.0.0.1:8055;
 }
 
 # 3. Frontend Block (Next.js)
-location /resume-tailor {
+location /resume_generator {
     proxy_pass http://127.0.0.1:3055;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -120,7 +120,7 @@ location /resume-tailor {
 }
 
 # 4. Aggressive Cache for Static Assets
-location /resume-tailor/_next/static/ {
+location /resume_generator/_next/static/ {
     proxy_pass http://127.0.0.1:3055;
     add_header Cache-Control "public, max-age=31536000, immutable";
 }

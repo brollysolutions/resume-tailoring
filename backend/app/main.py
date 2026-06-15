@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
 
 
 # ROOT_PATH lets FastAPI generate correct URLs when served under a sub-path
-# e.g. BACKEND_ROOT_PATH=/resume-tailor/api → /docs works at brollysolutions.in/resume-tailor/api/docs
+# e.g. BACKEND_ROOT_PATH=/resume_generator/api → /docs works at brollysolutions.in/resume_generator/api/docs
 root_path = os.environ.get("BACKEND_ROOT_PATH", "")
 
 app = FastAPI(
