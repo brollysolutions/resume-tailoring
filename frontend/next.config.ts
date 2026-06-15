@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH || undefined,
   turbopack: {},
   webpack: (config, { dev, isServer }) => {
     if (dev && !isServer) {

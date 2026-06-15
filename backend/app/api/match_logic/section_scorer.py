@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -27,12 +28,21 @@ _SECTIONS = ("Summary", "Experience", "Projects", "Skills")
 # that actually apply to its content. Sums to 1.0 per section.
 # Override via weights_active.json.section_weights once calibration produces
 # better numbers (see tune_section_weights.py).
+# Narrative sections (experience, projects) emphasize semantic alignment over
+# strict JD-wide keyword coverage (which naturally penalizes isolated blocks).
 DEFAULT_SECTION_WEIGHTS: dict[str, dict[str, float]] = {
-    "summary":    {"w_kw": 0.40, "w_skill": 0.10, "w_ngram": 0.00, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.50},
-    "experience": {"w_kw": 0.35, "w_skill": 0.15, "w_ngram": 0.15, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.35},
-    "projects":   {"w_kw": 0.35, "w_skill": 0.15, "w_ngram": 0.15, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.35},
+    "summary":    {"w_kw": 0.30, "w_skill": 0.10, "w_ngram": 0.00, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.60},
+    "experience": {"w_kw": 0.20, "w_skill": 0.05, "w_ngram": 0.05, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.70},
+    "projects":   {"w_kw": 0.20, "w_skill": 0.05, "w_ngram": 0.05, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.70},
     "skills":     {"w_kw": 0.40, "w_skill": 0.55, "w_ngram": 0.00, "w_edu": 0.00, "w_sen": 0.00, "w_cos": 0.05},
 }
+
+# R5: Dynamic section-specific remapping bounds. Since isolated sections have
+# fewer tokens, their raw cosine with a long JD is naturally lower than a
+# full-doc cosine. Using global resume bounds (e.g. 0.18-0.53) crushes section
+# scores. We use a lower, wider window for section-doc comparisons.
+_SEC_P_LOW = 0.10
+_SEC_P_HIGH = 0.35
 
 _BACKEND = Path(__file__).resolve().parents[3]
 _SECTION_LOG_PATH = _BACKEND / "data" / "section_score_log.jsonl"
@@ -71,7 +81,10 @@ def _section_text(resume, section: str) -> str:
 
     elif section == "skills":
         for sk in resume.skills:
-            lines.append(f"{sk.category}: {', '.join(sk.skills or [])}")
+            if sk.category and sk.category.lower() != "skills":
+                lines.append(f"{sk.category}: {', '.join(sk.skills or [])}")
+            else:
+                lines.append(f"{', '.join(sk.skills or [])}")
 
     return "\n".join(filter(None, lines))
 
@@ -95,6 +108,8 @@ def _log_section_event(
 
     Best-effort: never raises. Used by tune_section_weights.py offline calibrator.
     """
+    if os.environ.get("TESTING") == "1":
+        return
     if not resume_id:
         return
     try:
@@ -199,6 +214,8 @@ async def compute_section_scores(
             log_event=False,  # per-section uses section_score_log instead
             resume_id=resume_id,
             resume_obj=None,
+            p_low_override=_SEC_P_LOW,
+            p_high_override=_SEC_P_HIGH,
         )
 
         _log_section_event(resume_id, jd_text, section, result)

@@ -46,6 +46,17 @@ def extract_skills(text: str) -> set[str]:
     return tokens & _TECH_SKILLS
 
 
+def is_known_tech(token: str) -> bool:
+    """True if a single token is a recognized technology — in the skill
+    dictionary or the skill→domain taxonomy. Used to keep raw JD noise tokens
+    (generic words, undefined acronyms) out of project tech stacks."""
+    from app.core.skill_taxonomy import domain_of
+    norm = (token or "").strip().lower()
+    if not norm:
+        return False
+    return norm in _TECH_SKILLS or domain_of(token) is not None
+
+
 class BM25Ranker:
     """BM25 ranking algorithm for keyword overlap.
 

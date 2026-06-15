@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Sparkles, Loader2, Check, X, RefreshCw } from "lucide-react";
+import { Sparkles, Check, X, RefreshCw } from "lucide-react";
 import type { Suggestion } from "@/types/resume";
 
 interface SkillsAiChatProps {
@@ -79,7 +79,7 @@ export function SkillsAiChat({
         if (saved) {
           try {
             sectionIntensities = JSON.parse(saved);
-          } catch (e) {}
+          } catch {}
         }
       }
       const res = await fetch(`${apiUrl}/api/tailor/refresh-skills`, {

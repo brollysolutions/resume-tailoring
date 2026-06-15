@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -8,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.tailor_orchestrator import (
     generate_section_suggestions,
@@ -18,6 +19,7 @@ from app.core.llm_helpers import (
     tailor_skills,
     extract_jd_hard_requirements,
     generate_skills_from_tailored,
+    llm_clean_tech_field,
 )
 from app.core.tailor_graph import compiled_tailor_graph
 from app.core.llm_synthesis import (
@@ -120,7 +122,7 @@ class ApplyRequest(BaseModel):
 class GenerateProjectsRequest(BaseModel):
     resume_id: str
     jd_text: str
-    count: int = 3
+    count: int = Field(default=3, ge=1, le=6)
     exclude_names: list = []
 
 
@@ -180,6 +182,13 @@ class ChatEntryRequest(BaseModel):
     original_bullets: list[str]
     header_context: dict
     user_prompt: str
+    accepted_suggestions: list = []
+    new_projects: Optional[list] = None
+
+
+class ATSCheckRequest(BaseModel):
+    resume_id: str
+    jd_text: str
     accepted_suggestions: list = []
     new_projects: Optional[list] = None
 
@@ -445,13 +454,14 @@ async def preview_tailoring(request: PreviewRequest):
             resume = _replace_projects(resume, request.new_projects)
 
         t_render = time.perf_counter()
-        tailored = apply_suggestions(resume, request.suggestions)
+        unapplied: list = []
+        tailored = apply_suggestions(resume, request.suggestions, unapplied=unapplied)
         html = render_html(tailored, request.template_id, layout_density=request.layout_density, target_pages=request.target_pages)
-        logger.info("[TIMING] preview: render=%.3fs  template=%s",
-                    time.perf_counter() - t_render, request.template_id)
+        logger.info("[TIMING] preview: render=%.3fs  template=%s  unapplied=%d",
+                    time.perf_counter() - t_render, request.template_id, len(unapplied))
 
         logger.info("[TIMING] preview: TOTAL=%.3fs", time.perf_counter() - t0)
-        return {"type": "html", "html": html}
+        return {"type": "html", "html": html, "unapplied": unapplied}
     except HTTPException:
         raise
     except Exception as e:
@@ -466,7 +476,13 @@ async def apply_tailoring(request: ApplyRequest):
         resume, original_filename = _load_resume(request.resume_id)
         if request.new_projects is not None:
             resume = _replace_projects(resume, request.new_projects)
-        tailored = apply_suggestions(resume, request.suggestions)
+        unapplied: list = []
+        tailored = apply_suggestions(resume, request.suggestions, unapplied=unapplied)
+        try:
+            from app.core.rag_service import RAGService
+            await RAGService.refresh_from_resume(request.resume_id, tailored)
+        except Exception as rag_err:
+            logger.warning("[apply] RAG refresh failed (non-fatal): %s", rag_err)
         raw_base = original_filename.rsplit(".", 1)[0] if "." in original_filename else original_filename
         # Strip characters that would break the Content-Disposition header value
         safe_base = re.sub(r'[^\w\-. ]', '_', raw_base).strip() or "resume"
@@ -488,12 +504,33 @@ async def apply_tailoring(request: ApplyRequest):
         return StreamingResponse(
             BytesIO(data),
             media_type=media_type,
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "X-Unapplied-Count": str(len(unapplied)),
+            },
         )
     except HTTPException:
         raise
     except Exception as e:
         import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ats-check")
+async def ats_check(request: ATSCheckRequest):
+    """Run a rule-based ATS simulation: field detection, keyword coverage,
+    section recognition, and format warnings. No LLM call."""
+    from app.core.ats_simulator import run_ats_check
+    try:
+        resume, _ = _load_resume(request.resume_id)
+        if request.accepted_suggestions:
+            resume = apply_suggestions(resume, request.accepted_suggestions)
+        if request.new_projects:
+            resume = _replace_projects(resume, request.new_projects)
+        return await run_ats_check(resume, request.jd_text)
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -742,7 +779,8 @@ async def generate_projects(request: GenerateProjectsRequest):
         from qdrant_client.http.models import PointStruct
         from app.core.vector_db import init_qdrant, get_embedding
         from app.core.llm_synthesis import analyze_jd_for_projects, synthesize_projects
-        from app.core.keyword_utils import _significant_tokens, _top_jd_tokens
+        from app.core.keyword_utils import _significant_tokens, _top_jd_tokens, _drop_fragments
+        from app.api.match_logic.nlp_utils import is_known_tech
         from app.core.renderer import resume_to_plaintext
 
         from app.api.match_logic.ceiling_detector import estimate_years_experience
@@ -755,7 +793,7 @@ async def generate_projects(request: GenerateProjectsRequest):
         resume_tokens = _significant_tokens(resume_to_plaintext(resume))
         missing = jd_tokens - resume_tokens
         top_jd = _top_jd_tokens(request.jd_text, k=50)
-        missing_keywords = sorted(top_jd & missing)[:15]
+        missing_keywords = _drop_fragments(sorted(top_jd & missing))[:15]
 
         # Seniority bucket — calibrates the scale of metrics the LLM is allowed to invent.
         yoe = estimate_years_experience(resume) or 0.0
@@ -777,12 +815,19 @@ async def generate_projects(request: GenerateProjectsRequest):
             avg_words = max(8, round(sum(len(b.split()) for b in existing_bullets) / len(existing_bullets)))
         else:
             avg_words = 18
+
+        # Target bullet count — match the candidate's existing project style (floor 3, cap 5).
+        proj_bullet_counts = [len(p.bullets) for p in resume.projects if p.bullets]
+        if proj_bullet_counts:
+            target_bullets = min(5, max(3, round(sum(proj_bullet_counts) / len(proj_bullet_counts))))
+        else:
+            target_bullets = 4
         # Scrub geo qualifiers so the LLM doesn't imitate them in generated names.
         scrubbed_bullets = [_scrub_locations(b) for b in existing_bullets[:4]]
         bullet_style_sample = "\n".join(f"- {b}" for b in scrubbed_bullets if b)
 
-        logger.info("[generate-projects] skills=%d  count=%d  yoe=%.1f  seniority=%s  avg_words=%d",
-                    len(candidate_skills), request.count, yoe, seniority, avg_words)
+        logger.info("[generate-projects] skills=%d  count=%d  yoe=%.1f  seniority=%s  avg_words=%d  target_bullets=%d",
+                    len(candidate_skills), request.count, yoe, seniority, avg_words, target_bullets)
 
         t_stage_a = time.perf_counter()
         jd_analysis = await analyze_jd_for_projects(request.jd_text)
@@ -809,6 +854,7 @@ async def generate_projects(request: GenerateProjectsRequest):
                 count=request.count,
                 seniority=seniority,
                 avg_words=avg_words,
+                n_bullets=target_bullets,
                 bullet_style_sample=bullet_style_sample,
                 missing_keywords=missing_keywords
             )
@@ -828,6 +874,12 @@ async def generate_projects(request: GenerateProjectsRequest):
                     proj["name"] = fixed
                 if not name or name in exclude_names:
                     continue
+
+                # Reject under-filled projects so the retry loop regenerates; trim overflow.
+                bullets = proj.get("bullets") or []
+                if len(bullets) < target_bullets:
+                    continue
+                proj["bullets"] = bullets[:target_bullets]
 
                 proj_text = f"{name} {' '.join(proj.get('bullets', []))}"
                 fingerprint = hashlib.sha256(proj_text.encode()).hexdigest()[:16]
@@ -878,7 +930,12 @@ async def generate_projects(request: GenerateProjectsRequest):
                 for p in chosen
             )
             covered = _significant_tokens(combined)
-            still_missing = [kw for kw in missing_keywords if kw not in covered]
+            # Only inject genuine technologies — never raw JD noise (generic words,
+            # undefined acronyms like "lpa"/"response") into the visible tech stack.
+            still_missing = [
+                kw for kw in _drop_fragments([kw for kw in missing_keywords if kw not in covered])
+                if is_known_tech(kw)
+            ]
             n = len(chosen)
             for i, kw in enumerate(still_missing):
                 proj = chosen[i % n]
@@ -886,8 +943,18 @@ async def generate_projects(request: GenerateProjectsRequest):
                 if kw.lower() not in tech.lower():
                     proj["tech"] = (tech + ", " + kw).lstrip(", ")
             if still_missing:
-                logger.info("[generate-projects] keyword backstop: injected %d/%d missing tokens into tech fields",
-                            len(still_missing), len(missing_keywords))
+                logger.info("[generate-projects] keyword backstop: injected %d known-tech tokens into tech fields",
+                            len(still_missing))
+
+        # Final LLM validation — the backstop appends raw JD tokens (which include
+        # non-tech noise) straight onto tech fields, bypassing the per-candidate clean
+        # in synthesize_projects. Re-clean here so only genuine technologies are returned.
+        if chosen:
+            cleaned_tech = await asyncio.gather(
+                *[llm_clean_tech_field(p.get("tech") or "") for p in chosen]
+            )
+            for p, tech in zip(chosen, cleaned_tech):
+                p["tech"] = tech
 
         logger.info("[TIMING] generate-projects: TOTAL=%.3fs  returned=%d",
                     time.perf_counter() - t0, len(chosen))

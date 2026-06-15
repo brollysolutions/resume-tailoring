@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # WeasyPrint runtime libs (Cairo, Pango, GDK Pixbuf, font support)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         libcairo2 \
         libpango-1.0-0 \
         libpangoft2-1.0-0 \

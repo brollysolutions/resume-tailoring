@@ -13,7 +13,11 @@ export type SuggestionMode =
   | "move_skill"
   | "replace_section"
   | "replace_bullets"
-  | "reorder_sections";
+  | "reorder_sections"
+  | "add_entry"
+  | "delete_entry"
+  | "toggle_hidden"
+  | "set_summary";
 
 export interface Suggestion {
   id: number;
@@ -42,6 +46,11 @@ export interface GeneratedProject {
   fingerprint: string;
 }
 
+export interface CustomLink {
+  label: string;
+  url: string;
+}
+
 export interface ContactInfo {
   email?: string;
   phone?: string;
@@ -54,6 +63,7 @@ export interface ContactInfo {
 export interface ExperienceEntry {
   title?: string;
   company?: string;
+  company_url?: string;
   location?: string;
   start_date?: string;
   end_date?: string;
@@ -74,12 +84,67 @@ export interface EducationEntry {
 export interface ProjectEntry {
   name?: string;
   tech?: string;
+  date?: string;
+  url?: string;
+  demo_url?: string;
   bullets?: string[];
 }
 
 export interface SkillCategory {
   category: string;
   skills: string[];
+}
+
+export interface Certification {
+  name?: string;
+  issuer?: string;
+  date?: string;
+  credential_url?: string;
+}
+
+export interface Publication {
+  title?: string;
+  authors?: string;
+  venue?: string;
+  year?: string;
+  doi?: string;
+  url?: string;
+}
+
+export interface Award {
+  title?: string;
+  issuer?: string;
+  date?: string;
+  description?: string;
+}
+
+export interface Language {
+  name?: string;
+  proficiency?: string;
+}
+
+export interface VolunteerEntry {
+  role?: string;
+  organization?: string;
+  location?: string;
+  start_date?: string;
+  end_date?: string;
+  bullets?: string[];
+}
+
+export interface Patent {
+  title?: string;
+  number?: string;
+  date?: string;
+  status?: string;
+  authors?: string;
+}
+
+export interface Talk {
+  title?: string;
+  venue?: string;
+  date?: string;
+  type?: string;
 }
 
 export interface SectionItem {
@@ -98,12 +163,75 @@ export interface ExtraSection {
 export interface ResumeData {
   name?: string;
   contact?: ContactInfo;
+  custom_links?: CustomLink[];
   summary?: string;
   experience?: ExperienceEntry[];
   education?: EducationEntry[];
   projects?: ProjectEntry[];
   skills?: SkillCategory[];
-  certifications?: string[];
+  certifications?: Certification[];
+  publications?: Publication[];
+  awards?: Award[];
+  languages?: Language[];
+  volunteer?: VolunteerEntry[];
+  patents?: Patent[];
+  talks?: Talk[];
   extra_sections?: ExtraSection[];
   section_order?: string[];
+  hidden_sections?: string[];
+}
+
+export interface ATSSuggestion {
+  action: "tailor_section" | "add_field" | "restructure";
+  target: string;
+  reason: string;
+}
+
+export interface ATSReportPayload {
+  parse_score: number;
+  keyword_score: number;
+  section_recognition: Record<string, boolean>;
+  format_warnings: string[];
+  missing_fields: string[];
+  found_keywords: string[];
+  missing_keywords: string[];
+  suggestions: ATSSuggestion[];
+}
+
+export interface ImprovementAction {
+  kind: "add_keywords";
+  section: string;
+  keywords: string[];
+  est_gain: number;
+  label: string;
+}
+
+export interface ImprovementBlocker {
+  reason: string;
+  kind: "experience" | "education" | "seniority" | "other";
+}
+
+export interface ImprovementPlan {
+  current_score: number;
+  achievable_ceiling: number;
+  actions: ImprovementAction[];
+  blockers: ImprovementBlocker[];
+}
+
+export interface MatchGuidanceBlocker {
+  kind: string;
+  headline: string;
+  detail: string;
+}
+
+export interface MatchGuidance {
+  sections: Record<string, string>;
+  blockers: MatchGuidanceBlocker[];
+}
+
+export interface Directive {
+  type: "undo_last" | "generate_projects" | "ats_report";
+  payload?: ATSReportPayload;
+  count?: number;
+  more?: boolean;
 }

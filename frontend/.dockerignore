@@ -1,4 +1,41 @@
+# ── Node / Next.js ───────────────────────────────────────────────
 node_modules/
 .next/
+out/
+build/
+dist/
+
+# ── TypeScript build cache ────────────────────────────────────────
+*.tsbuildinfo
+
+# ── Test artifacts ────────────────────────────────────────────────
+__tests__/
+jest.config.ts
+jest.setup.ts
+coverage/
+
+# ── Secrets ───────────────────────────────────────────────────────
 .env
-.env.local
+.env.*
+*.pem
+*.key
+
+# ── Logs ─────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── IDE / OS ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Docs / dev artifacts ──────────────────────────────────────────
+*.md
+README*
+CHANGELOG*
+
+# ── Git ───────────────────────────────────────────────────────────
+.git/
+.gitignore

@@ -2,7 +2,7 @@ import json
 from qdrant_client import QdrantClient
 
 def check_last_resume():
-    client = QdrantClient(host="localhost", port=6334)
+    client = QdrantClient(host="localhost", port=6355)
     try:
         # Get latest points by searching with a dummy vector or just scroll
         results, _ = client.scroll(

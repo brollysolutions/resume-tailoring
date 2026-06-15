@@ -114,14 +114,21 @@ Icon
 ehthumbs.db
 
 # ============================================================
-# Agent / tool artifacts
+# Agent / AI tool config & artifacts
 # ============================================================
 GEMINI.md
 CLAUDE.md
+AGENTS.md
 graphify-out/
 .graphify_chunk_*.txt
 .claude/
+.cursor/
+.clinerules/
+.opencode/
+.windsurf/
+.antigravity.md
 plans/
+scratch/
 
 # ============================================================
 # Project-specific runtime artifacts
@@ -131,10 +138,16 @@ plans/
 backend/uploads/
 !backend/uploads/.gitkeep
 
-# Score log + calibration outputs (regenerated per env)
+# Runtime calibration data — regenerated per env, potentially sensitive
 backend/data/score_log.jsonl
 backend/data/labels.jsonl
 backend/data/calibration_results.json
+backend/data/auto_calibrator_last_attempt.json
+backend/data/auto_calibrator_state.json
+backend/data/section_deltas.jsonl
+backend/data/section_score_log.jsonl
+backend/data/upload_events.jsonl
+backend/data/suggestion_events.jsonl
 
 # Calibration corpus — personal/sensitive resumes + JDs, never commit
 backend/data/calibration_corpus/resumes/*
@@ -151,3 +164,13 @@ backend_uploads/
 
 # Spacy model artifacts (if downloaded locally)
 *.spacy
+
+# Word/binary docs (check in source markdown instead)
+docs/*.docx
+docs/*.pdf
+
+# GitHub Copilot instructions (editor-local)
+.github/copilot-instructions.md
+
+# FEATURES scratch doc (internal planning only)
+FEATURES.md

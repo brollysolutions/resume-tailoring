@@ -12,13 +12,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       {!isHiddenPage && (
-        <header className="border-b border-border bg-white shrink-0">
+        <header className="border-b border-border bg-card shrink-0">
           <div className="max-w-5xl mx-auto px-6 h-10 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2 group">
               <div className="w-6 h-6 rounded bg-accent text-white text-[11px] font-semibold flex items-center justify-center">
                 R
               </div>
-              <span className="text-sm font-semibold tracking-tight">
+              <span className="text-sm sm:text-base font-semibold tracking-tight">
                 Resume Tailor
               </span>
             </Link>
@@ -31,8 +31,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </main>
 
       {!isHiddenPage && (
-        <footer className="border-t border-border bg-white shrink-0">
-          <div className="max-w-5xl mx-auto px-6 h-12 flex items-center justify-between text-xs text-muted">
+        <footer className="border-t border-border bg-card shrink-0">
+          <div className="max-w-5xl mx-auto px-6 h-10 flex items-center justify-between text-xs text-muted">
             <span>Local-first resume tailoring</span>
             <span>v1.0</span>
           </div>

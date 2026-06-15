@@ -15,7 +15,7 @@ existing logging path, plus a console tally.
 Usage:
     # Start backend first (docker compose up  OR  uvicorn ...)
     python -m backend.scripts.calibration.seed_score_log
-    python -m backend.scripts.calibration.seed_score_log --api-url http://localhost:8004
+    python -m backend.scripts.calibration.seed_score_log --api-url http://localhost:8055
     python -m backend.scripts.calibration.seed_score_log --no-skip-existing
 """
 from __future__ import annotations
@@ -216,7 +216,7 @@ async def run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Batch-seed score_log.jsonl from a resumes + JDs corpus.")
-    parser.add_argument("--api-url", default="http://localhost:8004")
+    parser.add_argument("--api-url", default="http://localhost:8055")
     parser.add_argument("--resumes-dir", default=str(_DEFAULT_RESUMES))
     parser.add_argument("--jds-dir", default=str(_DEFAULT_JDS))
     parser.add_argument("--concurrency", type=int, default=4, help="max parallel /api/match/ calls")

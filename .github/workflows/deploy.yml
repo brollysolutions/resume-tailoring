@@ -13,11 +13,14 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DO_HOST }}
-          username: ${{ secrets.HOST_NAME }}
+          username: ${{ secrets.DO_USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           script: |
             cd /root/resume_optimize/resume-tailoring
-            # Pull latest code
             git pull origin prod
-            docker-compose up --build -d
-            
+            docker compose up --build -d
+            # Wait for backend to be healthy
+            sleep 15
+            curl -f http://127.0.0.1:8055/health || exit 1
+            echo "Deploy successful"
+

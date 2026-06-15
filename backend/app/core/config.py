@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_DB: str = "resumedb"
     POSTGRES_HOST: str = "localhost" # For local development
-    POSTGRES_PORT: int = 5434
+    POSTGRES_PORT: int = 5455
 
     @property
     def DATABASE_URL(self) -> str:
@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     # Qdrant
     QDRANT_HOST: str = "localhost"
-    QDRANT_PORT: int = 6334
+    QDRANT_PORT: int = 6355
 
     # Redis
     REDIS_HOST: str = "localhost"
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     PRELOAD_EMBEDDING_MODEL: bool = True
 
     # CORS allowed origins (comma-separated or from env var)
-    CORS_ALLOWED_ORIGINS: str = "http://localhost:3004,http://127.0.0.1:3004"
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:3055,http://127.0.0.1:3055"
 
     class Config:
         env_file = "../.env" # Points to the root .env file

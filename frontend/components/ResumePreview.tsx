@@ -40,6 +40,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   const [html, setHtml] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unapplied, setUnapplied] = useState<Array<{ section: string; mode: string; original: string; reason: string }>>([]);
   const [layoutDensity, setLayoutDensity] = useState<string>("auto");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -50,6 +51,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [pageHeight, setPageHeight] = useState(BASE_HEIGHT);
   const isDragging = useRef(false);
+  const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
   const fitWidth = useCallback(() => {
@@ -57,7 +59,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
     if (!el) return;
     const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (el.clientWidth - 24) / BASE_WIDTH));
     setZoom(z);
-    setPan({ x: (el.clientWidth - BASE_WIDTH * z) / 2, y: 12 });
+    setPan({ x: Math.round((el.clientWidth - BASE_WIDTH * z) / 2), y: 12 });
   }, []);
 
   const fitPage = useCallback(() => {
@@ -68,8 +70,8 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
     const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(zw, zh)));
     setZoom(z);
     setPan({
-      x: (el.clientWidth - BASE_WIDTH * z) / 2,
-      y: (el.clientHeight - BASE_HEIGHT * z) / 2,
+      x: Math.round((el.clientWidth - BASE_WIDTH * z) / 2),
+      y: Math.round((el.clientHeight - BASE_HEIGHT * z) / 2),
     });
   }, []);
 
@@ -79,15 +81,22 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
     const maxFit = (el.clientWidth - 24) / BASE_WIDTH;
     const z = Math.max(MIN_ZOOM, Math.min(0.76, maxFit));
     setZoom(z);
-    setPan({ x: (el.clientWidth - BASE_WIDTH * z) / 2, y: 12 });
+    setPan({ x: Math.round((el.clientWidth - BASE_WIDTH * z) / 2), y: 12 });
   }, []);
 
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => fitPage());
+    let timer: ReturnType<typeof setTimeout>;
+    const ro = new ResizeObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fitPage(), 100);
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      clearTimeout(timer);
+    };
   }, [fitPage]);
 
   useEffect(() => {
@@ -97,7 +106,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
       setIsLoading(true);
       setError(null);
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
         const res = await fetch(`${apiUrl}/api/tailor/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -126,8 +135,9 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
         }
         const data = await res.json();
         setHtml(data.html || "");
-      } catch (err: any) {
-        setError(err.message || "Could not load preview.");
+        setUnapplied(Array.isArray(data.unapplied) ? data.unapplied : []);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Could not load preview.");
       } finally {
         setIsLoading(false);
       }
@@ -154,15 +164,15 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
           setPan((prevPan) => {
             const ratio = next / prevZoom;
             return {
-              x: mouseX - (mouseX - prevPan.x) * ratio,
-              y: mouseY - (mouseY - prevPan.y) * ratio,
+              x: Math.round(mouseX - (mouseX - prevPan.x) * ratio),
+              y: Math.round(mouseY - (mouseY - prevPan.y) * ratio),
             };
           });
           return next;
         });
       } else {
         // Plain scroll → pan vertically.
-        setPan((prev) => ({ x: prev.x, y: prev.y - e.deltaY }));
+        setPan((prev) => ({ x: prev.x, y: Math.round(prev.y - e.deltaY) }));
       }
     };
 
@@ -175,19 +185,21 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     // Pan from anywhere — iframe has pointer-events:none so it never captures clicks.
     isDragging.current = true;
+    setDragging(true);
     dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isDragging.current) return;
     setPan({
-      x: dragStart.current.panX + (e.clientX - dragStart.current.x),
-      y: dragStart.current.panY + (e.clientY - dragStart.current.y),
+      x: Math.round(dragStart.current.panX + (e.clientX - dragStart.current.x)),
+      y: Math.round(dragStart.current.panY + (e.clientY - dragStart.current.y)),
     });
   };
 
   const handleMouseUp = () => {
     isDragging.current = false;
+    setDragging(false);
   };
 
   const setZoomClamped = useCallback((nextZoom: number) => {
@@ -199,12 +211,13 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
       const scaledW = BASE_WIDTH * z;
       const scaledH = pageHeight * z;
       setPan({
-        x: Math.max(12, (cw - scaledW) / 2),
-        y: scaledH < ch ? Math.max(12, (ch - scaledH) / 2) : 12,
+        x: Math.round(Math.max(12, (cw - scaledW) / 2)),
+        y: Math.round(scaledH < ch ? Math.max(12, (ch - scaledH) / 2) : 12),
       });
     }
     setZoom(z);
   }, [pageHeight]);
+
 
   // Per-section line-count estimate. Wrapping is approximated as
   // ceil(chars / CHARS_PER_LINE) — good enough for advisory math.
@@ -251,7 +264,10 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
     }
     if (resume.certifications && resume.certifications.length > 0) {
       let lines = 0;
-      for (const c of resume.certifications) lines += estimateLines(c);
+      for (const c of resume.certifications) {
+        const text = [c.name, c.issuer, c.date].filter(Boolean).join(" · ");
+        lines += estimateLines(text);
+      }
       sections.push({ name: "Certifications", lines });
     }
 
@@ -283,16 +299,24 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
       const body = doc.body;
       const measure = () => {
         const h = Math.max(BASE_HEIGHT, body.scrollHeight);
-        setPageHeight((cur) => (h !== cur ? h : cur));
+        setPageHeight((cur) => (Math.abs(h - cur) > 1 ? h : cur));
       };
       measure();
       // Re-measure on layout changes inside the iframe (font swap, image
       // load, late paint) so pageHeight always covers the real content.
       const teardown = (iframe as unknown as { _cleanupRO?: () => void });
       teardown._cleanupRO?.();
-      const ro = new ResizeObserver(measure);
+      let measureTimer: ReturnType<typeof setTimeout>;
+      const ro = new ResizeObserver(() => {
+        clearTimeout(measureTimer);
+        measureTimer = setTimeout(measure, 100);
+      });
       ro.observe(body);
-      teardown._cleanupRO = () => ro.disconnect();
+      teardown._cleanupRO = () => {
+        ro.disconnect();
+        clearTimeout(measureTimer);
+      };
+
     } catch {
       // Cross-origin fallback ignored — srcDoc keeps us same-origin.
     }
@@ -301,22 +325,22 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-2 mb-2 px-1">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+      <div className="flex items-center justify-between gap-2 mb-2 px-2 py-1.5 rounded-lg bg-subtle/50 border border-border flex-wrap">
+        <span className="text-xs font-semibold uppercase tracking-wider text-foreground/70 shrink-0">
           Preview
         </span>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           <select
             value={layoutDensity}
             onChange={(e) => setLayoutDensity(e.target.value)}
-            className="text-[11px] h-7 px-2 py-1 mr-1 rounded border border-border bg-white text-muted hover:text-foreground transition-colors outline-none focus:ring-1 focus:ring-primary/20"
+            className="text-[11px] h-7 px-2 py-1 mr-1 rounded border border-border bg-background text-muted hover:text-foreground transition-colors outline-none focus:ring-1 focus:ring-primary/20"
             title="Adjust layout density to fit on one page"
           >
             <option value="auto">Density: Auto</option>
-            <option value="expanded">Expanded</option>
+            <option value="expanded">Expanded — most whitespace</option>
             <option value="standard">Standard</option>
-            <option value="compact">Compact</option>
-            <option value="latex-tight">Tight</option>
+            <option value="compact">Compact — tighter spacing</option>
+            <option value="latex-tight">Tight — fit more on one page</option>
           </select>
           <button
             onClick={() => setZoomClamped(zoom * 0.9)}
@@ -404,7 +428,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
             <AlertTriangle className="w-3.5 h-3.5 text-amber-700 mt-0.5 shrink-0" />
             <div className="min-w-0 flex-1 space-y-1">
               <p className="font-semibold text-amber-900">
-                Resume runs ~{Math.round(overflowPx)}px over one page (~{overflowLines} extra line{overflowLines !== 1 ? "s" : ""}).
+                Resume runs ~{overflowLines} extra line{overflowLines !== 1 ? "s" : ""} past page 1.
               </p>
               <p className="text-amber-800">
                 Tip: remove ~{overflowLines} bullet{overflowLines !== 1 ? "s" : ""} from your longest section{resume?.summary && resume.summary.trim() ? ", or tighten the summary" : ""}.
@@ -428,7 +452,35 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
       {isNearEdge && !isLoading && (
         <div className="mb-2 rounded-md border border-border bg-subtle/40 px-3 py-1.5 text-[11px] inline-flex items-center gap-1.5 text-muted">
           <Info className="w-3 h-3" />
-          You&apos;re ~{Math.round(headroomPx)}px from spilling onto page 2.
+          Close to page-2 edge — add about {Math.max(1, Math.round(headroomPx / 18))} more line{Math.max(1, Math.round(headroomPx / 18)) !== 1 ? "s" : ""} before it spills.
+        </div>
+      )}
+
+      {/* Edits that couldn't be auto-applied — surfaced so accepted suggestions
+          don't vanish silently when their target line can't be matched. */}
+      {unapplied.length > 0 && !isLoading && (
+        <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-snug">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-700 mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="font-semibold text-amber-900">
+                {unapplied.length} edit{unapplied.length !== 1 ? "s" : ""} couldn&apos;t be applied automatically.
+              </p>
+              <p className="text-amber-800">
+                The original text couldn&apos;t be matched in your resume (it may have changed). Re-edit{" "}
+                {unapplied.length !== 1 ? "those lines" : "that line"} directly:
+              </p>
+              <ul className="list-disc pl-4 text-amber-700/90 space-y-0.5">
+                {unapplied.slice(0, 4).map((u, i) => (
+                  <li key={i}>
+                    <span className="font-medium">{u.section || "Resume"}</span>
+                    {u.original ? <>: &ldquo;{u.original.slice(0, 60)}{u.original.length > 60 ? "…" : ""}&rdquo;</> : null}
+                  </li>
+                ))}
+                {unapplied.length > 4 && <li>+{unapplied.length - 4} more</li>}
+              </ul>
+            </div>
+          </div>
         </div>
       )}
 
@@ -439,9 +491,9 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        className="relative flex-1 rounded-lg bg-slate-100 border border-border overflow-hidden"
+        className="relative flex-1 rounded-lg bg-subtle border border-border overflow-hidden"
         style={{
-          cursor: isDragging.current ? "grabbing" : "grab",
+          cursor: dragging ? "grabbing" : "grab",
           minHeight: "60vh",
         }}
       >
@@ -471,11 +523,14 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
               width: BASE_WIDTH,
               height: pageHeight,
               transformOrigin: "0 0",
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+              willChange: "transform",
               boxShadow: "0 4px 24px rgba(0,0,0,0.10)",
               background: "white",
+              backfaceVisibility: "hidden",
             }}
           >
+
             {!html ? (
               <div className="w-full h-full p-16 space-y-8 animate-pulse bg-white select-none">
                 {/* Header */}
@@ -526,6 +581,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
                 title="Resume preview"
                 onLoad={onIframeLoad}
                 scrolling="no"
+                sandbox="allow-same-origin"
                 style={{
                   width: BASE_WIDTH,
                   height: pageHeight,

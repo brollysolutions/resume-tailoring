@@ -77,7 +77,13 @@
             content: none;
         }
 
+        a {
+            color: inherit;
+            text-decoration: underline;
+        }
+
         .skill-line { margin: 0 0 2pt 0; }
+        .skill-category { font-weight: bold; }
 
         @media print {
             body { padding: {{ density.margin or '0.55in' }}; }
@@ -89,7 +95,14 @@
         <h1>{{ resume.name }}</h1>
         <div class="contact-line">
             {% set c = resume.contact %}
-            {{ [c.phone, c.email, c.linkedin, c.github, c.location, c.website] | select | join('  |  ') }}
+            {% set sep = joiner('  |  ') %}
+            {% if c.phone %}{{ sep() }}{{ c.phone }}{% endif %}
+            {% if c.email %}{{ sep() }}<a href="mailto:{{ c.email }}">{{ c.email }}</a>{% endif %}
+            {% if c.linkedin %}{{ sep() }}<a href="{{ c.linkedin }}" target="_blank" rel="noopener">LinkedIn</a>{% endif %}
+            {% if c.github %}{{ sep() }}<a href="{{ c.github }}" target="_blank" rel="noopener">GitHub</a>{% endif %}
+            {% if c.location %}{{ sep() }}{{ c.location }}{% endif %}
+            {% if c.website %}{{ sep() }}<a href="{{ c.website }}" target="_blank" rel="noopener">Website</a>{% endif %}
+            {% for link in resume.custom_links %}{% if link.url %}{{ sep() }}<a href="{{ link.url }}" target="_blank" rel="noopener">{{ link.label or 'Link' }}</a>{% endif %}{% endfor %}
         </div>
     </header>
 
@@ -113,7 +126,9 @@
                                 <span>{{ e.start_date or "" }}{% if e.start_date and e.end_date %} – {% endif %}{{ e.end_date or "" }}</span>
                             </div>
                             <div class="entry-subheader">
-                                <span>{{ e.company }}</span>
+                                <span>
+                                    {% if e.company_url %}<a href="{{ e.company_url }}" target="_blank" rel="noopener">{{ e.company }}</a>{% else %}{{ e.company }}{% endif %}
+                                </span>
                                 <span>{{ e.location or "" }}</span>
                             </div>
                             <ul>
@@ -129,12 +144,15 @@
                     {% for p in resume.projects %}
                         <div class="entry">
                             <div class="entry-header">
-                                <span>{{ p.name }}</span>
+                                <span>
+                                    {% if p.url %}<a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}
+                                    {% if p.demo_url %} | <a href="{{ p.demo_url }}" target="_blank" rel="noopener" style="font-weight: normal; font-size: 0.9em;">Demo</a>{% endif %}
+                                </span>
+                                <span>{{ p.date or "" }}</span>
                             </div>
-                            {% if p.tech or p.date %}
+                            {% if p.tech %}
                             <div class="entry-subheader">
                                 <span>{{ p.tech or "" }}</span>
-                                <span>{{ p.date or "" }}</span>
                             </div>
                             {% endif %}
                             <ul>
@@ -175,7 +193,10 @@
                 <section>
                     <h2>Technical Skills</h2>
                     {% for s in resume.skills %}
-                        <p class="skill-line"><strong>{{ s.category }}:</strong> {{ s.skills | join(', ') }}</p>
+                        <p class="skill-line">
+                            {% if s.category and s.category.lower() != 'skills' %}<span class="skill-category">{{ s.category }}:</span> {% endif %}
+                            {{ s.skills | join(', ') }}
+                        </p>
                     {% endfor %}
                 </section>
 
@@ -183,7 +204,15 @@
                 <section>
                     <h2>Certifications</h2>
                     <ul>
-                        {% for c in resume.certifications %}<li>{{ c }}</li>{% endfor %}
+                        {% for c in resume.certifications %}
+                            <li>
+                                {% if c.credential_url %}
+                                    <a href="{{ c.credential_url }}" target="_blank" rel="noopener">{{ c.name }}</a>{% if c.issuer %} — {{ c.issuer }}{% endif %}{% if c.date %} ({{ c.date }}){% endif %}
+                                {% else %}
+                                    {{ c.name }}{% if c.issuer %} — {{ c.issuer }}{% endif %}{% if c.date %} ({{ c.date }}){% endif %}
+                                {% endif %}
+                            </li>
+                        {% endfor %}
                     </ul>
                 </section>
 
@@ -199,7 +228,10 @@
                             {% if p.authors or p.venue or p.doi or p.url %}
                                 <div class="entry-subheader">
                                     <span>{{ p.authors or "" }}{% if p.authors and p.venue %} · {% endif %}{{ p.venue or "" }}</span>
-                                    <span>{% if p.doi %}DOI: {{ p.doi }}{% elif p.url %}{{ p.url }}{% endif %}</span>
+                                    <span>
+                                        {% if p.doi %}<a href="https://doi.org/{{ p.doi }}" target="_blank" rel="noopener">DOI: {{ p.doi }}</a>
+                                        {% elif p.url %}<a href="{{ p.url }}" target="_blank" rel="noopener">URL</a>{% endif %}
+                                    </span>
                                 </div>
                             {% endif %}
                         </div>
@@ -271,7 +303,7 @@
                                     {% if item.header %}
                                         <div class="entry-header">
                                             <span>{{ item.header }}</span>
-                                            <span>{{ item.subheader }}</span>
+                                            <span>{{ item.subheader or "" }}</span>
                                         </div>
                                     {% endif %}
                                     {% if item.text %}<p>{{ item.text }}</p>{% endif %}

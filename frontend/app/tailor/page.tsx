@@ -1,20 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { ResumePreview } from "@/components/ResumePreview";
 import { ResumeEditor } from "@/components/ResumeEditor";
-import { GenerateProjectsStep } from "@/components/StepContent";
-import { Tabs } from "@/components/Tabs";
-import type { ResumeData, Suggestion, GeneratedProject } from "@/types/resume";
+import type { ResumeData, Suggestion, GeneratedProject, ImprovementPlan, MatchGuidance } from "@/types/resume";
 type EditorSuggestion = Suggestion;
-import { Loader2, ArrowLeft, Sparkles, RefreshCw, MessageSquare, Sliders, FileText, Briefcase, GraduationCap, Cpu, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, ArrowLeft, Sparkles, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { applySuggestionsClient } from "@/lib/applyResume";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CopilotChat, type CopilotFocus } from "@/components/CopilotChat";
-
-
-
-
+import { GlobalIntensitySelector } from "@/components/IntensitySelector";
 
 /** Merge button-replacement projects and chat-appended projects into the payload
  *  expected by backend's _replace_projects(). keptProjects replace by index;
@@ -40,18 +35,21 @@ function buildMergedProjectPayload(
 
 function TailorPageContent() {
   const [originalResume, setOriginalResume] = useState<ResumeData | null>(null);
-  const [tailoredResume, setTailoredResume] = useState<ResumeData | null>(null);
   const [approved, setApproved] = useState<Suggestion[]>([]);
   const [resumeId, setResumeId] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState<string>("standard");
   const [jdText, setJdText] = useState<string>("");
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isImprovementPanelOpen, setIsImprovementPanelOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState<"pdf" | "docx" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [matchScore, setMatchScore] = useState<{ original: number; tailored: number } | null>(null);
   const [sectionScores, setSectionScores] = useState<{ original: Record<string, number>; tailored: Record<string, number> } | null>(null);
   const [isScoreLoading, setIsScoreLoading] = useState(false);
   const [staleScore, setStaleScore] = useState(false);
+  const [improvementPlan, setImprovementPlan] = useState<ImprovementPlan | null>(null);
+  const [guidance, setGuidance] = useState<MatchGuidance | null>(null);
+  const [isGuidanceLoading, setIsGuidanceLoading] = useState(false);
   const [projectNames, setProjectNames] = useState<string[]>([]);
   const initialSuggestionCount = 0;
   const [keptProjects, setKeptProjects] = useState<GeneratedProject[]>([]);
@@ -60,12 +58,42 @@ function TailorPageContent() {
   // Projects generated via chat copilot — reviewed per-card, appended additively
   const [chatGenProjects, setChatGenProjects] = useState<GeneratedProject[]>([]);
   const [nextSuggestionId, setNextSuggestionId] = useState<number>(10000);
-  const [showGenerateProjects, setShowGenerateProjects] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [copilotFocus, setCopilotFocus] = useState<CopilotFocus | null>(null);
   // Version counter — increments on every accepted edit (copilot or manual) so
   // ResumePreview always re-fetches even if React batches state updates.
   const [previewKey, setPreviewKey] = useState(0);
+
+  // Derived tailored resume state — central source of truth for editor + preview
+  const tailoredResume = useMemo(() => {
+    if (!originalResume) return null;
+    let current = { ...originalResume };
+
+    // Fold in button-replaced projects (index-based)
+    if (keptProjects.length > 0) {
+      const existing = [...(current.projects || [])];
+      keptProjects.forEach((np, idx) => {
+        const proj = { name: np.name, tech: np.tech, bullets: np.bullets };
+        if (idx < existing.length) existing[idx] = proj;
+        else existing.push(proj);
+      });
+      current.projects = existing;
+    }
+
+    // Append chat-accepted projects after all existing/replaced
+    if (appendedProjects.length > 0) {
+      current.projects = [
+        ...(current.projects || []),
+        ...appendedProjects.map((np) => ({ name: np.name, tech: np.tech, bullets: np.bullets })),
+      ];
+    }
+
+    // Apply suggestions
+    if (approved.length > 0) {
+      current = applySuggestionsClient(current, approved);
+    }
+    return current;
+  }, [originalResume, approved, keptProjects, appendedProjects]);
 
   // Draggable editor width (leftPct %). Copilot panel is fixed at 380px. Preview fills the rest.
   const [leftPct, setLeftPct] = useState(38);
@@ -114,7 +142,7 @@ function TailorPageContent() {
   // Stable initial score function for the loader
   const initialScore = useCallback(async (rid: string, jd: string, apprv: Suggestion[], projs: GeneratedProject[]) => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
       const res = await fetch(`${apiUrl}/api/match/tailored`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -141,12 +169,11 @@ function TailorPageContent() {
             tailored: data.tailored?.section_scores || {},
           });
         }
+        setImprovementPlan(data.tailored?.improvement_plan ?? null);
         setStaleScore(false);
       }
     } catch { /* ignore */ }
   }, []);
-
-
 
   // ----- Initial load -----
   useEffect(() => {
@@ -185,32 +212,6 @@ function TailorPageContent() {
           }
         }
 
-        const applyPersistence = (rj: ResumeData) => {
-          let current = { ...rj };
-          // Fold in button-replaced projects (index-based)
-          if (restoredProjects.length > 0) {
-            const existing = [...(current.projects || [])];
-            restoredProjects.forEach((np, idx) => {
-              const proj = { name: np.name, tech: np.tech, bullets: np.bullets };
-              if (idx < existing.length) existing[idx] = proj;
-              else existing.push(proj);
-            });
-            current.projects = existing;
-          }
-          // Append chat-accepted projects after all existing/replaced
-          if (restoredAppended.length > 0) {
-            current.projects = [
-              ...(current.projects || []),
-              ...restoredAppended.map((np) => ({ name: np.name, tech: np.tech, bullets: np.bullets })),
-            ];
-          }
-          // Apply suggestions
-          if (restoredApproved.length > 0) {
-            current = applySuggestionsClient(current, restoredApproved);
-          }
-          return current;
-        };
-
         // Use pre-fetched data from job-search page overlay if available
         const prefetchStr = sessionStorage.getItem("tailor_prefetch");
         if (prefetchStr) {
@@ -220,7 +221,6 @@ function TailorPageContent() {
             if (pf.resume) {
               const rj = pf.resume as ResumeData;
               setOriginalResume(rj);
-              setTailoredResume(applyPersistence(rj));
               setProjectNames((rj.projects || []).map((p) => p.name || ""));
             }
             if (pf.project_names) {
@@ -236,8 +236,7 @@ function TailorPageContent() {
           } catch { /* fall through to normal fetch */ }
         }
 
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
-
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
         const resumeRes = await fetch(`${apiUrl}/api/resume/${rid}/json`);
 
         let fetchedResume: ResumeData | null = null;
@@ -245,7 +244,6 @@ function TailorPageContent() {
           const rj = (await resumeRes.json()) as ResumeData;
           fetchedResume = rj;
           setOriginalResume(rj);
-          setTailoredResume(applyPersistence(rj));
           setProjectNames((rj.projects || []).map((p) => p.name || ""));
         } else {
           throw new Error("Failed to load resume JSON.");
@@ -271,7 +269,7 @@ function TailorPageContent() {
     if (!resumeId || !jdText) return;
     setIsScoreLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
       const res = await fetch(`${apiUrl}/api/match/tailored`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -298,6 +296,7 @@ function TailorPageContent() {
             tailored: data.tailored?.section_scores || {},
           });
         }
+        setImprovementPlan(data.tailored?.improvement_plan ?? null);
         setStaleScore(false);
       }
     } catch {
@@ -307,13 +306,58 @@ function TailorPageContent() {
     }
   }, [resumeId, jdText, approved, keptProjects, appendedProjects, originalResume]);
 
+  // ----- AI "how to improve" guidance (LLM-backed, on editing pause only) -----
+  const lastGuidanceScoreRef = useRef<number | null>(null);
+  const runGuidance = useCallback(async () => {
+    if (!resumeId || !jdText) return;
+    const score = matchScore?.tailored;
+    if (score == null) return;
+    if (lastGuidanceScoreRef.current === score) return; // unchanged -> skip
+    lastGuidanceScoreRef.current = score;
+    setIsGuidanceLoading(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
+      const res = await fetch(`${apiUrl}/api/match/guidance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resume_id: resumeId,
+          jd_text: jdText,
+          accepted_suggestions: approved.map((s) => ({
+            section: s.section, mode: s.mode,
+            original: s.original, suggested: s.suggested,
+            category: s.category, skill: s.skill,
+            target_category: s.target_category, is_new_category: s.is_new_category,
+            new_skills: s.new_skills,
+          })),
+          new_projects: buildMergedProjectPayload(keptProjects, appendedProjects, originalResume?.projects || []) ?? [],
+          section_scores: sectionScores?.tailored || {},
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGuidance({ sections: data.sections || {}, blockers: data.blockers || [] });
+      }
+    } catch {
+      // non-fatal
+    } finally {
+      setIsGuidanceLoading(false);
+    }
+  }, [resumeId, jdText, approved, keptProjects, appendedProjects, originalResume, matchScore, sectionScores]);
+
   // Refs to avoid stale closure issues in debounced recalc
   const recalcMatchRef = useRef(recalcMatch);
   useEffect(() => {
     recalcMatchRef.current = recalcMatch;
   }, [recalcMatch]);
 
-  const recalcTimerRef = useRef<any>(null);
+  const runGuidanceRef = useRef(runGuidance);
+  useEffect(() => {
+    runGuidanceRef.current = runGuidance;
+  }, [runGuidance]);
+
+  const recalcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guidanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scheduleRecalc = useCallback(() => {
     if (recalcTimerRef.current) {
@@ -322,88 +366,80 @@ function TailorPageContent() {
     recalcTimerRef.current = setTimeout(() => {
       recalcMatchRef.current();
     }, 700);
+    if (guidanceTimerRef.current) {
+      clearTimeout(guidanceTimerRef.current);
+    }
+    guidanceTimerRef.current = setTimeout(() => {
+      runGuidanceRef.current();
+    }, 2500);
   }, []);
 
-  // Clear pending timer on unmount
+  // Initial guidance once, after the first score lands.
+  const didInitGuidanceRef = useRef(false);
+  useEffect(() => {
+    if (isInitialLoading || didInitGuidanceRef.current) return;
+    if (matchScore?.tailored == null) return;
+    didInitGuidanceRef.current = true;
+    runGuidanceRef.current();
+  }, [isInitialLoading, matchScore]);
+
+  // Clear pending timers on unmount
   useEffect(() => {
     return () => {
-      if (recalcTimerRef.current) {
-        clearTimeout(recalcTimerRef.current);
-      }
+      if (recalcTimerRef.current) clearTimeout(recalcTimerRef.current);
+      if (guidanceTimerRef.current) clearTimeout(guidanceTimerRef.current);
     };
   }, []);
 
-  // ----- Edit emit: append to approved + apply to local resume -----
+  // ----- Edit emit: append to approved + derivation handles state update -----
   const handleEmit = useCallback((sg: Omit<Suggestion, "id">) => {
     const withId: Suggestion = { ...(sg as Suggestion), id: nextSuggestionId, reasoning: sg.reasoning || "User edit" };
     setNextSuggestionId((n) => n + 1);
     setApproved((prev) => [...prev, withId]);
-    setTailoredResume((prev) => prev ? applySuggestionsClient(prev, [withId]) : prev);
     setPreviewKey((k) => k + 1);
     setStaleScore(true);
     scheduleRecalc();
   }, [nextSuggestionId, scheduleRecalc]);
 
   // No-op stubs kept for ResumeEditor prop compatibility (AI suggestions removed).
-  const handleAcceptPending = useCallback((_id: number, _edited: string) => {}, []);
-  const handleRejectPending = useCallback((_id: number) => {}, []);
+  const handleAcceptPending = useCallback(() => {}, []);
+  const handleRejectPending = useCallback(() => {}, []);
 
   const handleReorderSections = useCallback((newOrder: string[]) => {
-    const sg: Omit<Suggestion, "id"> = {
+    const withId: Suggestion = {
       section: "Global",
       mode: "reorder_sections",
       suggested: JSON.stringify(newOrder),
       reasoning: "User reordered sections",
+      id: nextSuggestionId,
     };
-    handleEmit(sg);
-  }, [handleEmit]);
+    setNextSuggestionId((n) => n + 1);
+    setApproved((prev) => [...prev.filter((s) => s.mode !== "reorder_sections"), withId]);
+    setPreviewKey((k) => k + 1);
+    setStaleScore(true);
+    scheduleRecalc();
+  }, [nextSuggestionId, scheduleRecalc]);
 
-  // Revert: pop from approved, rebuild local resume from original + remaining approved.
+  // Revert: pop from approved, derivation handles state update.
   const handleRevert = useCallback((id: number) => {
-    setApproved((prev) => {
-      const next = prev.filter((x) => x.id !== id);
-      setTailoredResume(originalResume ? applySuggestionsClient(originalResume, next) : originalResume);
-      setPreviewKey((k) => k + 1);
-      setStaleScore(true);
-      scheduleRecalc();
-      return next;
-    });
-  }, [originalResume, scheduleRecalc]);
-
-
+    setApproved((prev) => prev.filter((x) => x.id !== id));
+    setPreviewKey((k) => k + 1);
+    setStaleScore(true);
+    scheduleRecalc();
+  }, [scheduleRecalc]);
 
   // ----- Project generation kept change -----
   const handleKeptChange = useCallback((next: GeneratedProject[]) => {
     setKeptProjects(next);
-    // Fold into tailored resume so editor + preview reflect it
-    if (originalResume) {
-      const folded: ResumeData = { ...originalResume };
-      const existing = [...(folded.projects || [])];
-      next.forEach((np, idx) => {
-        const proj = {
-          name: np.name,
-          tech: np.tech,
-          bullets: np.bullets,
-        };
-        if (idx < existing.length) {
-          existing[idx] = proj;
-        } else {
-          existing.push(proj);
-        }
-      });
-      folded.projects = existing;
-      setTailoredResume(applySuggestionsClient(folded, approved));
-    }
     setPreviewKey((k) => k + 1);
     setStaleScore(true);
     scheduleRecalc();
-  }, [originalResume, approved, scheduleRecalc]);
+  }, [scheduleRecalc]);
 
   // ----- Copilot: generate projects on directive -----
   const runGenerateProjects = useCallback(async (opts: { count?: number | null; more?: boolean } = {}) => {
     if (!resumeId || !jdText) return;
     const count = opts.count ?? (projectNames.length > 0 ? projectNames.length : 3);
-    // Build exclude list: when appending, exclude all names already on the resume + already kept/appended/pending
     const excludeNames = opts.more
       ? [
           ...projectNames,
@@ -413,7 +449,7 @@ function TailorPageContent() {
         ]
       : [];
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
       const res = await fetch(`${apiUrl}/api/tailor/generate-projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -428,7 +464,6 @@ function TailorPageContent() {
         const data = await res.json();
         const newProjects: GeneratedProject[] = data.projects || [];
         if (newProjects.length > 0) {
-          // Do NOT auto-apply — surface as reviewable cards in chat
           setChatGenProjects((prev) => (opts.more ? [...prev, ...newProjects] : newProjects));
         }
       }
@@ -438,7 +473,6 @@ function TailorPageContent() {
   // ----- Copilot: accept one proposed suggestion -----
   const handleAcceptCopilot = useCallback((s: Suggestion) => {
     setApproved((prev) => (prev.some((x) => x.id === s.id) ? prev : [...prev, s]));
-    setTailoredResume((prev) => (prev ? applySuggestionsClient(prev, [s]) : prev));
     setNextSuggestionId((n) => Math.max(n, (s.id || 0) + 1));
     setPreviewKey((k) => k + 1);
     setStaleScore(true);
@@ -447,16 +481,7 @@ function TailorPageContent() {
 
   // ----- Chat copilot: append a reviewed project card to the resume (additive) -----
   const handleAppendProject = useCallback((project: GeneratedProject) => {
-    // Remove from pending review list
     setChatGenProjects((prev) => prev.filter((p) => p.name !== project.name));
-    // Append to tailored resume additively (after existing real projects)
-    setTailoredResume((prev) => {
-      if (!prev) return prev;
-      const existingProjects = [...(prev.projects || [])];
-      existingProjects.push({ name: project.name, tech: project.tech, bullets: project.bullets });
-      return { ...prev, projects: existingProjects };
-    });
-    // Track in appendedProjects so it's included in score + download payloads (additive)
     setAppendedProjects((prev) => [...prev, project]);
     setPreviewKey((k) => k + 1);
     setStaleScore(true);
@@ -480,24 +505,24 @@ function TailorPageContent() {
           if (prev.length === 0) return prev;
           const last = prev[prev.length - 1];
           const next = prev.filter((x) => x.id !== last.id);
-          setTailoredResume(originalResume ? applySuggestionsClient(originalResume, next) : originalResume);
           setPreviewKey((k) => k + 1);
           setStaleScore(true);
           scheduleRecalc();
           return next;
         });
       } else if (d.type === "generate_projects") {
-        void runGenerateProjects({ count: (d as any).count, more: (d as any).more });
+        const gd = d as { count?: number; more?: boolean };
+        void runGenerateProjects({ count: gd.count, more: gd.more });
       }
     }
-  }, [originalResume, scheduleRecalc, runGenerateProjects]);
+  }, [scheduleRecalc, runGenerateProjects]);
 
   // ----- Download -----
   const handleDownload = async (format: "pdf" | "docx", layoutDensity?: string) => {
     if (!resumeId) return;
     setIsDownloading(format);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
       const projPayload = buildMergedProjectPayload(keptProjects, appendedProjects, originalResume?.projects || []);
       const res = await fetch(`${apiUrl}/api/tailor/apply`, {
         method: "POST",
@@ -509,8 +534,6 @@ function TailorPageContent() {
           template_id: templateId,
           layout_density: layoutDensity,
           ...(projPayload && projPayload.length > 0 ? { new_projects: projPayload } : {}),
-          // Calibration signal — backend's implicit_labeler joins these to
-          // compute acceptance ratio per (resume_id, jd_hash).
           jd_text: jdText,
           total_suggestions: initialSuggestionCount,
         }),
@@ -553,6 +576,8 @@ function TailorPageContent() {
     matchScore.tailored >= 40 ? "text-amber-600" :
     "text-danger";
 
+  const mergedProjects = buildMergedProjectPayload(keptProjects, appendedProjects, originalResume?.projects || []);
+
   return (
     <div className="w-full max-w-[1600px] mx-auto px-6 pt-4 pb-6">
       <div ref={containerRef} className="flex gap-0 lg:h-[calc(100vh_-_2rem)]">
@@ -570,6 +595,7 @@ function TailorPageContent() {
               <h1 className="text-base font-semibold tracking-tight leading-tight flex-1">
                 Tailor your resume
               </h1>
+              <GlobalIntensitySelector />
               {/* AI Copilot toggle button */}
               {!showChat && (
                 <button
@@ -586,25 +612,172 @@ function TailorPageContent() {
                 <button
                   onClick={recalcMatch}
                   disabled={isInitialLoading || isScoreLoading}
-                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-border text-[11px] font-medium hover:border-foreground/30 transition-colors disabled:opacity-50`}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-border text-[11px] font-medium transition-all duration-200 hover:border-foreground/40 shadow-sm ${
+                    matchScore && matchScore.tailored >= 80 ? "bg-success/5 border-success/20" :
+                    matchScore && matchScore.tailored >= 60 ? "bg-amber-500/5 border-amber-500/20" :
+                    matchScore ? "bg-danger/5 border-danger/20" : ""
+                  }`}
                   title="Click to recalculate"
                 >
-                  Match:{" "}
+                  <span className="text-muted mr-0.5">Match:</span>
                   {matchScore ? (
-                    <span className={`${scoreColor} ${staleScore ? "opacity-60" : ""}`}>{matchScore.tailored}%</span>
+                    <span className={`font-bold ${scoreColor} ${staleScore ? "opacity-60" : ""}`}>{matchScore.tailored}%</span>
                   ) : (
                     <span className="text-muted animate-pulse">--%</span>
                   )}
                   {isScoreLoading || isInitialLoading ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <Loader2 className="w-3 h-3 animate-spin ml-1" />
                   ) : (
-                    <RefreshCw className="w-3 h-3 text-muted" />
+                    <RefreshCw className="w-3 h-3 text-muted ml-1 group-hover:rotate-180 transition-transform" />
                   )}
                 </button>
               )}
             </div>
           </div>
  
+          {/* How-to-improve panel */}
+          {!isInitialLoading && improvementPlan && (
+            <div className="card p-3 mb-3 border border-border space-y-2">
+              <button
+                onClick={() => setIsImprovementPanelOpen(!isImprovementPanelOpen)}
+                className="flex items-center gap-1.5 w-full text-left group"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                <span className="text-xs font-semibold">How to improve your match</span>
+                {isGuidanceLoading && <Loader2 className="w-3 h-3 animate-spin text-muted ml-2" />}
+                <div className="ml-auto text-muted group-hover:text-foreground transition-colors">
+                  {isImprovementPanelOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </div>
+              </button>
+
+              {isImprovementPanelOpen && (
+                <>
+                  <p className="text-[11px] text-muted">
+                    Realistic max for your profile:{" "}
+                    <span className="font-semibold text-foreground">{improvementPlan.achievable_ceiling}%</span>
+                    {improvementPlan.achievable_ceiling <= improvementPlan.current_score && (
+                      <span> — you&apos;re at your realistic ceiling for this JD.</span>
+                    )}
+                  </p>
+
+                  {/* What's capping your score */}
+                  {guidance && guidance.blockers.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[9px] uppercase tracking-wider font-semibold text-amber-600">What&apos;s capping your score</p>
+                      {guidance.blockers.map((b, i) => (
+                        <div key={`blk-${b.kind}-${i}`} className="rounded-md border border-amber-500/20 bg-amber-500/5 p-2">
+                          <p className="text-[11px] font-semibold text-foreground">{b.headline}</p>
+                          <p className="text-[11px] text-muted leading-relaxed">{b.detail}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Per-section guidance */}
+                  {(() => {
+                    const gainBySection = new Map<string, number>(
+                      improvementPlan.actions.map((a) => [a.section, a.est_gain])
+                    );
+                    const proseSections = guidance ? Object.keys(guidance.sections) : [];
+                    
+                    // Normalize display names to keys for sorting
+                    const sectionKeyMap: Record<string, string> = {
+                      "Summary": "summary",
+                      "Experience": "experience",
+                      "Projects": "projects",
+                      "Education": "education",
+                      "Skills": "skills",
+                      "Certifications": "certifications",
+                      "Publications": "publications",
+                      "Awards": "awards",
+                      "Languages": "languages",
+                      "Volunteer": "volunteer",
+                      "Patents": "patents",
+                      "Talks": "talks",
+                      "Extra Sections": "extra_sections",
+                    };
+
+                    const defaultOrder = [
+                      "summary", "experience", "projects", "education", "skills",
+                      "certifications", "publications", "awards", "languages",
+                      "volunteer", "patents", "talks", "extra_sections"
+                    ];
+                    const order = tailoredResume?.section_order || defaultOrder;
+
+                    const isPresent = (key: string) => {
+                      if (!tailoredResume) return false;
+                      if (key === "summary") return !!tailoredResume.summary;
+                      if (key === "experience") return !!(tailoredResume.experience && tailoredResume.experience.length > 0);
+                      if (key === "projects") return !!(tailoredResume.projects && tailoredResume.projects.length > 0);
+                      if (key === "education") return !!(tailoredResume.education && tailoredResume.education.length > 0);
+                      if (key === "skills") return !!(tailoredResume.skills && tailoredResume.skills.length > 0);
+                      if (key === "certifications") return !!(tailoredResume.certifications && tailoredResume.certifications.length > 0);
+                      if (key === "publications") return !!(tailoredResume.publications && tailoredResume.publications.length > 0);
+                      if (key === "awards") return !!(tailoredResume.awards && tailoredResume.awards.length > 0);
+                      if (key === "languages") return !!(tailoredResume.languages && tailoredResume.languages.length > 0);
+                      if (key === "volunteer") return !!(tailoredResume.volunteer && tailoredResume.volunteer.length > 0);
+                      if (key === "patents") return !!(tailoredResume.patents && tailoredResume.patents.length > 0);
+                      if (key === "talks") return !!(tailoredResume.talks && tailoredResume.talks.length > 0);
+                      if (key === "extra_sections") return !!(tailoredResume.extra_sections && tailoredResume.extra_sections.length > 0);
+                      return false;
+                    };
+
+                    const ordered = Array.from(
+                      new Set<string>([...gainBySection.keys(), ...proseSections])
+                    ).sort((s1, s2) => {
+                      const k1 = sectionKeyMap[s1] || s1.toLowerCase();
+                      const k2 = sectionKeyMap[s2] || s2.toLowerCase();
+                      
+                      const p1 = isPresent(k1);
+                      const p2 = isPresent(k2);
+                      
+                      // Push missing sections to the bottom
+                      if (p1 && !p2) return -1;
+                      if (!p1 && p2) return 1;
+
+                      // For sections with the same presence state, sort by resume order
+                      let i1 = order.indexOf(k1);
+                      let i2 = order.indexOf(k2);
+                      if (i1 === -1) i1 = 999;
+                      if (i2 === -1) i2 = 999;
+                      return i1 - i2;
+                    });
+
+                    if (ordered.length === 0) {
+                      return (
+                        <p className="text-[11px] text-muted">
+                          No gaps left — accept any pending edits to lock in your score.
+                        </p>
+                      );
+                    }
+                    return (
+                      <div className="space-y-1.5">
+                        {ordered.map((sec) => {
+                          const prose = guidance?.sections?.[sec];
+                          return (
+                            <div key={`sec-${sec}`} className="rounded-md border border-border p-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-semibold text-foreground">{sec}</span>
+                              </div>
+                              {prose && <p className="text-[11px] text-muted leading-relaxed mt-1">{prose}</p>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Fallback blocker note */}
+                  {(!guidance || guidance.blockers.length === 0) && improvementPlan.blockers.length > 0 && (
+                    <p className="text-[10px] text-muted pt-1.5 border-t border-border/60">
+                      Capped below 100% by fixed factors: {improvementPlan.blockers.map((b) => b.reason).join("; ")}.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* The editor or skeleton */}
           {isInitialLoading ? (
             <div className="space-y-4 animate-pulse">
@@ -621,6 +794,7 @@ function TailorPageContent() {
           ) : tailoredResume ? (
             <ResumeEditor
               resume={tailoredResume}
+              templateId={templateId}
               pendingSuggestions={[] as EditorSuggestion[]}
               accepted={approved as EditorSuggestion[]}
               onEmit={(s) => handleEmit(s as Omit<Suggestion, "id">)}
@@ -628,10 +802,10 @@ function TailorPageContent() {
               onAcceptPending={handleAcceptPending}
               onRejectPending={handleRejectPending}
               onReorderSections={handleReorderSections}
-              apiUrl={process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004"}
+              apiUrl={process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055"}
               resumeId={resumeId}
               jdText={jdText}
-              newProjects={keptProjects.length > 0 ? keptProjects : undefined}
+              newProjects={mergedProjects}
               nextSuggestionId={nextSuggestionId}
               sectionScores={sectionScores?.tailored || null}
               keptProjects={keptProjects}
@@ -659,17 +833,17 @@ function TailorPageContent() {
           <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 bg-border transition-colors group-hover:bg-foreground/30 group-active:bg-primary" />
         </div>
 
-        {/* Middle — Copilot Chat (fixed 380px) */}
+        {/* Middle — Copilot Chat (fixed 440px) */}
         {showChat && (
           <>
             <div
               className="relative overflow-hidden flex-shrink-0 h-full flex flex-col px-3"
-              style={{ width: "380px" }}
+              style={{ width: "400px" }}
             >
               <CopilotChat
                 resumeId={resumeId}
                 jdText={jdText}
-                apiUrl={process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004"}
+                apiUrl={process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055"}
                 approved={approved}
                 keptProjects={keptProjects}
                 nextSuggestionId={nextSuggestionId}
@@ -723,7 +897,7 @@ function TailorPageContent() {
                 resumeId={resumeId}
                 templateId={templateId}
                 approvedSuggestions={approved}
-                newProjects={keptProjects.length > 0 ? keptProjects : undefined}
+                newProjects={mergedProjects}
                 resume={tailoredResume}
                 onDownload={handleDownload}
                 isDownloading={isDownloading}

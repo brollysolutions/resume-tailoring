@@ -5,7 +5,7 @@
 - Docker + Docker Compose v2 on the host
 - A Groq API key (free tier works) or OpenAI API key
 - At least 2 GB RAM for the embedding model, 4 GB recommended
-- Ports 3004 and 8004 open (or use a reverse proxy on 80/443)
+- Ports 3055 and 8055 open (or use a reverse proxy on 80/443)
 
 ---
 
@@ -65,7 +65,7 @@ Application startup complete.
 
 Verify health:
 ```bash
-curl http://localhost:8004/health   # {"status":"ok"}
+curl http://localhost:8055/health   # {"status":"ok"}
 ```
 
 ---
@@ -127,7 +127,7 @@ server {
     server_name yourdomain.com;
 
     location / {
-        proxy_pass http://localhost:3004;
+        proxy_pass http://localhost:3055;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
@@ -141,7 +141,7 @@ server {
     client_max_body_size 20M;
 
     location / {
-        proxy_pass http://localhost:8004;
+        proxy_pass http://localhost:8055;
         proxy_set_header Host $host;
         proxy_read_timeout 120s;   # LangGraph tailoring can take 30-60 s
     }
@@ -160,7 +160,7 @@ Important: set `proxy_read_timeout` to at least 120 s — the tailoring pipeline
 location /api/admin/ {
     allow 10.0.0.0/8;   # internal only
     deny all;
-    proxy_pass http://localhost:8004;
+    proxy_pass http://localhost:8055;
 }
 ```
 

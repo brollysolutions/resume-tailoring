@@ -6,9 +6,11 @@ Endpoints:
 - POST /api/match/tailored: Score tailored resume with before/after + section breakdown
 """
 
+import asyncio
 import json
 import logging
 import hashlib
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict
@@ -17,6 +19,15 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.core.vector_db import init_qdrant, get_embedding, get_embeddings
+from app.core.renderer import resume_to_plaintext
+from app.core.keyword_utils import _significant_tokens
+from app.core.cache import get_cached_value, set_cached_value
+from app.models.resume_schema import Resume
+
+from .match_logic import score_resume_against_jd, detect_ceiling, compute_section_scores, parse_jd_hard_requirements, compute_gap_analysis, build_improvement_plan
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
 
 # In-process cache for invariant original snapshots
 # Key: (resume_id, jd_hash)
@@ -91,15 +102,7 @@ async def _prewarm_embeddings(resume_obj, resume_json: dict, jd_text: str, full_
             logger.info(f"[TIMING] Prewarmed {len(texts_to_embed)} embeddings in {elapsed:.2f}ms")
         except Exception as e:
             logger.warning(f"Embedding prewarming failed: {e}")
-from app.core.renderer import resume_to_plaintext
-from app.core.keyword_utils import _significant_tokens
-from app.core.cache import get_cached_value, set_cached_value
-from app.models.resume_schema import Resume
 
-from .match_logic import score_resume_against_jd, detect_ceiling, compute_section_scores, parse_jd_hard_requirements, compute_gap_analysis
-
-logger = logging.getLogger(__name__)
-router = APIRouter()
 
 def _get_tailored_cache_key(req: "MatchTailoredRequest") -> str:
     """Deterministic key for caching tailored match results."""
@@ -146,6 +149,8 @@ def _log_section_delta(
     score_delta: int,
 ) -> None:
     """Log section score deltas for per-section calibration analysis. Best-effort."""
+    if os.environ.get("TESTING") == "1":
+        return
     try:
         _DATA.mkdir(parents=True, exist_ok=True)
         event = {
@@ -223,33 +228,25 @@ async def match_resume(req: MatchRequest):
         logger.warning(f"JD embedding failed: {e}")
         jd_embedding = None
 
-    # Per-section cosine (per-block max) for backward compat
-    section_cosine = None
-    try:
-        from .match_logic.section_embedder import compute_section_cosine
-        section_cosine = await compute_section_cosine(
-            resume_obj.model_dump(), req.jd_text, get_embedding
-        )
-    except Exception as e:
-        logger.warning(f"Section cosine failed: {e}")
+    # Parallelize all three independent cosine computations
+    from .match_logic.section_embedder import compute_section_cosine
+    from .match_logic.section_scorer import compute_experience_cosine, compute_section_cosines
 
-    # Experience-section cosine (more targeted than per-block max)
-    exp_section_cosine = None
-    try:
-        from .match_logic.section_scorer import compute_experience_cosine
-        exp_section_cosine = await compute_experience_cosine(
-            resume_obj, jd_embedding, get_embedding
-        )
-    except Exception as e:
-        logger.warning(f"Experience cosine failed: {e}")
-
-    # Per-section cosines for R5 section-weighted cosine signal
-    section_cosines = {}
-    try:
-        from .match_logic.section_scorer import compute_section_cosines
-        section_cosines = await compute_section_cosines(resume_obj, jd_embedding, get_embedding)
-    except Exception as e:
-        logger.warning(f"Section cosines (R5) failed: {e}")
+    _cos_results = await asyncio.gather(
+        compute_section_cosine(resume_obj.model_dump(), req.jd_text, get_embedding),
+        compute_experience_cosine(resume_obj, jd_embedding, get_embedding),
+        compute_section_cosines(resume_obj, jd_embedding, get_embedding),
+        return_exceptions=True,
+    )
+    section_cosine = _cos_results[0] if not isinstance(_cos_results[0], Exception) else None
+    exp_section_cosine = _cos_results[1] if not isinstance(_cos_results[1], Exception) else None
+    section_cosines = _cos_results[2] if not isinstance(_cos_results[2], Exception) else {}
+    if isinstance(_cos_results[0], Exception):
+        logger.warning(f"Section cosine failed: {_cos_results[0]}")
+    if isinstance(_cos_results[1], Exception):
+        logger.warning(f"Experience cosine failed: {_cos_results[1]}")
+    if isinstance(_cos_results[2], Exception):
+        logger.warning(f"Section cosines (R5) failed: {_cos_results[2]}")
 
     # Hard requirement ceiling — regex extraction, no LLM. Computed up-front
     # so the runtime extraction and ceiling decision can be persisted with
@@ -369,7 +366,7 @@ async def match_tailored(req: MatchTailoredRequest):
     _validate_jd(req.jd_text)
 
     # Check cache
-    cache_key = f"tailored_match:{_get_tailored_cache_key(req)}"
+    cache_key = f"tailored_match_v3:{_get_tailored_cache_key(req)}"
     cached = await get_cached_value(cache_key)
     if cached:
         logger.info(f"match_tailored: cache hit for resume_id={req.resume_id}")
@@ -419,25 +416,16 @@ async def match_tailored(req: MatchTailoredRequest):
         try:
             from .match_logic.section_embedder import compute_section_cosine
             original_resume_vector = results[0].vector if hasattr(results[0], 'vector') and results[0].vector else None
-            original_section_cos = None
-            try:
-                original_section_cos = await compute_section_cosine(
-                    resume_obj.model_dump(), req.jd_text, get_embedding
-                )
-            except Exception as e:
-                logger.warning(f"Original section cosine failed: {e}")
-            original_exp_cos = None
-            try:
-                from .match_logic.section_scorer import compute_experience_cosine
-                original_exp_cos = await compute_experience_cosine(resume_obj, jd_embedding, get_embedding)
-            except Exception:
-                pass
-            original_section_cosines = {}
-            try:
-                from .match_logic.section_scorer import compute_section_cosines
-                original_section_cosines = await compute_section_cosines(resume_obj, jd_embedding, get_embedding)
-            except Exception:
-                pass
+            from .match_logic.section_scorer import compute_experience_cosine as _cec_orig, compute_section_cosines as _csc_orig
+            _orig_cos = await asyncio.gather(
+                compute_section_cosine(resume_obj.model_dump(), req.jd_text, get_embedding),
+                _cec_orig(resume_obj, jd_embedding, get_embedding),
+                _csc_orig(resume_obj, jd_embedding, get_embedding),
+                return_exceptions=True,
+            )
+            original_section_cos = _orig_cos[0] if not isinstance(_orig_cos[0], Exception) else None
+            original_exp_cos = _orig_cos[1] if not isinstance(_orig_cos[1], Exception) else None
+            original_section_cosines = _orig_cos[2] if not isinstance(_orig_cos[2], Exception) else {}
             original_result = score_resume_against_jd(
                 resume_text_original, resume_obj.model_dump(), req.jd_text,
                 original_resume_vector, jd_embedding,
@@ -488,25 +476,19 @@ async def match_tailored(req: MatchTailoredRequest):
             logger.warning(f"Tailored resume embedding failed: {e}")
             tailored_resume_vector = None
 
-        tailored_section_cos = None
-        try:
-            tailored_section_cos = await compute_section_cosine(
-                resume_tailored.model_dump(), req.jd_text, get_embedding
-            )
-        except Exception as e:
-            logger.warning(f"Tailored section cosine failed: {e}")
-        tailored_exp_cos = None
-        try:
-            from .match_logic.section_scorer import compute_experience_cosine as _cec
-            tailored_exp_cos = await _cec(resume_tailored, jd_embedding, get_embedding)
-        except Exception:
-            pass
-        tailored_section_cosines = {}
-        try:
-            from .match_logic.section_scorer import compute_section_cosines as _csc
-            tailored_section_cosines = await _csc(resume_tailored, jd_embedding, get_embedding)
-        except Exception:
-            pass
+        from .match_logic.section_embedder import compute_section_cosine
+        from .match_logic.section_scorer import compute_experience_cosine as _cec, compute_section_cosines as _csc
+        _tail_cos = await asyncio.gather(
+            compute_section_cosine(resume_tailored.model_dump(), req.jd_text, get_embedding),
+            _cec(resume_tailored, jd_embedding, get_embedding),
+            _csc(resume_tailored, jd_embedding, get_embedding),
+            return_exceptions=True,
+        )
+        tailored_section_cos = _tail_cos[0] if not isinstance(_tail_cos[0], Exception) else None
+        if isinstance(_tail_cos[0], Exception):
+            logger.warning(f"Tailored section cosine failed: {_tail_cos[0]}")
+        tailored_exp_cos = _tail_cos[1] if not isinstance(_tail_cos[1], Exception) else None
+        tailored_section_cosines = _tail_cos[2] if not isinstance(_tail_cos[2], Exception) else {}
         tailored_result = score_resume_against_jd(
             resume_text_tailored, resume_tailored.model_dump(), req.jd_text,
             tailored_resume_vector, jd_embedding,
@@ -529,6 +511,25 @@ async def match_tailored(req: MatchTailoredRequest):
 
     delta = tailored_result["score"] - original_snapshot["score"]
 
+    # Improvement plan: ranked "how to improve" actions on the tailored snapshot
+    # (deterministic, no LLM) so the list shrinks as the user accepts edits.
+    improvement_plan = None
+    try:
+        from app.core.weights_store import get_weights
+        tailored_gap = compute_gap_analysis(
+            resume_tailored, resume_text_tailored, req.jd_text, tailored_sections
+        )
+        improvement_plan = build_improvement_plan(
+            req.jd_text,
+            tailored_sections,
+            tailored_result["score"],
+            tailored_ceiling,
+            tailored_gap,
+            get_weights(),
+        )
+    except Exception as e:
+        logger.warning(f"Improvement plan failed: {e}")
+
     # Log section deltas for per-section calibration analysis (Signal 6)
     import hashlib
     jd_hash = hashlib.sha256(req.jd_text.encode("utf-8", errors="ignore")).hexdigest()[:16]
@@ -550,6 +551,8 @@ async def match_tailored(req: MatchTailoredRequest):
             "score": tailored_result["score"],
             "breakdown": tailored_result["breakdown"],
             "section_scores": tailored_sections,
+            "ceiling": tailored_ceiling,
+            "improvement_plan": improvement_plan,
         },
         "delta": delta,
     }
@@ -557,4 +560,85 @@ async def match_tailored(req: MatchTailoredRequest):
     # Save to cache (24h TTL)
     await set_cached_value(cache_key, result, ttl=86400)
 
+    return result
+
+
+class MatchGuidanceRequest(MatchTailoredRequest):
+    # Tailored per-section scores from the client (already computed by
+    # /tailored) so this endpoint needs no embeddings.
+    section_scores: Optional[dict] = None
+
+
+@router.post("/guidance")
+async def match_guidance(req: MatchGuidanceRequest):
+    """Prompt-driven 'how to improve' guidance for the tailor page.
+
+    Returns plain-English per-section coaching (reusing the job-search section
+    diagnosis prompt) plus edge-case coaching for hard-requirement blockers
+    (seniority / experience / education). LLM-backed but cheap: no embeddings,
+    cached, and each LLM call is skipped when its input is empty.
+
+    {"sections": {section: prose}, "blockers": [{kind, headline, detail}]}
+    """
+    _validate_jd(req.jd_text)
+
+    cache_key = f"guidance:{_get_tailored_cache_key(req)}"
+    cached = await get_cached_value(cache_key)
+    if cached:
+        logger.info(f"match_guidance: cache hit for resume_id={req.resume_id}")
+        return cached
+
+    q_client = init_qdrant("resumes")
+    results = q_client.retrieve(collection_name="resumes", ids=[req.resume_id], with_payload=True)
+    if not results:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    try:
+        resume_obj = Resume.model_validate_json(results[0].payload.get("resume_json"))
+    except Exception as e:
+        logger.exception("Failed to parse resume JSON")
+        raise HTTPException(status_code=500, detail=f"Invalid resume JSON: {e}")
+
+    # Apply tailoring on the JSON model — no embeddings needed for guidance.
+    from app.core.renderer import apply_suggestions as apply_sugg
+    from app.api.tailor import _replace_projects
+    resume_tailored = apply_sugg(resume_obj, req.accepted_suggestions)
+    if req.new_projects:
+        resume_tailored = _replace_projects(resume_tailored, req.new_projects)
+    resume_text = resume_to_plaintext(resume_tailored)
+
+    section_scores = req.section_scores or {}
+    try:
+        gap_analysis = compute_gap_analysis(resume_tailored, resume_text, req.jd_text, section_scores)
+    except Exception as e:
+        logger.warning(f"Guidance gap analysis failed: {e}")
+        gap_analysis = {"section_gaps": {}, "low_sections": [], "missing_keywords": []}
+
+    ceiling = detect_ceiling(resume_tailored, parse_jd_hard_requirements(req.jd_text))
+
+    # Low sections (<65) already filtered by compute_gap_analysis using the
+    # client-supplied section_scores; attach each section's plaintext.
+    from .match_logic.section_scorer import _section_text
+    low_payload = [
+        {"section": s["section"], "score": s["score"], "text": _section_text(resume_tailored, s["section"])}
+        for s in gap_analysis.get("low_sections", [])
+    ]
+
+    # Both helpers short-circuit (return {} / []) with NO LLM call when their
+    # input is empty, so a strong tailored resume costs nothing here.
+    from app.core.llm_helpers import analyze_low_sections, explain_match_blockers
+    sections, blockers = await asyncio.gather(
+        analyze_low_sections(req.jd_text, low_payload, gap_analysis.get("section_gaps")),
+        explain_match_blockers(req.jd_text, ceiling),
+        return_exceptions=True,
+    )
+    if isinstance(sections, Exception):
+        logger.warning(f"Section diagnosis failed: {sections}")
+        sections = {}
+    if isinstance(blockers, Exception):
+        logger.warning(f"Blocker explanation failed: {blockers}")
+        blockers = []
+
+    result = {"sections": sections or {}, "blockers": blockers or []}
+    await set_cached_value(cache_key, result, ttl=86400)
     return result

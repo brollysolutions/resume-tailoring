@@ -60,7 +60,7 @@ export function SkillsSuggestionsInline({
         if (saved) {
           try {
             sectionIntensities = JSON.parse(saved);
-          } catch (e) {}
+          } catch {}
         }
       }
       const res = await fetch(`${apiUrl}/api/tailor/refresh-skills`, {
@@ -90,12 +90,20 @@ export function SkillsSuggestionsInline({
       });
       if (!res.ok) throw new Error("Failed to load skills.");
       const data = await res.json();
-      const raw = data.suggestions || [];
+      type RawSkillSuggestion = {
+        mode?: string;
+        category?: string;
+        skill?: string;
+        target_category?: string;
+        is_new_category?: boolean;
+        reasoning?: string;
+      };
+      const raw: RawSkillSuggestion[] = data.suggestions || [];
       // Only keep add_skill and delete_category — no rename/move for this UI
       const filtered: SkillItem[] = raw
-        .filter((s: any) => s.mode === "add_skill" || s.mode === "delete_category")
-        .map((s: any) => ({
-          mode: s.mode,
+        .filter((s) => s.mode === "add_skill" || s.mode === "delete_category")
+        .map((s) => ({
+          mode: s.mode as SkillItem["mode"],
           category: s.category || "",
           skill: s.skill || "",
           target_category: s.target_category || "",
@@ -105,8 +113,8 @@ export function SkillsSuggestionsInline({
         }));
       setItems(filtered);
       setLoaded(true);
-    } catch (e: any) {
-      setError(e.message || "Something went wrong.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
       setLoading(false);
     }

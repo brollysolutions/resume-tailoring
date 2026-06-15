@@ -17,15 +17,16 @@
  *   a Skills-mode pseudo-suggestion so the preview + score stay in sync.
  */
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
-  Sparkles, Loader2, Plus, Pencil, Trash2, Check, X,
+  Sparkles, Plus, Pencil, Trash2, Check, X,
   ChevronDown, ChevronUp, ArrowRightLeft, FolderPlus,
 } from "lucide-react";
 import type { ResumeData, SkillCategory, Suggestion } from "@/types/resume";
 
 interface Props {
   resume: ResumeData;
+  templateId?: string;
   apiUrl: string;
   resumeId: string;
   jdText: string;
@@ -45,12 +46,12 @@ interface RegenResult {
 
 export function SkillsRegenStep({
   resume,
+  templateId,
   apiUrl,
   resumeId,
   jdText,
   newProjects,
   onEmit,
-  sectionScore,
   editCount,
   headerExtras,
 }: Props) {
@@ -99,7 +100,7 @@ export function SkillsRegenStep({
         if (saved) {
           try {
             sectionIntensities = JSON.parse(saved);
-          } catch (e) {}
+          } catch {}
         }
       }
       const res = await fetch(`${apiUrl}/api/tailor/generate-skills`, {
@@ -226,11 +227,11 @@ export function SkillsRegenStep({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-2">
               <p className="text-[10px] font-semibold text-muted uppercase tracking-wide">Current</p>
-              <SkillsReadonly skills={currentSkills} emptyText="No skills yet" />
+              <SkillsReadonly skills={currentSkills} emptyText="No skills yet" templateId={templateId} />
             </div>
             <div className="space-y-2">
               <p className="text-[10px] font-semibold text-success uppercase tracking-wide">Proposed</p>
-              <SkillsReadonly skills={regen.skills} emptyText="" />
+              <SkillsReadonly skills={regen.skills} emptyText="" templateId={templateId} />
             </div>
           </div>
         </div>
@@ -272,6 +273,24 @@ export function SkillsRegenStep({
 
         {currentSkills.length === 0 ? (
           <p className="text-xs text-muted">No skills yet. Add a category below or click <b>Generate</b>.</p>
+        ) : templateId === "modern-blue" ? (
+          <SkillCategoryEditor
+            category={{
+              category: "",
+              skills: Array.from(new Set(currentSkills.flatMap((c) => c.skills))).sort((a, b) => a.localeCompare(b)),
+            }}
+            allCategories={[]}
+            onEmit={(sg: Omit<Suggestion, "id">) => {
+              if (sg.mode === "add_skill") {
+                onEmit({ ...sg, category: currentSkills[0]?.category || "" });
+              } else if (sg.mode === "remove_skill") {
+                const realCat = currentSkills.find((c) => c.skills.includes(sg.skill || ""))?.category || "";
+                onEmit({ ...sg, category: realCat });
+              } else {
+                onEmit(sg);
+              }
+            }}
+          />
         ) : (
           currentSkills.map((cat, i) => (
             <SkillCategoryEditor
@@ -283,19 +302,18 @@ export function SkillsRegenStep({
           ))
         )}
 
-        <AddCategoryRow onAdd={(name) => onEmit({
-          section: "Skills",
-          mode: "add_skill",
-          target_category: name,
-          is_new_category: true,
-          // Empty placeholder skill so the category is created in the store —
-          // we immediately remove it. This is a tiny hack: applySkillsMode's
-          // add_skill ignores empty skills, so instead we add a sentinel then
-          // remove. Simpler path: emit a single add_skill with a sentinel
-          // "(add a skill)" placeholder the user can rename right away.
-          skill: "(add a skill)",
-          reasoning: "User created new skill category",
-        })} />
+        {templateId === "modern-blue" ? (
+          <p className="text-[10px] text-muted italic px-1">Modern Blue template uses a single skills list — categories are off.</p>
+        ) : (
+          <AddCategoryRow onAdd={(name) => onEmit({
+            section: "Skills",
+            mode: "add_skill",
+            target_category: name,
+            is_new_category: true,
+            skill: "(add a skill)",
+            reasoning: "User created new skill category",
+          })} />
+        )}
 
         {regenError && <p className="text-xs text-danger">{regenError}</p>}
       </div>
@@ -305,24 +323,41 @@ export function SkillsRegenStep({
 
 // --- Subcomponents ---
 
-function SkillsReadonly({ skills, emptyText }: { skills: SkillCategory[]; emptyText: string }) {
+function SkillsReadonly({ skills, emptyText, templateId }: { skills: SkillCategory[]; emptyText: string; templateId?: string }) {
   if (!skills || skills.length === 0) {
     return <p className="text-xs text-muted italic">{emptyText}</p>;
   }
+
+  if (templateId === "modern-blue") {
+    const all = Array.from(new Set(skills.flatMap((c) => c.skills))).sort((a, b) => a.localeCompare(b));
+    return (
+      <div className="flex flex-wrap gap-1 py-1">
+        {all.map((sk, j) => (
+          <span key={`ro-sk-flat-${j}-${sk}`} className="px-2 py-0.5 rounded text-[11px] bg-subtle border border-border">
+            {sk}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
-      {skills.map((cat, i) => (
-        <div key={`ro-${cat.category}-${i}`} className="border-l-2 border-border pl-2 py-1">
-          <p className="text-xs font-semibold">{cat.category}</p>
-          <div className="flex flex-wrap gap-1 mt-1">
-            {cat.skills.map((sk, j) => (
-              <span key={`ro-sk-${j}-${sk}`} className="px-2 py-0.5 rounded text-[11px] bg-subtle border border-border">
-                {sk}
-              </span>
-            ))}
+      {skills.map((cat, i) => {
+        const isFlat = !cat.category.trim() || cat.category.toLowerCase() === "skills";
+        return (
+          <div key={`ro-${cat.category}-${i}`} className={isFlat ? "py-1" : "border-l-2 border-border pl-2 py-1"}>
+            {!isFlat && <p className="text-xs font-semibold">{cat.category}</p>}
+            <div className={isFlat ? "flex flex-wrap gap-1" : "flex flex-wrap gap-1 mt-1"}>
+              {cat.skills.map((sk, j) => (
+                <span key={`ro-sk-${j}-${sk}`} className="px-2 py-0.5 rounded text-[11px] bg-subtle border border-border">
+                  {sk}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -355,46 +390,50 @@ function SkillCategoryEditor({
     }
   };
 
+  const isFlat = !category.category.trim() || category.category.toLowerCase() === "skills";
+
   return (
-    <div className="border-l-2 border-border pl-3 py-1 space-y-1 group/cat">
-      <div className="flex items-center justify-between gap-2">
-        {renaming ? (
-          <input
-            autoFocus
-            value={catDraft}
-            onChange={(e) => setCatDraft(e.target.value)}
-            onBlur={handleRenameCat}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") { setCatDraft(category.category); setRenaming(false); }
-              if (e.key === "Enter") handleRenameCat();
-            }}
-            className="flex-1 bg-subtle/60 border border-border rounded px-2 py-0.5 text-sm font-semibold focus:outline-none focus:border-primary"
-          />
-        ) : (
-          <p className="text-sm font-semibold">{category.category}</p>
-        )}
-        <div className="flex items-center gap-1 opacity-0 group-hover/cat:opacity-100 transition-opacity">
-          <button
-            onClick={() => { setCatDraft(category.category); setRenaming(true); }}
-            title="Rename category"
-            className="p-1 rounded hover:bg-subtle text-muted hover:text-foreground"
-          >
-            <Pencil className="w-3 h-3" />
-          </button>
-          <button
-            onClick={() => onEmit({
-              section: "Skills",
-              mode: "delete_category",
-              category: category.category,
-              reasoning: "User deleted category",
-            })}
-            title="Delete category"
-            className="p-1 rounded hover:bg-danger/10 text-muted hover:text-danger"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
+    <div className={isFlat ? "py-1 space-y-1 group/cat" : "border-l-2 border-border pl-3 py-1 space-y-1 group/cat"}>
+      {!isFlat && (
+        <div className="flex items-center justify-between gap-2">
+          {renaming ? (
+            <input
+              autoFocus
+              value={catDraft}
+              onChange={(e) => setCatDraft(e.target.value)}
+              onBlur={handleRenameCat}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") { setCatDraft(category.category); setRenaming(false); }
+                if (e.key === "Enter") handleRenameCat();
+              }}
+              className="flex-1 bg-subtle/60 border border-border rounded px-2 py-0.5 text-sm font-semibold focus:outline-none focus:border-primary"
+            />
+          ) : (
+            <p className="text-sm font-semibold">{category.category}</p>
+          )}
+          <div className="flex items-center gap-1 opacity-0 group-hover/cat:opacity-100 transition-opacity">
+            <button
+              onClick={() => { setCatDraft(category.category); setRenaming(true); }}
+              title="Rename category"
+              className="p-1 rounded hover:bg-subtle text-muted hover:text-foreground"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => onEmit({
+                section: "Skills",
+                mode: "delete_category",
+                category: category.category,
+                reasoning: "User deleted category",
+              })}
+              title="Delete category"
+              className="p-1 rounded hover:bg-danger/10 text-muted hover:text-danger"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
       <div className="flex flex-wrap gap-1.5">
         {category.skills.map((sk, i) => (
           <SkillChip

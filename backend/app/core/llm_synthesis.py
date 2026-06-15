@@ -2,6 +2,7 @@
 import json
 import logging
 from app.core.llm_client import _chat
+from app.core.llm_helpers import llm_clean_tech_field
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ async def synthesize_projects(
     count: int = 3,
     seniority: str = "junior",
     avg_words: int = 20,
+    n_bullets: int = 4,
     bullet_style_sample: str = "",
     missing_keywords: list = None,
 ) -> list:
@@ -83,6 +85,8 @@ async def synthesize_projects(
             + ", ".join(missing_keywords)
         )
 
+    bullets_example = ", ".join(f'"technical bullet {i + 1}"' for i in range(n_bullets))
+
     system = f"""You are a senior engineer writing zero-cost portfolio projects for a job candidate.
 Produce {count + 2} realistic personal projects.
 
@@ -94,21 +98,29 @@ SCALE CALIBRATION:
 - Never invent metrics. If not credible at this seniority, OMIT the number.
 
 HARD CONSTRAINTS:
-1. Tech stack MUST prioritize JD REQUIRED SKILLS. Use CANDIDATE SKILLS for secondary roles.
-   If MISSING JD KEYWORDS provided, inject them forcefully into tools and bullets.
-   Every project's primary 2-3 tools from JD or MISSING keywords.
-2. Each project solves a SPECIFIC named problem. Project name MUST be complete noun phrase:
+1. GROUND EVERY PROJECT IN CANDIDATE SKILLS — build projects the candidate could
+   credibly have built with the tools they already know. JD REQUIRED SKILLS and
+   MISSING JD KEYWORDS are secondary flavor layered on top; weave them in ONLY where
+   they are genuine technologies that fit a coherent project. NEVER build a project
+   around a token you do not understand, and NEVER turn an unknown token or acronym
+   into a project name or tech entry.
+2. NO HALLUCINATED NAMES. Project name MUST be a plain-English, meaningful noun phrase
+   describing a real, buildable project. NO undefined or invented acronyms (e.g. "LPA"),
+   NO invented product or company names. If a JD token is an unclear acronym, expand it
+   to its full term or skip it entirely.
    - GOOD: "Event-Driven Order Pipeline", "Kafka Audit Log Service"
-   - BAD: "Event-Driven System for", "Java Backend" (vague), dangling prepositions
-3. BANNED: $ revenue, $ saved, customer count, cost reduction, business impact.
-4. Projects span different DOMAINS: data | product | infra | ml | tools — no duplicates.
-5. Bullets describe BUILT and WHY — tech decisions, libraries, tradeoffs, architecture.
-6. Banned words: "revolutionized", "spearheaded", "leveraged", "cutting-edge", "robust",
+   - BAD: "LPA Generation Pipeline", "Event-Driven System for", "Java Backend", dangling prepositions
+3. Each project MUST contain EXACTLY {n_bullets} bullets — never fewer, never more.
+4. Each project solves a SPECIFIC named problem.
+5. BANNED: $ revenue, $ saved, customer count, cost reduction, business impact.
+6. Projects span different DOMAINS: data | product | infra | ml | tools — no duplicates.
+7. Bullets describe BUILT and WHY — tech decisions, libraries, tradeoffs, architecture.
+8. Banned words: "revolutionized", "spearheaded", "leveraged", "cutting-edge", "robust",
    "scalable", "innovative", "seamless", "state-of-the-art", "saved $", "revenue".
-7. Project name: 2–5 words, complete noun phrase, NO geographic modifiers (Bangalore-based,
+9. Project name: 2–5 words, complete noun phrase, NO geographic modifiers (Bangalore-based,
    US-based, etc.), NO company names, NO region/country/city tokens.
-8. DIVERSITY SEED: {seed} — use as creative fingerprint to produce distinct projects.
-9. TENSE + TONE: SIMPLE PAST. No contractions, no "just"/"super"/"really". Varied openers.
+10. DIVERSITY SEED: {seed} — use as creative fingerprint to produce distinct projects.
+11. TENSE + TONE: SIMPLE PAST. No contractions, no "just"/"super"/"really". Varied openers.
 
 Return JSON:
 {{
@@ -116,7 +128,7 @@ Return JSON:
     {{
       "name": "short project name",
       "tech": "Tool1, Tool2, Tool3",
-      "bullets": ["2-5 technical bullets"],
+      "bullets": [{bullets_example}],
       "domain_tag": "data | product | infra | ml | tools",
       "interview_brief": "2-3 sentences: problem, approach, result"
     }}
@@ -142,7 +154,11 @@ Return JSON:
             json_mode=True,
         )
         parsed = json.loads(content)
-        return parsed.get("projects", [])
+        projects = parsed.get("projects", [])
+        for proj in projects:
+            if isinstance(proj, dict) and proj.get("tech"):
+                proj["tech"] = await llm_clean_tech_field(proj["tech"])
+        return projects
     except Exception as e:
         logger.warning(f"[synthesize_projects] json_mode failed, retrying: {e}")
         try:
@@ -152,7 +168,11 @@ Return JSON:
                 json_mode=False,
             )
             start = content.find("{"); end = content.rfind("}") + 1
-            return json.loads(content[start:end]).get("projects", []) if start != -1 and end > 0 else []
+            projects = json.loads(content[start:end]).get("projects", []) if start != -1 and end > 0 else []
+            for proj in projects:
+                if isinstance(proj, dict) and proj.get("tech"):
+                    proj["tech"] = await llm_clean_tech_field(proj["tech"])
+            return projects
         except Exception:
             return []
 

@@ -1,4 +1,56 @@
+# ── Python ───────────────────────────────────────────────────────
 venv/
+.venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+.eggs/
+
+# ── Test / coverage ───────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── Type checkers ─────────────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+
+# ── Secrets ───────────────────────────────────────────────────────
 .env
+.env.*
+*.pem
+*.key
+
+# ── Runtime data (never bake into image) ──────────────────────────
+uploads/
+data/score_log.jsonl
+data/labels.jsonl
+data/auto_calibrator_last_attempt.json
+data/auto_calibrator_state.json
+data/section_deltas.jsonl
+data/section_score_log.jsonl
+data/upload_events.jsonl
+data/suggestion_events.jsonl
+data/calibration_corpus/
+
+# ── Local Qdrant / DB state ───────────────────────────────────────
+qdrant_storage/
+
+# ── Docs / dev artifacts ──────────────────────────────────────────
+docs/
+*.md
+*.docx
+*.pdf
+
+# ── IDE / OS ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Git ───────────────────────────────────────────────────────────
+.git/
+.gitignore

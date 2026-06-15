@@ -1,6 +1,6 @@
 """Gap analysis: identify missing JD keywords per resume section."""
 
-from app.core.keyword_utils import _significant_tokens, _top_jd_tokens, _fuzzy_coverage
+from app.core.keyword_utils import _significant_tokens, _ranked_jd_tokens, _fuzzy_coverage
 from app.api.match_logic.section_scorer import _section_text
 
 _SECTIONS = ("Experience", "Projects", "Skills", "Summary")
@@ -29,10 +29,12 @@ def compute_gap_analysis(resume_obj, resume_text: str, jd_text: str, section_sco
             ]
         }
     """
-    top_jd = _top_jd_tokens(jd_text, k=30)
+    top_jd_ranked = _ranked_jd_tokens(jd_text, k=30)
+    top_jd = set(top_jd_ranked)
     resume_toks = _significant_tokens(resume_text)
     covered = _fuzzy_coverage(top_jd, resume_toks)
-    missing_overall = sorted(top_jd - covered)[:15]
+    # Preserve frequency rank (most important JD terms first), not alphabetical.
+    missing_overall = [t for t in top_jd_ranked if t not in covered][:15]
 
     # Per-section missing keywords
     section_gaps: dict[str, list[str]] = {}
@@ -42,7 +44,7 @@ def compute_gap_analysis(resume_obj, resume_text: str, jd_text: str, section_sco
             continue
         toks = _significant_tokens(text)
         sect_covered = _fuzzy_coverage(top_jd, toks)
-        section_gaps[section] = sorted(top_jd - sect_covered)[:8]
+        section_gaps[section] = [t for t in top_jd_ranked if t not in sect_covered][:8]
 
     # Identify low-scoring sections with reasons (fallback text; the AI-driven
     # `explanation` field is populated by the match endpoint after this call).
@@ -51,21 +53,14 @@ def compute_gap_analysis(resume_obj, resume_text: str, jd_text: str, section_sco
         score = section_scores.get(section)
         if score is None or score >= 65:
             continue
-        
-        # Extract top 3 missing keywords for specific, helpful feedback
-        missing_terms = section_gaps.get(section, [])[:3]
-        term_hint = ""
-        if missing_terms:
-            joined_terms = ", ".join(f"'{t}'" for t in missing_terms)
-            term_hint = f" such as {joined_terms}"
 
         if score < 40:
-            reason = f"Low keyword density — try adding more relevant terms{term_hint} to this section."
+            reason = "Significant alignment gap — this section needs more detailed experience or skills that match the JD core requirements."
         elif score < 55:
-            reason = f"Partial match — keywords present but lacking context. Strengthen mentions of relevant terms{term_hint}."
+            reason = "Partial match — while some relevant experience is present, strengthening the alignment with JD outcomes would improve the score."
         else:
-            reason = f"Close — a few more mentions of relevant terms{term_hint} would push this section above threshold."
-            
+            reason = "Close match — a few more details or specific mentions of JD requirements would push this section above the threshold."
+
         low_sections.append({
             "section": section,
             "score": score,

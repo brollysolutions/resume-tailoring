@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,11 +46,16 @@ async def lifespan(app: FastAPI):
                 pass
 
 
+# ROOT_PATH lets FastAPI generate correct URLs when served under a sub-path
+# e.g. BACKEND_ROOT_PATH=/resume-tailor/api → /docs works at brollysolutions.in/resume-tailor/api/docs
+root_path = os.environ.get("BACKEND_ROOT_PATH", "")
+
 app = FastAPI(
     title="AI Resume Matcher & Tailoring Engine",
     description="API for parsing resumes, matching with jobs, and generating tailored content.",
     version="1.0.0",
     lifespan=lifespan,
+    root_path=root_path,
 )
 
 # Load CORS settings from environment/config
@@ -80,4 +86,4 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8004, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8055, reload=True)

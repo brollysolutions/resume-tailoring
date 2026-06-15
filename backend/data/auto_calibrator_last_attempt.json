@@ -1,7 +1,7 @@
 {
-  "label_count": 168,
-  "upload_count": 118,
-  "new_since_last": 7,
+  "label_count": 188,
+  "upload_count": 152,
+  "new_since_last": 20,
   "implicit_labels_added": {
     "new_labels": 0,
     "skipped_existing": 0,
@@ -18,8 +18,8 @@
   "status": "gate_failed",
   "swapped": false,
   "reasons": [
-    "spearman 0.2227 < floor 0.3 (dynamic, N=168)",
-    "regression: new 0.2227 < old 0.4259 - 0.06 (tol widened from 0.02, consecutive_fails=69)"
+    "spearman 0.2629 < floor 0.3 (dynamic, N=188)",
+    "test spearman -0.0915 <= 0 (overfit; won't generalize, N_test=46)"
   ],
   "candidate": {
     "w_kw": 0.4,
@@ -28,12 +28,12 @@
     "w_edu": 0.1,
     "w_sen": 0.1,
     "w_cos": 0.1,
-    "spearman": 0.2227,
-    "kendall_tau": 0.2704,
-    "p_low": 0.617,
+    "spearman": 0.2629,
+    "kendall_tau": 0.3047,
+    "p_low": 0.59,
     "p_high": 1.0
   },
   "spearman_floor": 0.3,
-  "old_spearman": 0.4259,
-  "recorded_at": "2026-05-25T10:47:30.333500+00:00"
+  "old_spearman": null,
+  "recorded_at": "2026-06-15T06:31:25.153230+00:00"
 }

@@ -153,3 +153,7 @@
 {"ts": "2026-05-25T06:57:43.442461+00:00", "event": "suggestions_generated", "resume_id": "8ee2a566-2082-412f-9e03-15d685db00ef", "jd_hash": "ca8bf47d109cc0fd", "total": 10}
 {"ts": "2026-05-25T07:01:46.851088+00:00", "event": "suggestions_generated", "resume_id": "8ee2a566-2082-412f-9e03-15d685db00ef", "jd_hash": "ca8bf47d109cc0fd", "total": 10}
 {"ts": "2026-05-25T07:04:07.013975+00:00", "event": "suggestions_generated", "resume_id": "8ee2a566-2082-412f-9e03-15d685db00ef", "jd_hash": "ca8bf47d109cc0fd", "total": 10}
+{"ts": "2026-05-28T05:14:16.707912+00:00", "event": "ceiling_hit", "resume_id": "89cb924e-90b8-4810-acc1-f7ba935bde36", "jd_hash": "62b873908e0032a8"}
+{"ts": "2026-05-28T15:18:33.019136+00:00", "event": "suggestions_generated", "resume_id": "known-resume-id", "jd_hash": "538b6a8480eb98db", "total": 1}
+{"ts": "2026-05-28T15:19:30.167203+00:00", "event": "suggestions_generated", "resume_id": "known-resume-id", "jd_hash": "538b6a8480eb98db", "total": 1}
+{"ts": "2026-05-28T16:03:48.479913+00:00", "event": "suggestions_generated", "resume_id": "known-resume-id", "jd_hash": "538b6a8480eb98db", "total": 1}

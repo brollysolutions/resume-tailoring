@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, ArrowRight, FileText, ArrowLeft, X } from "lucide-react";
+import { ArrowRight, FileText, ArrowLeft, X } from "lucide-react";
 import { UploadZone } from "@/components/UploadZone";
 import { TemplatePreview } from "@/components/TemplatePreview";
+import { TemplateSkeleton } from "@/components/TemplateSkeleton";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 
 interface ImportResumeModalProps {
   templateId: string;
@@ -29,9 +31,25 @@ export function ImportResumeModal({
     }
     return [];
   });
+  const [stack, setStack] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      const s = sessionStorage.getItem("import_stack");
+      return s ? JSON.parse(s) : [];
+    }
+    return [];
+  });
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastResumeId, setLastResumeId] = useState(resumeId);
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
+
+  // Reset preview when resumeId clears (render-time adjust avoids setState-in-effect).
+  if (resumeId !== lastResumeId) {
+    setLastResumeId(resumeId);
+    if (!resumeId) setPreviewHtml(null);
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -42,17 +60,14 @@ export function ImportResumeModal({
   }, [onClose, resumeId]);
 
   useEffect(() => {
-    if (!resumeId) {
-      setPreviewHtml(null);
-      return;
-    }
+    if (!resumeId) return;
     let cancelled = false;
     const fetchPreview = async () => {
       setIsLoadingPreview(true);
       setError(null);
       try {
         const apiUrl =
-          process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+          process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
         const res = await fetch(`${apiUrl}/api/tailor/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -89,62 +104,20 @@ export function ImportResumeModal({
     // Clear import session storage
     sessionStorage.removeItem("import_resume_id");
     sessionStorage.removeItem("import_keywords");
+    sessionStorage.removeItem("import_stack");
 
     const kw = keywords.join("|");
+    const st = stack.join("|");
     window.location.href = `/job-search?keywords=${encodeURIComponent(
       kw
-    )}&resume_id=${resumeId}`;
+    )}&stack=${encodeURIComponent(st)}&resume_id=${resumeId}`;
   };
+
 
   const previewPlaceholder = error ? (
     <p className="text-xs text-danger">{error}</p>
   ) : isLoadingPreview ? (
-    <div className="w-[80%] max-w-[480px] aspect-[8.5/11] bg-white rounded shadow-md border border-border/60 p-8 space-y-6 animate-pulse select-none">
-      {/* Name and title */}
-      <div className="space-y-2 text-center">
-        <div className="h-4.5 bg-muted/60 rounded w-1/3 mx-auto" />
-        <div className="h-3 bg-muted/50 rounded w-1/2 mx-auto" />
-      </div>
-      
-      {/* Contact info bar */}
-      <div className="h-2.5 bg-muted/40 rounded w-3/4 mx-auto" />
-
-      <hr className="border-border/60" />
-
-      {/* Summary section */}
-      <div className="space-y-2">
-        <div className="h-3 bg-muted/60 rounded w-1/4" />
-        <div className="space-y-1.5">
-          <div className="h-2 bg-muted/30 rounded w-full" />
-          <div className="h-2 bg-muted/30 rounded w-5/6" />
-        </div>
-      </div>
-
-      {/* Experience section */}
-      <div className="space-y-3">
-        <div className="h-3 bg-muted/60 rounded w-1/4" />
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="h-2.5 bg-muted/50 rounded w-1/3" />
-            <div className="h-2 bg-muted/40 rounded w-1/6" />
-          </div>
-          <div className="space-y-1.5 pl-3">
-            <div className="h-2 bg-muted/30 rounded w-11/12" />
-            <div className="h-2 bg-muted/30 rounded w-full" />
-          </div>
-        </div>
-      </div>
-
-      {/* Skills section */}
-      <div className="space-y-2.5">
-        <div className="h-3 bg-muted/60 rounded w-1/4" />
-        <div className="flex gap-2">
-          <div className="h-5 bg-muted/40 rounded w-16" />
-          <div className="h-5 bg-muted/40 rounded w-20" />
-          <div className="h-5 bg-muted/40 rounded w-12" />
-        </div>
-      </div>
-    </div>
+    <TemplateSkeleton variant="preview" />
   ) : (
     <div className="text-center max-w-xs">
       <div className="w-12 h-12 rounded-full bg-subtle border border-border flex items-center justify-center mx-auto mb-3">
@@ -157,14 +130,14 @@ export function ImportResumeModal({
   );
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="import-resume-title">
       <div
         className="absolute inset-0 bg-black/40"
         onClick={() => {
           if (!resumeId) onClose();
         }}
       />
-      <div className="relative z-50 w-[95vw] h-[90vh] max-w-7xl card shadow-xl flex overflow-hidden">
+      <div ref={trapRef} className="relative z-50 w-[95vw] h-[90vh] max-w-7xl card shadow-xl flex overflow-hidden">
 
         {/* ── Left column: header + upload + footer ── */}
         <div className="flex-1 flex flex-col border-r border-border">
@@ -178,7 +151,7 @@ export function ImportResumeModal({
                 <ArrowLeft className="w-4 h-4" />
               </button>
             )}
-            <h2 className="text-xl font-semibold tracking-tight">
+            <h2 id="import-resume-title" className="text-xl font-semibold tracking-tight">
               Import your resume
             </h2>
           </div>
@@ -199,8 +172,10 @@ export function ImportResumeModal({
                   onClick={() => {
                     setResumeId(null);
                     setKeywords([]);
+                    setStack([]);
                     sessionStorage.removeItem("import_resume_id");
                     sessionStorage.removeItem("import_keywords");
+                    sessionStorage.removeItem("import_stack");
                   }}
                   className="btn-ghost p-2 text-muted hover:text-danger"
                 >
@@ -213,11 +188,14 @@ export function ImportResumeModal({
                 onUploaded={(data) => {
                   setResumeId(data.resume_id);
                   setKeywords(data.keywords);
+                  setStack(data.stack);
                   sessionStorage.setItem("import_resume_id", data.resume_id);
                   sessionStorage.setItem("import_keywords", JSON.stringify(data.keywords));
+                  sessionStorage.setItem("import_stack", JSON.stringify(data.stack));
                 }}
               />
             )}
+
           </div>
 
           <div className="px-8 py-4 border-t border-border flex items-center justify-end">
@@ -238,6 +216,7 @@ export function ImportResumeModal({
             html={previewHtml}
             showControls
             fillParent
+            oddZoom
             onClose={onClose}
             placeholder={previewPlaceholder}
           />

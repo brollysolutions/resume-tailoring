@@ -84,7 +84,7 @@ def _labeled_keys(labels: list[dict]) -> set[tuple[str, str]]:
             for lab in labels if lab.get("jd_hash")}
 
 
-def _fetch_resume_text(resume_id: str, api_url: str = "http://localhost:8004") -> str:
+def _fetch_resume_text(resume_id: str, api_url: str = "http://localhost:8055") -> str:
     """Fetch resume plaintext via backend HTTP API. Consistent with what the
     scorer sees; avoids direct Qdrant access issues (version warnings, stale IDs)."""
     if not resume_id:
@@ -105,7 +105,7 @@ def _append_label(record: dict) -> None:
         f.write(json.dumps(record) + "\n")
 
 
-async def _label_one(event: dict, sem: asyncio.Semaphore, counters: dict, api_url: str = "http://localhost:8004") -> None:
+async def _label_one(event: dict, sem: asyncio.Semaphore, counters: dict, api_url: str = "http://localhost:8055") -> None:
     from app.core.llm_client import _chat
 
     rid = event.get("resume_id") or ""
@@ -196,7 +196,7 @@ async def run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="LLM auto-labeler for calibration pairs.")
-    parser.add_argument("--api-url", default="http://localhost:8004", help="backend base URL")
+    parser.add_argument("--api-url", default="http://localhost:8055", help="backend base URL")
     parser.add_argument("--concurrency", type=int, default=4, help="parallel LLM calls (lower if rate-limited)")
     parser.add_argument("--limit", type=int, default=0, help="cap number of pairs to label (0 = all)")
     args = parser.parse_args()

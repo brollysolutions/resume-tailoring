@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { TemplatePreview } from "./TemplatePreview";
+import { TemplateSkeleton } from "./TemplateSkeleton";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 
 export type Template = { id: string; name: string; description: string };
 
@@ -25,11 +27,20 @@ export function TemplatePickerModal({
   const selected = manualSelection ?? templates[0]?.id ?? null;
   const [previews, setPreviews] = useState<Record<string, string | null>>({});
   const [previewsLoading, setPreviewsLoading] = useState(true);
+  const templatesKey = templates.map((t) => t.id).join("|");
+  const [syncedKey, setSyncedKey] = useState(templatesKey);
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
+
+  // Reset loading state when the template list itself changes (render-time adjust).
+  if (templatesKey !== syncedKey) {
+    setSyncedKey(templatesKey);
+    setPreviews({});
+    setPreviewsLoading(true);
+  }
 
   useEffect(() => {
     if (!templates.length) return;
-    setPreviewsLoading(true);
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
     Promise.all(
       templates.map((t) =>
         fetch(`${apiUrl}/api/tailor/sample-preview?template_id=${t.id}`)
@@ -52,9 +63,9 @@ export function TemplatePickerModal({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="template-picker-title">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative z-50 w-[95vw] h-[94vh] max-w-[90vw] card shadow-xl flex flex-col overflow-hidden">
+      <div ref={trapRef} className="relative z-50 w-[95vw] h-[94vh] max-w-[90vw] card shadow-xl flex flex-col overflow-hidden">
         <button
           onClick={onClose}
           aria-label="Close"
@@ -64,7 +75,7 @@ export function TemplatePickerModal({
         </button>
 
         <div className="px-8 pt-8 pb-4 border-b border-border">
-          <h2 className="text-2xl font-semibold tracking-tight mb-2">
+          <h2 id="template-picker-title" className="text-2xl font-semibold tracking-tight mb-2">
             Choose a template
           </h2>
           <p className="text-sm text-muted leading-relaxed">
@@ -97,14 +108,14 @@ export function TemplatePickerModal({
                     onClick={() => setManualSelection(t.id)}
                     className={`text-left rounded-lg border p-4 transition-all ${
                       active
-                        ? "bg-blue-50 border-blue-500 shadow-md"
+                        ? "bg-accent/5 border-accent shadow-md"
                         : "bg-card border-border hover:border-foreground/40 hover:shadow-md"
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <p className="text-sm font-semibold">{t.name}</p>
                       {t.id === "standard" && (
-                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">
                           Default
                         </span>
                       )}
@@ -112,26 +123,9 @@ export function TemplatePickerModal({
                     <p className="text-xs text-muted leading-relaxed mb-4">
                       {t.description}
                     </p>
-                    <div className="aspect-[8.5/11] max-h-[800px] border border-border rounded overflow-hidden bg-white">
+                    <div className="aspect-[8.5/11] max-h-[800px] border border-border rounded overflow-hidden bg-card">
                       {previewsLoading || previews[t.id] === undefined ? (
-                        <div className="w-full h-full p-6 space-y-4 animate-pulse bg-white select-none">
-                          <div className="space-y-1.5">
-                            <div className="h-3 bg-muted/60 rounded w-1/3 mx-auto" />
-                            <div className="h-2 bg-muted/50 rounded w-1/2 mx-auto" />
-                          </div>
-                          <div className="h-2 bg-muted/40 rounded w-3/4 mx-auto" />
-                          <hr className="border-border/40" />
-                          <div className="space-y-1.5">
-                            <div className="h-2 bg-muted/60 rounded w-1/4" />
-                            <div className="h-1.5 bg-muted/30 rounded w-full" />
-                            <div className="h-1.5 bg-muted/30 rounded w-5/6" />
-                          </div>
-                          <div className="space-y-2 pt-2">
-                            <div className="h-2 bg-muted/60 rounded w-1/4" />
-                            <div className="h-1.5 bg-muted/30 rounded w-11/12" />
-                            <div className="h-1.5 bg-muted/30 rounded w-full" />
-                          </div>
-                        </div>
+                        <TemplateSkeleton variant="thumbnail" />
                       ) : previews[t.id] ? (
                         <TemplatePreview html={previews[t.id]} />
                       ) : (

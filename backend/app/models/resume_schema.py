@@ -7,6 +7,42 @@ edited — we render fresh PDF/DOCX from the JSON using our own template.
 """
 from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
+from app.core.url_utils import normalize_url
+
+# Words that should never appear as standalone entries in a project's tech field.
+# Catches both extraction-path contamination and LLM keyword-injection leakage.
+_TECH_FIELD_NOISE = frozenset({
+    "along", "around", "across", "within", "throughout",
+    "banking", "basis", "capability", "capabilities", "center", "centres",
+    "change", "changes", "agreement", "agreements",
+    "accountability", "accountable",
+    "cfos", "cfo", "cto", "coo", "cpos",
+    "financial", "finance", "budget", "budgeting",
+    "expense", "expenses", "revenue", "revenues",
+    "forecast", "forecasting", "reporting",
+    "compliance", "governance", "audit", "auditing",
+    "operations", "operational", "strategy", "strategic",
+    "initiative", "initiatives", "program", "programs",
+    "customer", "customers", "client", "clients",
+    "product", "products",
+    "market", "markets", "business", "businesses",
+    "dataset", "datasets", "insight", "insights",
+    "dashboard", "dashboards",
+    "meeting", "meetings", "presentation", "presentations",
+})
+
+
+class CustomLink(BaseModel):
+    label: str = ""
+    url: str = ""
+
+    @field_validator("label", "url", mode="before")
+    @classmethod
+    def normalize_str_fields(cls, v): return _coerce_optional_str(v) or ""
+
+    @field_validator("url", mode="after")
+    @classmethod
+    def _normalize_urls(cls, v): return normalize_url(v)
 
 
 class ContactInfo(BaseModel):
@@ -19,7 +55,15 @@ class ContactInfo(BaseModel):
 
     @field_validator("email", "phone", "location", "linkedin", "github", "website", mode="before")
     @classmethod
-    def _strip_nulls(cls, v): return _coerce_optional_str(v)
+    def _strip_nulls(cls, v):
+        val = _coerce_optional_str(v)
+        if val and isinstance(val, str) and val.lower().startswith("mailto:"):
+            return val[7:].strip()
+        return val
+
+    @field_validator("linkedin", "github", "website", mode="after")
+    @classmethod
+    def _normalize_urls(cls, v): return normalize_url(v)
 
 
 import re
@@ -28,13 +72,13 @@ def _coerce_str_list(v: Any) -> Any:
     """Pre-validation coercion for List[str] fields. The LLM occasionally
     returns null, a single string, or a list containing null/empty values —
     normalize to a clean list of non-empty stripped strings.
-    Also strips leading bullet characters (- , * , • , —) to prevent double bullets."""
+    Also strips leading bullet characters (- , * , • , — , ·) to prevent double bullets."""
     if v is None:
         return []
     if isinstance(v, str):
         v = v.strip()
         # Strip leading bullet chars
-        v = re.sub(r"^[•\-\*—]\s*", "", v)
+        v = re.sub(r"^[•\-\*—·‒–]\s*", "", v)
         return [v] if v else []
     if not isinstance(v, list):
         return v
@@ -46,7 +90,7 @@ def _coerce_str_list(v: Any) -> Any:
             s = str(s)
         s = s.strip()
         # Strip leading bullet chars
-        s = re.sub(r"^[•\-\*—]\s*", "", s)
+        s = re.sub(r"^[•\-\*—·‒–]\s*", "", s)
         if s:
             cleaned.append(s)
     return cleaned
@@ -62,7 +106,7 @@ def _coerce_obj_list(v: Any) -> Any:
     return v
 
 
-_NULL_SENTINEL_STRINGS = {"", "null", "none", "n/a", "na", "undefined", "nan"}
+_NULL_SENTINEL_STRINGS = {"", "null", "none", "n/a", "na", "undefined", "nan", "unknown"}
 
 
 def _coerce_optional_str(v: Any) -> Any:
@@ -84,6 +128,7 @@ def _coerce_optional_str(v: Any) -> Any:
 class ExperienceEntry(BaseModel):
     title: str = ""
     company: str = ""
+    company_url: Optional[str] = None
     location: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
@@ -93,9 +138,13 @@ class ExperienceEntry(BaseModel):
     @classmethod
     def normalize_str_fields(cls, v): return _coerce_optional_str(v) or ""
 
-    @field_validator("location", "start_date", "end_date", mode="before")
+    @field_validator("location", "start_date", "end_date", "company_url", mode="before")
     @classmethod
     def _strip_nulls(cls, v): return _coerce_optional_str(v)
+
+    @field_validator("company_url", mode="after")
+    @classmethod
+    def _normalize_urls(cls, v): return normalize_url(v)
 
     @field_validator("bullets", mode="before")
     @classmethod
@@ -129,6 +178,8 @@ class ProjectEntry(BaseModel):
     name: str = ""
     tech: Optional[str] = None
     date: Optional[str] = None
+    url: Optional[str] = None
+    demo_url: Optional[str] = None
     bullets: List[str] = Field(default_factory=list)
 
     @field_validator("name", mode="before")
@@ -139,12 +190,21 @@ class ProjectEntry(BaseModel):
     @classmethod
     def normalize_tech(cls, v):
         if isinstance(v, list):
-            v = ", ".join(str(x) for x in v if x)
-        return _coerce_optional_str(v)
+            items = [str(x).strip() for x in v if x]
+        elif isinstance(v, str):
+            items = [x.strip() for x in v.split(",") if x.strip()]
+        else:
+            return _coerce_optional_str(v)
+        filtered = [t for t in items if t.lower() not in _TECH_FIELD_NOISE]
+        return _coerce_optional_str(", ".join(filtered)) if filtered else None
 
-    @field_validator("date", mode="before")
+    @field_validator("date", "url", "demo_url", mode="before")
     @classmethod
     def _strip_date_null(cls, v): return _coerce_optional_str(v)
+
+    @field_validator("url", "demo_url", mode="after")
+    @classmethod
+    def _normalize_urls(cls, v): return normalize_url(v)
 
     @field_validator("bullets", mode="before")
     @classmethod
@@ -166,6 +226,25 @@ class SkillCategory(BaseModel):
     def normalize_skills(cls, v): return _coerce_str_list(v)
 
 
+class Certification(BaseModel):
+    name: str = ""
+    issuer: Optional[str] = None
+    date: Optional[str] = None
+    credential_url: Optional[str] = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v): return _coerce_optional_str(v) or ""
+
+    @field_validator("issuer", "date", "credential_url", mode="before")
+    @classmethod
+    def _strip_nulls(cls, v): return _coerce_optional_str(v)
+
+    @field_validator("credential_url", mode="after")
+    @classmethod
+    def _normalize_urls(cls, v): return normalize_url(v)
+
+
 class Publication(BaseModel):
     title: str = ""
     authors: Optional[str] = None
@@ -177,6 +256,10 @@ class Publication(BaseModel):
     @field_validator("title", mode="before")
     @classmethod
     def normalize_title(cls, v): return _coerce_optional_str(v) or ""
+
+    @field_validator("doi", "url", mode="after")
+    @classmethod
+    def _normalize_urls(cls, v): return normalize_url(v)
 
 
 class Award(BaseModel):
@@ -258,6 +341,25 @@ def _coerce_publication_list(v: Any) -> Any:
     return out
 
 
+def _coerce_certification_list(v: Any) -> Any:
+    """Coerce certifications: legacy List[str] → List[Certification(name=s)]."""
+    if v is None:
+        return []
+    if not isinstance(v, list):
+        return v
+    out = []
+    for item in v:
+        if item is None:
+            continue
+        if isinstance(item, str):
+            s = item.strip()
+            if s:
+                out.append({"name": s})
+        elif isinstance(item, dict):
+            out.append(item)
+    return out
+
+
 class SectionItem(BaseModel):
     header: Optional[str] = None
     subheader: Optional[str] = None
@@ -287,12 +389,13 @@ class ExtraSection(BaseModel):
 class Resume(BaseModel):
     name: str = ""
     contact: ContactInfo = Field(default_factory=ContactInfo)
+    custom_links: List[CustomLink] = Field(default_factory=list)
     summary: Optional[str] = None
     experience: List[ExperienceEntry] = Field(default_factory=list)
     education: List[EducationEntry] = Field(default_factory=list)
     projects: List[ProjectEntry] = Field(default_factory=list)
     skills: List[SkillCategory] = Field(default_factory=list)
-    certifications: List[str] = Field(default_factory=list)
+    certifications: List[Certification] = Field(default_factory=list)
     publications: List[Publication] = Field(default_factory=list)
     awards: List[Award] = Field(default_factory=list)
     languages: List[Language] = Field(default_factory=list)
@@ -306,7 +409,7 @@ class Resume(BaseModel):
     @field_validator(
         "experience", "education", "projects", "skills",
         "awards", "languages", "volunteer", "patents", "talks",
-        "extra_sections",
+        "extra_sections", "custom_links",
         mode="before",
     )
     @classmethod
@@ -316,7 +419,11 @@ class Resume(BaseModel):
     @classmethod
     def normalize_publications(cls, v): return _coerce_publication_list(v)
 
-    @field_validator("certifications", "section_order", "hidden_sections", mode="before")
+    @field_validator("certifications", mode="before")
+    @classmethod
+    def normalize_certifications(cls, v): return _coerce_certification_list(v)
+
+    @field_validator("section_order", "hidden_sections", mode="before")
     @classmethod
     def normalize_str_lists(cls, v): return _coerce_str_list(v)
 
@@ -326,6 +433,10 @@ class Resume(BaseModel):
     @field_validator("publications", mode="after")
     @classmethod
     def filter_empty_publications(cls, v): return [p for p in v if (p.title or "").strip()]
+
+    @field_validator("certifications", mode="after")
+    @classmethod
+    def filter_empty_certifications(cls, v): return [c for c in v if (c.name or "").strip()]
 
     @field_validator("awards", mode="after")
     @classmethod
@@ -347,6 +458,12 @@ class Resume(BaseModel):
     @classmethod
     def filter_empty_talks(cls, v): return [t for t in v if (t.title or "").strip()]
 
+    @field_validator("skills", mode="after")
+    @classmethod
+    def filter_empty_skills(cls, v):
+        """Drop categories that have no skills (harmless but cleans up render)."""
+        return [s for s in v if s.skills]
+
     @field_validator("name", mode="before")
     @classmethod
     def normalize_name(cls, v): return "" if v is None else v
@@ -363,7 +480,12 @@ class Resume(BaseModel):
                 data["contact"] = {}
             # If skills was returned as a flat list of strings instead of
             # [{"category": ..., "skills": [...]}], wrap it into one category.
+            # Use empty category string as sentinel for "flat layout".
             sk = data.get("skills")
-            if isinstance(sk, list) and sk and all(isinstance(s, str) for s in sk):
-                data["skills"] = [{"category": "Skills", "skills": sk}]
+            if isinstance(sk, list) and sk:
+                if all(isinstance(s, str) for s in sk):
+                    data["skills"] = [{"category": "", "skills": sk}]
+                elif len(sk) == 1 and isinstance(sk[0], dict) and (sk[0].get("category") or "").lower() == "skills":
+                    # If LLM returned exactly one category named "Skills", treat as flat.
+                    sk[0]["category"] = ""
         return data

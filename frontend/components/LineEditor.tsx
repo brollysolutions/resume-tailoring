@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Pencil, Trash2, Plus, Check, X, Wand2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Pencil, Trash2, Plus, Wand2 } from "lucide-react";
 
 export interface LineEditorProps {
   /** Section name used by the suggestion pipeline (Experience, Projects, Education, Certifications, Summary). */
@@ -31,7 +31,6 @@ export interface LineEditorProps {
 
 export function LineEditor({
   section,
-  ownerId,
   marker = "• ",
   text,
   hideAdd,
@@ -45,14 +44,17 @@ export function LineEditor({
 }: LineEditorProps) {
   const [mode, setMode] = useState<"view" | "edit" | "add-new">("view");
   const [draft, setDraft] = useState(text);
+  const [lastSyncedText, setLastSyncedText] = useState(text);
   const [newDraft, setNewDraft] = useState("");
   const editRef = useRef<HTMLTextAreaElement>(null);
   const addRef = useRef<HTMLTextAreaElement>(null);
 
   // Keep local draft in sync if parent text changes (e.g. AI suggestion accepted elsewhere).
-  useEffect(() => {
+  // Uses the "adjust state while rendering" pattern to avoid setState-in-effect.
+  if (text !== lastSyncedText) {
+    setLastSyncedText(text);
     if (mode === "view") setDraft(text);
-  }, [text, mode]);
+  }
 
   const enterEdit = () => {
     setDraft(text);
@@ -187,14 +189,11 @@ export function LineEditor({
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitAdd(); }
             }}
             rows={Math.max(1, Math.min(6, newDraft.split("\n").length))}
-            placeholder={`New ${section.toLowerCase()} line — Enter to save, Esc to cancel`}
-            className="flex-1 bg-subtle/60 border border-border rounded px-2 py-1 text-sm leading-relaxed resize-none focus:outline-none focus:border-primary"
+            placeholder={section.toLowerCase() === "summary" ? "New summary sentence — Enter to save, Esc to cancel" : `New ${section.toLowerCase()} bullet — Enter to save, Esc to cancel`}
+            className="flex-1 bg-subtle/60 border border-border rounded px-2 py-1 text-sm leading-relaxed resize-none focus:border-primary"
           />
         </div>
       )}
-
-      {/* Owner id annotation (debug-only, hidden) */}
-      {ownerId && false && <span className="hidden">{ownerId}</span>}
     </div>
   );
 }
