@@ -1447,7 +1447,7 @@ function JobSearchContent() {
                   title="Full preview"
                   srcDoc={previewHtml || ""}
                   scrolling="no"
-                  sandbox="allow-same-origin"
+                  sandbox="allow-same-origin allow-scripts"
                   onLoad={(e) => {
                     const f = e.currentTarget;
                     const doc = f.contentDocument;

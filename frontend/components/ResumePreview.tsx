@@ -581,7 +581,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
                 title="Resume preview"
                 onLoad={onIframeLoad}
                 scrolling="no"
-                sandbox="allow-same-origin"
+                sandbox="allow-same-origin allow-scripts"
                 style={{
                   width: BASE_WIDTH,
                   height: pageHeight,

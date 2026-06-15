@@ -25,7 +25,7 @@ GROQ_API_KEY=gsk_YOUR_API_KEY_HERE
 
 # --- Production Sub-path Routing ---
 # These are baked into Next.js at build time to serve the app under /resume_generator
-NEXT_PUBLIC_API_URL=https://brollysolutions.in/resume_generator/api
+NEXT_PUBLIC_API_URL=https://brollysolutions.in/resume_generator
 NEXT_PUBLIC_BASE_PATH=/resume_generator
 BACKEND_ROOT_PATH=/resume_generator/api
 

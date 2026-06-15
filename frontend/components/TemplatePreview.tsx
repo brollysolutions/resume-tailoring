@@ -106,7 +106,7 @@ export function TemplatePreview({
             srcDoc={html}
             aria-hidden="true"
             scrolling="no"
-            sandbox="allow-same-origin"
+            sandbox="allow-same-origin allow-scripts"
             style={{
               position: "absolute",
               top: 0,
@@ -206,7 +206,7 @@ export function TemplatePreview({
               srcDoc={html}
               aria-hidden="true"
               scrolling="no"
-              sandbox="allow-same-origin"
+              sandbox="allow-same-origin allow-scripts"
               onLoad={onIframeLoad}
               style={{
                 position: "absolute",
