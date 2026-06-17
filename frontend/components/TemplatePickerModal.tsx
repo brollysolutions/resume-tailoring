@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { TemplatePreview } from "./TemplatePreview";
 import { TemplateSkeleton } from "./TemplateSkeleton";
 import { useFocusTrap } from "@/lib/useFocusTrap";
+import { getApiUrl } from "@/lib/api";
 
 export type Template = { id: string; name: string; description: string };
 
@@ -40,7 +41,7 @@ export function TemplatePickerModal({
 
   useEffect(() => {
     if (!templates.length) return;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
+    const apiUrl = getApiUrl();
     Promise.all(
       templates.map((t) =>
         fetch(`${apiUrl}/api/tailor/sample-preview?template_id=${t.id}`)

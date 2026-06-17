@@ -35,7 +35,7 @@ services:
       - resume_network_dev
 
   backend:
-
+    image: jobsearching-backend-dev
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
@@ -60,6 +60,7 @@ services:
       - QDRANT_PORT=6333
       - HF_HUB_OFFLINE=1
       - PRELOAD_EMBEDDING_MODEL=false
+      - CORS_ALLOWED_ORIGINS=*
     depends_on:
       - db
       - qdrant
@@ -71,6 +72,7 @@ services:
       - resume_network_dev
 
   frontend:
+    image: jobsearching-frontend-dev
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
@@ -79,13 +81,13 @@ services:
     ports:
       - "3055:3004"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8055}
+      - NEXT_PUBLIC_API_URL=http://localhost:8055
       - WATCHPACK_POLLING=true
     depends_on:
       - backend
     volumes:
       - ./frontend:/app                             # live code reload
-      - /app/node_modules                           # keep container's node_modules
+      - frontend_node_modules:/app/node_modules     # keep container's node_modules
     networks:
       - resume_network_dev
 
@@ -97,3 +99,4 @@ volumes:
   postgres_data_dev:
   qdrant_data_dev:
   backend_uploads_dev:
+  frontend_node_modules:

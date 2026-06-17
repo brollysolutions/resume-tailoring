@@ -1,7 +1,7 @@
 {
-  "label_count": 188,
-  "upload_count": 152,
-  "new_since_last": 20,
+  "label_count": 190,
+  "upload_count": 154,
+  "new_since_last": 22,
   "implicit_labels_added": {
     "new_labels": 0,
     "skipped_existing": 0,
@@ -18,8 +18,7 @@
   "status": "gate_failed",
   "swapped": false,
   "reasons": [
-    "spearman 0.2629 < floor 0.3 (dynamic, N=188)",
-    "test spearman -0.0915 <= 0 (overfit; won't generalize, N_test=46)"
+    "spearman 0.1924 < floor 0.3 (dynamic, N=190)"
   ],
   "candidate": {
     "w_kw": 0.4,
@@ -28,12 +27,12 @@
     "w_edu": 0.1,
     "w_sen": 0.1,
     "w_cos": 0.1,
-    "spearman": 0.2629,
-    "kendall_tau": 0.3047,
-    "p_low": 0.59,
+    "spearman": 0.1924,
+    "kendall_tau": 0.2397,
+    "p_low": 0.591,
     "p_high": 1.0
   },
   "spearman_floor": 0.3,
   "old_spearman": null,
-  "recorded_at": "2026-06-15T06:36:27.088534+00:00"
+  "recorded_at": "2026-06-17T06:47:57.161623+00:00"
 }

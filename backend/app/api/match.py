@@ -293,40 +293,64 @@ async def match_resume(req: MatchRequest):
     # New: per-section feature contributions for UI breakdown
     section_features = {s: (v["features"] if v else None) for s, v in section_data.items()}
 
-    # Diagnosis
-    from .match_logic.hybrid_scorer import diagnose_score
-    diagnosis = diagnose_score(result["score"], result["breakdown"], section_scores, ceiling)
-
     # Gap analysis
+    from .match_logic.gap_analyzer import compute_gap_analysis
     try:
         gap_analysis = compute_gap_analysis(resume_obj, resume_text, req.jd_text, section_scores)
     except Exception as e:
         logger.warning(f"Gap analysis failed: {e}")
         gap_analysis = None
 
-    # AI-driven per-section diagnosis (replaces raw missing-keyword chips in UI).
-    # Runs only when low_sections is non-empty so high-scoring resumes incur no LLM cost.
-    if gap_analysis and gap_analysis.get("low_sections"):
-        try:
-            from app.core.llm_helpers import analyze_low_sections
-            from .match_logic.section_scorer import _section_text
-            payload = [
-                {
-                    "section": s["section"],
-                    "score": s["score"],
-                    "text": _section_text(resume_obj, s["section"]),
-                }
-                for s in gap_analysis["low_sections"]
-            ]
-            explanations = await analyze_low_sections(
-                req.jd_text,
-                payload,
-                section_gaps=gap_analysis.get("section_gaps"),
-            )
+    # AI-driven per-section diagnosis and overall match analysis.
+    # We run both concurrently if low_sections exist, or just overall otherwise.
+    explanations = {}
+    overall_analysis = {
+        "diagnosis": {
+            "headline": "Match Complete",
+            "detail": f"Resume evaluated with a score of {result['score']}.",
+            "theme": "info"
+        },
+        "suggestions": []
+    }
+    
+    from app.core.llm_helpers import analyze_low_sections, analyze_overall_match
+    
+    tasks = []
+    has_low_sections = gap_analysis and gap_analysis.get("low_sections")
+    
+    if has_low_sections:
+        from .match_logic.section_scorer import _section_text
+        payload = [
+            {
+                "section": s["section"],
+                "score": s["score"],
+                "text": _section_text(resume_obj, s["section"]),
+            }
+            for s in gap_analysis["low_sections"]
+        ]
+        tasks.append(analyze_low_sections(
+            req.jd_text,
+            payload,
+            section_gaps=gap_analysis.get("section_gaps"),
+        ))
+    else:
+        # Dummy task to maintain indexing
+        tasks.append(asyncio.sleep(0))
+        
+    tasks.append(analyze_overall_match(req.jd_text, resume_text, result["score"]))
+    
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        if has_low_sections and not isinstance(results[0], Exception):
+            explanations = results[0]
+        if not isinstance(results[1], Exception):
+            overall_analysis = results[1]
+            
+        if has_low_sections:
             for s in gap_analysis["low_sections"]:
                 s["explanation"] = explanations.get(s["section"], "")
-        except Exception as e:
-            logger.warning(f"Section diagnosis failed: {e}")
+    except Exception as e:
+        logger.warning(f"LLM analysis failed: {e}")
 
     from app.core.weights_store import get_weights
     w = get_weights()
@@ -336,7 +360,8 @@ async def match_resume(req: MatchRequest):
         "section_scores": section_scores,
         "section_features": section_features,
         "ceiling": ceiling,
-        "diagnosis": diagnosis,
+        "diagnosis": overall_analysis.get("diagnosis"),
+        "overall_suggestions": overall_analysis.get("suggestions", []),
         "gap_analysis": gap_analysis,
         "active_weights": {
             "w_kw": round(w.w_kw * 100),

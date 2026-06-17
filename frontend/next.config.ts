@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  output: process.env.NODE_ENV === "production" ? "standalone" : undefined,
   basePath: process.env.NEXT_PUBLIC_BASE_PATH || undefined,
   turbopack: {},
   webpack: (config, { dev, isServer }) => {

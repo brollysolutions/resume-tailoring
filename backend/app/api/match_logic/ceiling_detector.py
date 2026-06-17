@@ -50,11 +50,11 @@ _DEGREE_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 _DEGREE_MAP = {
-    "bachelor": "bachelor", "b.s.": "bachelor", "b.a.": "bachelor",
+    "bachelor": "bachelor", "bachelor's": "bachelor", "b.s.": "bachelor", "b.a.": "bachelor",
     "btech": "bachelor", "b.tech": "bachelor",
-    "master": "master", "m.s.": "master", "mba": "master", "m.tech": "master",
+    "master": "master", "master's": "master", "m.s.": "master", "mba": "master", "m.tech": "master",
     "ph.d.": "phd", "phd": "phd", "doctorate": "phd",
-    "associate": "associate",
+    "associate": "associate", "associate's": "associate",
 }
 
 _SENIORITY_TITLE_RE = re.compile(

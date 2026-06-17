@@ -10,6 +10,7 @@ import { applySuggestionsClient } from "@/lib/applyResume";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CopilotChat, type CopilotFocus } from "@/components/CopilotChat";
 import { GlobalIntensitySelector } from "@/components/IntensitySelector";
+import { getApiUrl } from "@/lib/api";
 
 /** Merge button-replacement projects and chat-appended projects into the payload
  *  expected by backend's _replace_projects(). keptProjects replace by index;
@@ -142,7 +143,7 @@ function TailorPageContent() {
   // Stable initial score function for the loader
   const initialScore = useCallback(async (rid: string, jd: string, apprv: Suggestion[], projs: GeneratedProject[]) => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
+      const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/api/match/tailored`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -236,7 +237,7 @@ function TailorPageContent() {
           } catch { /* fall through to normal fetch */ }
         }
 
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
+        const apiUrl = getApiUrl();
         const resumeRes = await fetch(`${apiUrl}/api/resume/${rid}/json`);
 
         let fetchedResume: ResumeData | null = null;
@@ -269,7 +270,7 @@ function TailorPageContent() {
     if (!resumeId || !jdText) return;
     setIsScoreLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
+      const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/api/match/tailored`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -316,7 +317,7 @@ function TailorPageContent() {
     lastGuidanceScoreRef.current = score;
     setIsGuidanceLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
+      const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/api/match/guidance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -449,7 +450,7 @@ function TailorPageContent() {
         ]
       : [];
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
+      const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/api/tailor/generate-projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -522,7 +523,7 @@ function TailorPageContent() {
     if (!resumeId) return;
     setIsDownloading(format);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
+      const apiUrl = getApiUrl();
       const projPayload = buildMergedProjectPayload(keptProjects, appendedProjects, originalResume?.projects || []);
       const res = await fetch(`${apiUrl}/api/tailor/apply`, {
         method: "POST",
@@ -802,7 +803,7 @@ function TailorPageContent() {
               onAcceptPending={handleAcceptPending}
               onRejectPending={handleRejectPending}
               onReorderSections={handleReorderSections}
-              apiUrl={process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055"}
+              apiUrl={getApiUrl()}
               resumeId={resumeId}
               jdText={jdText}
               newProjects={mergedProjects}
@@ -843,7 +844,7 @@ function TailorPageContent() {
               <CopilotChat
                 resumeId={resumeId}
                 jdText={jdText}
-                apiUrl={process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055"}
+                apiUrl={getApiUrl()}
                 approved={approved}
                 keptProjects={keptProjects}
                 nextSuggestionId={nextSuggestionId}
