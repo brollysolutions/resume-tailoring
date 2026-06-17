@@ -256,7 +256,7 @@ async def match_resume(req: MatchRequest):
 
     # Hybrid scoring with embeddings
     try:
-        result = score_resume_against_jd(
+        result = await score_resume_against_jd(
             resume_text, resume_obj.model_dump(), req.jd_text,
             resume_vector, jd_embedding,
             section_cosine=section_cosine,
@@ -426,7 +426,7 @@ async def match_tailored(req: MatchTailoredRequest):
             original_section_cos = _orig_cos[0] if not isinstance(_orig_cos[0], Exception) else None
             original_exp_cos = _orig_cos[1] if not isinstance(_orig_cos[1], Exception) else None
             original_section_cosines = _orig_cos[2] if not isinstance(_orig_cos[2], Exception) else {}
-            original_result = score_resume_against_jd(
+            original_result = await score_resume_against_jd(
                 resume_text_original, resume_obj.model_dump(), req.jd_text,
                 original_resume_vector, jd_embedding,
                 section_cosine=original_section_cos,
@@ -489,7 +489,7 @@ async def match_tailored(req: MatchTailoredRequest):
             logger.warning(f"Tailored section cosine failed: {_tail_cos[0]}")
         tailored_exp_cos = _tail_cos[1] if not isinstance(_tail_cos[1], Exception) else None
         tailored_section_cosines = _tail_cos[2] if not isinstance(_tail_cos[2], Exception) else {}
-        tailored_result = score_resume_against_jd(
+        tailored_result = await score_resume_against_jd(
             resume_text_tailored, resume_tailored.model_dump(), req.jd_text,
             tailored_resume_vector, jd_embedding,
             section_cosine=tailored_section_cos,

@@ -271,7 +271,7 @@ async def evaluate_and_score_node(state: TailorGraphState) -> Dict[str, Any]:
     
     # Calculate global score + breakdown
     try:
-        score_res = score_resume_against_jd(
+        score_res = await score_resume_against_jd(
             resume_text=resume_plaintext,
             resume_json=resume.model_dump(),
             jd_text=jd_text,
@@ -284,7 +284,11 @@ async def evaluate_and_score_node(state: TailorGraphState) -> Dict[str, Any]:
 
     # Calculate section-level scores
     try:
-        section_scores = compute_section_scores(resume, jd_text)
+        section_scores = await compute_section_scores(
+            resume, resume.model_dump(), jd_text
+        )
+        # Flatten to match expected output
+        section_scores = {k: v["score"] if v else 50 for k, v in section_scores.items()}
     except Exception as e:
         logger.warning("Section scoring failed: %s", e)
         section_scores = {"Experience": 50, "Projects": 50, "Skills": 50, "Summary": 50}

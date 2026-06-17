@@ -151,16 +151,34 @@ async def generate_keywords(text: str, max_keywords: int = 5) -> tuple[list[str]
         prompt = PROMPT_GENERATE_KEYWORDS_USER.format(text=text[:4000])
         content = await _chat([{"role": "user", "content": prompt}], json_mode=True)
         parsed = json.loads(content)
-        roles = parsed.get("roles", [])
-        stack = parsed.get("core_stack", [])
-        
-        # Ensure we have clean lists
-        roles = [r.strip() for r in roles if isinstance(r, str) and r.strip()][:max_keywords]
-        stack = [s.strip() for s in stack if isinstance(s, str) and s.strip()]
-        
+        raw_roles = parsed.get("roles", [])
+        raw_stack = parsed.get("core_stack", [])
+
+        # Ensure we have clean, unique lists while preserving order
+        roles = []
+        seen_roles = set()
+        for r in raw_roles:
+            if isinstance(r, str) and r.strip():
+                clean_r = r.strip()
+                lower_r = clean_r.lower()
+                if lower_r not in seen_roles:
+                    seen_roles.add(lower_r)
+                    roles.append(clean_r)
+        roles = roles[:max_keywords]
+
+        stack = []
+        seen_stack = set()
+        for s in raw_stack:
+            if isinstance(s, str) and s.strip():
+                clean_s = s.strip()
+                lower_s = clean_s.lower()
+                if lower_s not in seen_stack:
+                    seen_stack.add(lower_s)
+                    stack.append(clean_s)
+
         if not roles:
             roles = ["Software Engineer", "Developer"]
-            
+
         return roles, stack
     except Exception as e:
         logger.warning(f"generate_keywords failed: {e}")

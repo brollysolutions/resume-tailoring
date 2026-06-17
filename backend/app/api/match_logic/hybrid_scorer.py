@@ -119,11 +119,16 @@ def _resume_text_for_skills(resume_json: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Per-signal extractors
+# Per-signal extractors (Refactored for Robustness & Modularity)
 # ---------------------------------------------------------------------------
 
 def _kw_signal(jd_text: str, resume_text: str) -> tuple[float, float, float]:
     """(req_kw, pref_kw, blended_kw). Falls back to full-JD when no sections."""
+    if not jd_text.strip():
+        return 0.0, 0.0, 0.0
+    if not resume_text.strip():
+        return 0.0, 0.0, 0.0
+
     req_text, pref_text = parse_jd_required_preferred(jd_text)
     req_raw = keyword_coverage(req_text, resume_text)
     pref_raw = keyword_coverage(pref_text, resume_text) if pref_text else req_raw
@@ -133,11 +138,17 @@ def _kw_signal(jd_text: str, resume_text: str) -> tuple[float, float, float]:
 
 def _skill_signal(resume_json: dict, jd_text: str) -> tuple[float, float, float]:
     """(taxonomy_coverage, domain_alignment, blended_skill)."""
+    if not jd_text.strip():
+        return 0.0, 1.0, 0.6  # Neutral fallback for empty JD
+
     jd_skills = extract_skills(jd_text)
     if not jd_skills:
         return 0.0, 1.0, 0.6  # neutral when JD has no recognisable skills
 
     resume_skill_text = _resume_text_for_skills(resume_json)
+    if not resume_skill_text.strip():
+        return 0.0, 0.0, 0.0
+
     resume_skills = extract_skills(resume_skill_text)
 
     matched = jd_skills & resume_skills
@@ -154,12 +165,10 @@ def _skill_signal(resume_json: dict, jd_text: str) -> tuple[float, float, float]
 
 
 def _ngram_signal(jd_text: str, resume_text: str) -> tuple[float, bool]:
-    """(coverage, active). Fraction of multi-word JD skills found in resume.
+    """(coverage, active). Fraction of multi-word JD skills found in resume."""
+    if not jd_text.strip() or not resume_text.strip():
+        return 0.0, False
 
-    active=False when the JD contains no _NGRAM_SKILLS phrases. Callers must
-    redistribute w_ngram into another weight rather than rewarding the row
-    with a sentinel 1.0 (R4 — see findings_summary.md).
-    """
     jd_ngrams = extract_jd_ngrams(jd_text)
     if not jd_ngrams:
         return 0.0, False
@@ -171,7 +180,9 @@ def _ngram_signal(jd_text: str, resume_text: str) -> tuple[float, bool]:
 def _edu_signal(resume_json: dict, jd_text: str, resume_obj: Optional[Resume] = None) -> float:
     """[0, 1] education fit. 1.0 when JD states no degree requirement."""
     from app.api.match_logic.ceiling_detector import parse_jd_hard_requirements, resume_has_degree
-    from app.models.resume_schema import Resume
+
+    if not jd_text.strip():
+        return 1.0
 
     hard_reqs = parse_jd_hard_requirements(jd_text)
     required = hard_reqs.get("required_degrees", [])
@@ -182,7 +193,8 @@ def _edu_signal(resume_json: dict, jd_text: str, resume_obj: Optional[Resume] = 
         try:
             resume_obj = Resume.model_validate(resume_json)
         except Exception:
-            return 0.7
+            # If validation fails but degree was required, assume 0.5 (Neutral-Low)
+            return 0.5
 
     if resume_has_degree(resume_obj, required):
         return 1.0
@@ -198,22 +210,23 @@ def _edu_signal(resume_json: dict, jd_text: str, resume_obj: Optional[Resume] = 
     )
     if resume_level >= jd_level:
         return 1.0
+    
+    # Graduated penalty: 15% drop per level gap, floor at 40%
     gap = jd_level - resume_level
-    return max(0.3, 1.0 - gap * 0.25)
+    return max(0.4, 1.0 - gap * 0.15)
 
 
 def _seniority_signal(resume_json: dict, jd_text: str, resume_obj: Optional[Resume] = None) -> float:
-    """[0, 1] seniority fit. 1.0 when JD states no requirements.
-
-    Blends years-of-experience and seniority title matching.
-    """
+    """[0, 1] seniority fit. 1.0 when JD states no requirements."""
     from app.api.match_logic.ceiling_detector import (
         parse_jd_hard_requirements,
         estimate_years_experience,
         infer_seniority,
         _SENIORITY_ORDER,
     )
-    from app.models.resume_schema import Resume
+
+    if not jd_text.strip():
+        return 1.0
 
     hard_reqs = parse_jd_hard_requirements(jd_text)
     jd_years = hard_reqs.get("min_years_experience")
@@ -226,31 +239,36 @@ def _seniority_signal(resume_json: dict, jd_text: str, resume_obj: Optional[Resu
         try:
             resume_obj = Resume.model_validate(resume_json)
         except Exception:
-            return 0.7
+            return 0.5
 
     scores = []
 
-    # Years-of-experience signal
-    if jd_years:
+    # Years-of-experience signal: Quadratic penalty for large gaps
+    if jd_years and jd_years > 0:
         resume_yrs = estimate_years_experience(resume_obj)
         if resume_yrs is not None:
-            scores.append(min(1.0, resume_yrs / jd_years))
+            # Linear ratio capped at 1.0
+            ratio = min(1.0, resume_yrs / jd_years)
+            # If ratio < 0.5, apply steeper penalty
+            if ratio < 0.5:
+                scores.append(ratio * ratio * 2) # e.g. 0.3 -> 0.18
+            else:
+                scores.append(ratio)
         else:
-            scores.append(0.5)  # neutral-low if years expected but none parsed
+            scores.append(0.3)  # lower fallback if years expected but none parsed
 
-    # Seniority title signal
+    # Seniority title signal: Graduated 15% drop per level gap
     if jd_level in _SENIORITY_ORDER:
         candidate_level = infer_seniority(resume_obj)
         req_idx = _SENIORITY_ORDER.index(jd_level)
-        candidate_idx = _SENIORITY_ORDER.index(candidate_level) if candidate_level in _SENIORITY_ORDER else 1  # default to mid
+        candidate_idx = _SENIORITY_ORDER.index(candidate_level) if candidate_level in _SENIORITY_ORDER else 1
         
-        # Calculate title penalty only when falling short
         gap = max(0, req_idx - candidate_idx)
-        title_score = max(0.0, min(1.0, 1.0 - gap * 0.25))
+        title_score = max(0.4, 1.0 - gap * 0.15)
         scores.append(title_score)
 
     if not scores:
-        return 0.7
+        return 0.5
     return sum(scores) / len(scores)
 
 
@@ -259,10 +277,7 @@ def _cosine_signal(
     p_low: float,
     p_high: float,
 ) -> tuple[float, float, float, Optional[float], float, Optional[float]]:
-    """(whole_doc_cos, exp_cos, blended, section_weighted_raw, raw_whole_doc_cos, raw_exp_cos).
-
-    All cosines post-remap [0, 1] for first 3.
-    """
+    """(whole_doc_cos, exp_cos, blended, section_weighted_raw, raw_whole_doc_cos, raw_exp_cos)."""
     remap_span = max(p_high - p_low, 1e-6)
 
     # whole_doc preserved for logging backward compat
@@ -311,34 +326,133 @@ def _cosine_signal(
     return whole_doc, exp_cos_remapped, blended, section_weighted_raw, raw_whole_doc, raw_exp_cos
 
 
+from abc import ABC, abstractmethod
+import asyncio
+import json
+
+# ---------------------------------------------------------------------------
+# Shared Async LLM Evaluator for Edu, Sen, Skill
+# ---------------------------------------------------------------------------
+async def _llm_evaluate_signals(resume_text: str, jd_text: str) -> dict:
+    """Ask LLM to evaluate Education, Seniority, and Skills simultaneously for speed."""
+    from app.core.llm_client import _chat, get_smart_model
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Fast paths: if no text
+    if not jd_text.strip():
+        return {"education": 1.0, "seniority": 1.0, "skill_coverage": 0.0, "domain_align": 1.0}
+
+    prompt = (
+        "You are an expert technical recruiter analyzing a resume against a job description.\n\n"
+        "Evaluate the candidate on three metrics. Return a JSON object with scores between 0.0 and 1.0.\n\n"
+        "1. 'education': Does the candidate meet the degree requirements? 1.0 if they meet or exceed it, or if no degree is required. Subtract 0.15 for each level they fall short (e.g. has Bachelors, needs Masters -> 0.85).\n"
+        "2. 'seniority': Does the candidate have the required years of experience and level? 1.0 if perfect fit. Lower it proportionally if they fall short. If they only have half the required years, give a harsh penalty (e.g., 0.25).\n"
+        "3. 'skill_coverage': How well do their explicitly listed skills cover the core technical requirements? 1.0 means full coverage.\n"
+        "4. 'domain_align': Is their overall background in the right domain/industry? 1.0 means perfect alignment.\n\n"
+        f"RESUME:\n{resume_text[:2000]}\n\n"
+        f"JD:\n{jd_text[:2000]}\n\n"
+        'Return ONLY valid JSON: {"education": 0.0, "seniority": 0.0, "skill_coverage": 0.0, "domain_align": 0.0}'
+    )
+
+    try:
+        content = await _chat([{"role": "user", "content": prompt}], json_mode=True, model=get_smart_model())
+        parsed = json.loads(content)
+        return {
+            "education": float(parsed.get("education", 0.5)),
+            "seniority": float(parsed.get("seniority", 0.5)),
+            "skill_coverage": float(parsed.get("skill_coverage", 0.5)),
+            "domain_align": float(parsed.get("domain_align", 0.5)),
+        }
+    except Exception as e:
+        logger.warning(f"LLM signal evaluation failed: {e}")
+        return {"education": 0.5, "seniority": 0.5, "skill_coverage": 0.5, "domain_align": 0.5}
+
+# ---------------------------------------------------------------------------
+# Signal Strategies (Modular Strategy Pattern)
+# ---------------------------------------------------------------------------
+
+class BaseSignal(ABC):
+    @abstractmethod
+    async def compute(self, inputs: ScoreInputs, weights: Weights, p_low: float, p_high: float) -> dict:
+        """Compute signal values and return a dictionary of results."""
+        pass
+
+class KeywordSignal(BaseSignal):
+    async def compute(self, inputs: ScoreInputs, weights: Weights, p_low: float, p_high: float) -> dict:
+        req_kw, pref_kw, kw = _kw_signal(inputs.jd_text, inputs.resume_text)
+        return {"req_kw": req_kw, "pref_kw": pref_kw, "kw": kw}
+
+class NgramSignal(BaseSignal):
+    async def compute(self, inputs: ScoreInputs, weights: Weights, p_low: float, p_high: float) -> dict:
+        ngram, ngram_active = _ngram_signal(inputs.jd_text, inputs.resume_text)
+        return {"ngram": ngram, "ngram_active": ngram_active}
+
+class CosineSignal(BaseSignal):
+    async def compute(self, inputs: ScoreInputs, weights: Weights, p_low: float, p_high: float) -> dict:
+        whole_doc_cos, exp_cos, cosine, section_weighted_raw, raw_whole_doc_cos, raw_exp_cos = _cosine_signal(inputs, p_low, p_high)
+        return {
+            "whole_doc_cos": whole_doc_cos,
+            "exp_cos": exp_cos,
+            "cosine": cosine,
+            "section_weighted_cos_raw": section_weighted_raw,
+            "raw_whole_doc_cos": raw_whole_doc_cos,
+            "raw_exp_cos": raw_exp_cos
+        }
+
+class LLMBulkSignal(BaseSignal):
+    async def compute(self, inputs: ScoreInputs, weights: Weights, p_low: float, p_high: float) -> dict:
+        llm_res = await _llm_evaluate_signals(inputs.resume_text, inputs.jd_text)
+        
+        tax_cov = llm_res["skill_coverage"]
+        dom_al = llm_res["domain_align"]
+        skill_blended = 0.6 * tax_cov + 0.4 * dom_al
+        
+        return {
+            "edu": llm_res["education"],
+            "seniority": llm_res["seniority"],
+            "skill_cov": tax_cov,
+            "domain_align": dom_al,
+            "skill": skill_blended
+        }
+
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
-def compute_signals(
+async def compute_signals(
     inputs: ScoreInputs,
     weights: Optional[Weights] = None,
     p_low_override: Optional[float] = None,
     p_high_override: Optional[float] = None,
 ) -> RawSignals:
-    """Compute all 6 raw signals. Pure (no I/O, no side effects).
-
-    Accepts an optional weights override so per-section scoring can use a
-    different blend than the global calibrated weights.
-    """
+    """Compute all signals using the Strategy pattern."""
     if weights is None:
         weights = get_weights()
 
-    # Use overrides for cosine remapping if provided (Signal R5 section scoring)
     p_low = p_low_override if p_low_override is not None else weights.p_low
     p_high = p_high_override if p_high_override is not None else weights.p_high
 
-    req_kw, pref_kw, kw = _kw_signal(inputs.jd_text, inputs.resume_text)
-    skill_cov, domain_align, skill = _skill_signal(inputs.resume_json, inputs.jd_text)
-    ngram, ngram_active = _ngram_signal(inputs.jd_text, inputs.resume_text)
-    edu = _edu_signal(inputs.resume_json, inputs.jd_text, inputs.resume_obj)
-    seniority = _seniority_signal(inputs.resume_json, inputs.jd_text, inputs.resume_obj)
-    whole_doc_cos, exp_cos, cosine, section_weighted_raw, raw_whole_doc_cos, raw_exp_cos = _cosine_signal(inputs, p_low, p_high)
+    strategies: list[BaseSignal] = [
+        KeywordSignal(),
+        NgramSignal(),
+        CosineSignal(),
+        LLMBulkSignal(),
+    ]
+
+    results = {}
+    coros = [s.compute(inputs, weights, p_low, p_high) for s in strategies]
+    for res_dict in await asyncio.gather(*coros):
+        results.update(res_dict)
+
+    # Blend math
+    kw = results["kw"]
+    skill = results["skill"]
+    ngram = results["ngram"]
+    ngram_active = results["ngram_active"]
+    edu = results["edu"]
+    seniority = results["seniority"]
+    cosine = results["cosine"]
 
     if ngram_active:
         raw = (
@@ -350,9 +464,6 @@ def compute_signals(
             + cosine * weights.w_cos
         )
     else:
-        # R4: JD has no n-gram phrases — redistribute w_ngram into w_kw so the
-        # row isn't penalized for an unavailable signal AND isn't falsely
-        # boosted by the prior 1.0 sentinel.
         raw = (
             kw * (weights.w_kw + weights.w_ngram)
             + skill * weights.w_skill
@@ -363,22 +474,22 @@ def compute_signals(
     final_score = int(round(max(0.0, min(1.0, raw)) * 100))
 
     return RawSignals(
-        req_kw=req_kw,
-        pref_kw=pref_kw,
+        req_kw=results["req_kw"],
+        pref_kw=results["pref_kw"],
         kw=kw,
-        skill_cov=skill_cov,
-        domain_align=domain_align,
+        skill_cov=results["skill_cov"],
+        domain_align=results["domain_align"],
         skill=skill,
         ngram=ngram,
         ngram_active=ngram_active,
         edu=edu,
         seniority=seniority,
-        whole_doc_cos=whole_doc_cos,
-        exp_cos=exp_cos,
+        whole_doc_cos=results["whole_doc_cos"],
+        exp_cos=results["exp_cos"],
         cosine=cosine,
-        section_weighted_cos_raw=section_weighted_raw,
-        raw_whole_doc_cos=raw_whole_doc_cos,
-        raw_exp_cos=raw_exp_cos,
+        section_weighted_cos_raw=results["section_weighted_cos_raw"],
+        raw_whole_doc_cos=results["raw_whole_doc_cos"],
+        raw_exp_cos=results["raw_exp_cos"],
         final_score=final_score,
     )
 
@@ -387,7 +498,7 @@ def compute_signals(
 # Public API
 # ---------------------------------------------------------------------------
 
-def score_resume_against_jd(
+async def score_resume_against_jd(
     resume_text: str,
     resume_json: dict,
     jd_text: str,
@@ -438,7 +549,7 @@ def score_resume_against_jd(
         section_cosines=section_cosines,
         resume_obj=resume_obj,
     )
-    signals = compute_signals(
+    signals = await compute_signals(
         inputs,
         weights,
         p_low_override=p_low_override,

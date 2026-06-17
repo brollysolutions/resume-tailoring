@@ -206,7 +206,7 @@ async def compute_section_scores(
 
         weights_override = _resolve_section_weights(section)
 
-        result = score_resume_against_jd(
+        result = await score_resume_against_jd(
             text, section_json, jd_text,
             resume_embedding=section_embeddings.get(section),
             jd_embedding=jd_embedding,
