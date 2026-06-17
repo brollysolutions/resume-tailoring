@@ -18,7 +18,7 @@
   "status": "gate_failed",
   "swapped": false,
   "reasons": [
-    "spearman 0.1924 < floor 0.3 (dynamic, N=190)"
+    "spearman 0.2049 < floor 0.3 (dynamic, N=190)"
   ],
   "candidate": {
     "w_kw": 0.4,
@@ -27,12 +27,12 @@
     "w_edu": 0.1,
     "w_sen": 0.1,
     "w_cos": 0.1,
-    "spearman": 0.1924,
-    "kendall_tau": 0.2397,
+    "spearman": 0.2049,
+    "kendall_tau": 0.2476,
     "p_low": 0.591,
     "p_high": 1.0
   },
   "spearman_floor": 0.3,
   "old_spearman": null,
-  "recorded_at": "2026-06-17T06:47:57.161623+00:00"
+  "recorded_at": "2026-06-17T07:23:10.942014+00:00"
 }
