@@ -147,4 +147,5 @@ def patch_data_logs(mocker):
     mocker.patch("app.api.match_logic.hybrid_scorer._log_score_event", MagicMock())
     mocker.patch("app.api.match_logic.section_scorer._log_section_event", MagicMock())
     mocker.patch("app.core.implicit_labeler.log_suggestion_event", MagicMock())
+    mocker.patch("app.core.implicit_labeler.log_human_feedback", MagicMock(return_value={"status": "saved", "label": "good"}))
     mocker.patch("app.api.resume._log_upload_event", MagicMock())

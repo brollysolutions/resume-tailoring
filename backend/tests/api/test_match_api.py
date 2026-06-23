@@ -109,6 +109,44 @@ def test_match_guidance_short_jd_400(client, resume_id):
     assert r.status_code == 400
 
 
+def test_match_feedback_thumbs_up(client, resume_id, valid_jd, mocker):
+    mocker.patch(
+        "app.core.implicit_labeler.log_human_feedback",
+        return_value={"status": "saved", "label": "good"},
+    )
+    r = client.post("/api/match/feedback", json={
+        "resume_id": resume_id, "jd_text": valid_jd, "helpful": True,
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["label"] == "good"
+    assert body["status"] == "saved"
+
+
+def test_match_feedback_thumbs_down(client, resume_id, valid_jd, mocker):
+    mocker.patch(
+        "app.core.implicit_labeler.log_human_feedback",
+        return_value={"status": "saved", "label": "bad"},
+    )
+    r = client.post("/api/match/feedback", json={
+        "resume_id": resume_id, "jd_text": valid_jd, "helpful": False,
+    })
+    assert r.status_code == 200
+    assert r.json()["label"] == "bad"
+
+
+def test_match_feedback_dedup(client, resume_id, valid_jd, mocker):
+    mocker.patch(
+        "app.core.implicit_labeler.log_human_feedback",
+        return_value={"status": "already_labeled", "label": "good"},
+    )
+    r = client.post("/api/match/feedback", json={
+        "resume_id": resume_id, "jd_text": valid_jd, "helpful": True,
+    })
+    assert r.status_code == 200
+    assert r.json()["status"] == "already_labeled"
+
+
 def test_match_guidance_unknown_resume_404(client, valid_jd):
     r = client.post("/api/match/guidance", json={"resume_id": "nope", "jd_text": valid_jd})
     assert r.status_code == 404

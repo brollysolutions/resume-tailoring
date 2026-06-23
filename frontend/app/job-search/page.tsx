@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ExternalLink, ArrowRight, Loader2, Target, Maximize2, X, SlidersHorizontal, Wand2, GripVertical, Save, Eye, EyeOff, Download, AlertTriangle, CheckCircle2, Sparkles, HelpCircle, Info } from "lucide-react";
+import { ExternalLink, ArrowRight, Loader2, Target, Maximize2, X, SlidersHorizontal, Wand2, GripVertical, Save, Eye, EyeOff, Download, AlertTriangle, CheckCircle2, Sparkles, HelpCircle, Info, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Tabs } from "@/components/Tabs";
 import { TemplatePreview } from "@/components/TemplatePreview";
 import { getApiUrl } from "@/lib/api";
@@ -485,6 +485,8 @@ function JobSearchContent() {
 
   const [selectedTemplate, setSelectedTemplate] = useState<string>("standard");
   const [resultsTab, setResultsTab] = useState<ResultsTab>("overview");
+  const [feedbackSent, setFeedbackSent] = useState<"good" | "bad" | null>(null);
+  const [isSendingFeedback, setIsSendingFeedback] = useState(false);
 
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState(false);
@@ -737,6 +739,26 @@ function JobSearchContent() {
     setJdText(val);
   };
 
+  const onFeedback = async (helpful: boolean) => {
+    if (isSendingFeedback || feedbackSent) return;
+    const rid = localStorage.getItem("current_resume_id") || "";
+    if (!rid || !lastMatchedJd) return;
+    setIsSendingFeedback(true);
+    try {
+      const apiUrl = getApiUrl();
+      await fetch(`${apiUrl}/api/match/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resume_id: rid, jd_text: lastMatchedJd, helpful }),
+      });
+      setFeedbackSent(helpful ? "good" : "bad");
+    } catch {
+      // silent — feedback is best-effort
+    } finally {
+      setIsSendingFeedback(false);
+    }
+  };
+
   const onMatch = async () => {
     if (!jdText.trim()) return;
     setIsMatching(true);
@@ -748,6 +770,7 @@ function JobSearchContent() {
     setMatchDiagnosis(null);
     setOverallSuggestions(null);
     setResultsTab("overview");
+    setFeedbackSent(null);
     setError(null);
     try {
       const apiUrl = getApiUrl();
@@ -1386,7 +1409,34 @@ function JobSearchContent() {
                 <SuggestionsPanel suggestions={overallSuggestions} isLoading={isMatching} />
               )}
 
-              <div className="flex items-center justify-end pt-2">
+              <div className="flex items-center justify-between pt-2 gap-2">
+                <div className="flex items-center gap-2 text-[11px] text-muted">
+                  {feedbackSent ? (
+                    <span className={feedbackSent === "good" ? "text-emerald-500" : "text-muted"}>
+                      {feedbackSent === "good" ? "Thanks for the feedback!" : "Feedback noted."}
+                    </span>
+                  ) : (
+                    <>
+                      <span>Accurate match?</span>
+                      <button
+                        onClick={() => onFeedback(true)}
+                        disabled={isSendingFeedback || matchScore === null}
+                        className="p-1 rounded hover:text-emerald-500 disabled:opacity-40 transition-colors"
+                        title="Yes, accurate"
+                      >
+                        <ThumbsUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onFeedback(false)}
+                        disabled={isSendingFeedback || matchScore === null}
+                        className="p-1 rounded hover:text-red-400 disabled:opacity-40 transition-colors"
+                        title="No, inaccurate"
+                      >
+                        <ThumbsDown className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
                 <button
                   onClick={onTailor}
                   disabled={!jdText.trim() || isMatching || matchScore === null}

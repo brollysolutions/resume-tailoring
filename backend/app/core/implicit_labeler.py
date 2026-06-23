@@ -38,8 +38,6 @@ _SCORE_LOG = _DATA / "score_log.jsonl"
 BAD_LABEL_DELAY_HOURS = 2
 FAST_CLICK_SEC = 120  # < 2min = strong "good" signal
 SESSION_WINDOW_MIN = 30  # group matches within 30min as one session
-QUICK_ABANDON_MIN = 20   # low-score + no tailor after this → "bad" without waiting 2h
-LOW_SCORE_THRESHOLD = 40 # final_score below this is clearly bad
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -84,6 +82,40 @@ def log_suggestion_event(
         logger.debug("suggestion_events log write failed: %s", e)
 
 
+def log_human_feedback(resume_id: str, jd_hash: str, label: str) -> dict:
+    """Append a human-sourced label to labels.jsonl.
+
+    Deduplicates on (resume_id, jd_hash): if a human label already exists for
+    the pair, returns {"status": "already_labeled", "label": existing_label}
+    without writing. Implicit or LLM labels for the same pair are NOT treated
+    as duplicates — they coexist until the calibrator deduplicates by priority.
+
+    Returns: {"status": "saved" | "already_labeled", "label": str}
+    """
+    if not resume_id or not jd_hash:
+        return {"status": "error", "label": label}
+    try:
+        existing = _load_jsonl(_LABELS)
+        for row in existing:
+            if (row.get("resume_id") == resume_id
+                    and row.get("jd_hash") == jd_hash
+                    and row.get("source") == "human"):
+                return {"status": "already_labeled", "label": row.get("label", label)}
+        record = {
+            "resume_id": resume_id,
+            "jd_hash": jd_hash,
+            "label": label,
+            "source": "human",
+        }
+        _DATA.mkdir(parents=True, exist_ok=True)
+        with _LABELS.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+        return {"status": "saved", "label": label}
+    except Exception as e:
+        logger.warning("log_human_feedback write failed: %s", e)
+        return {"status": "error", "label": label}
+
+
 def derive_labels() -> dict:
     """Multi-signal label derivation from match-phase data only.
 
@@ -107,7 +139,7 @@ def derive_labels() -> dict:
             "new_labels": 0,
             "skipped_existing": 0,
             "skipped_too_recent": 0,
-            "by_signal": {"tailor_clicked": 0, "no_tailor_2h": 0, "ceiling_hit": 0, "session_pairwise": 0, "quick_abandon": 0},
+            "by_signal": {"tailor_clicked": 0, "no_tailor_2h": 0, "ceiling_hit": 0, "session_pairwise": 0},
         }
 
     # Build indices from events
@@ -146,7 +178,7 @@ def derive_labels() -> dict:
     # Generate labels: first pass — individual signals
     labels_to_write: dict[tuple[str, str], dict] = {}  # (rid, jdh) → label_dict
     now = datetime.now(timezone.utc)
-    signal_counts = {"tailor_clicked": 0, "no_tailor_2h": 0, "ceiling_hit": 0, "session_pairwise": 0, "quick_abandon": 0}
+    signal_counts = {"tailor_clicked": 0, "no_tailor_2h": 0, "ceiling_hit": 0, "session_pairwise": 0}
 
     for row in score_log:
         rid = row.get("resume_id") or ""
@@ -196,29 +228,6 @@ def derive_labels() -> dict:
             }
             signal_counts["tailor_clicked"] += 1
             continue
-
-        # Signal 2a: Quick abandon — low score, no tailor, short wait
-        # Closes selection-bias gap: users who see a bad score and leave
-        # without tailoring are invisible until 2h passes. At score < 40
-        # the signal is clear enough to label after only 20 min.
-        if key not in suggestions_ts:
-            try:
-                final_score = float(row.get("final_score") or 0)
-                score_ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                age_min = (now - score_ts).total_seconds() / 60
-                if final_score < LOW_SCORE_THRESHOLD and age_min > QUICK_ABANDON_MIN:
-                    labels_to_write[key] = {
-                        "resume_id": rid,
-                        "jd_hash": jdh,
-                        "label": "bad",
-                        "source": "implicit",
-                        "signal": "quick_abandon",
-                        "final_score": final_score,
-                    }
-                    signal_counts["quick_abandon"] += 1
-                    continue
-            except (ValueError, AttributeError):
-                pass
 
         # Signal 2: No-tailor, old enough
         try:

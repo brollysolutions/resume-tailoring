@@ -588,6 +588,27 @@ async def match_tailored(req: MatchTailoredRequest):
     return result
 
 
+class MatchFeedbackRequest(BaseModel):
+    resume_id: str
+    jd_text: str
+    helpful: bool
+
+
+@router.post("/feedback")
+async def match_feedback(req: MatchFeedbackRequest):
+    """Record explicit user feedback (thumbs up/down) on match accuracy.
+
+    Writes a source:"human" label to labels.jsonl. Deduped per (resume_id,
+    jd_hash) — repeat submits for the same pair return the existing label
+    without overwriting.
+    """
+    jd_hash = hashlib.sha256(req.jd_text.encode("utf-8", errors="ignore")).hexdigest()[:16]
+    label = "good" if req.helpful else "bad"
+    from app.core.implicit_labeler import log_human_feedback
+    result = log_human_feedback(resume_id=req.resume_id, jd_hash=jd_hash, label=label)
+    return result
+
+
 class MatchGuidanceRequest(MatchTailoredRequest):
     # Tailored per-section scores from the client (already computed by
     # /tailored) so this endpoint needs no embeddings.
