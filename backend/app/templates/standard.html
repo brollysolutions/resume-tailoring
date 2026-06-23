@@ -42,9 +42,15 @@
             color: #000;
             border-bottom: 1px solid #000;
             padding-bottom: 1pt;
+            page-break-after: avoid;
+            break-after: avoid;
         }
 
-        .entry { margin-bottom: {{ density.entry_gap_pt or 5 }}pt; }
+        .entry { 
+            margin-bottom: {{ density.entry_gap_pt or 5 }}pt; 
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
         .entry-header {
             display: flex;
             justify-content: space-between;

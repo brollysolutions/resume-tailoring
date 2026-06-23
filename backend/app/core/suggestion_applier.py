@@ -659,5 +659,38 @@ def apply_suggestions(resume: Resume, suggestions: list, unapplied: Optional[lis
     # handled by the Pydantic validator/model itself or intentionally kept
     # for user review.
 
+    # Ensure populated sections are in section_order
+    _DEFAULT_ORDER = [
+        "summary", "experience", "projects", "education", "skills",
+        "certifications", "publications", "awards", "languages",
+        "volunteer", "patents", "talks", "extra_sections"
+    ]
+    
+    def _is_populated(sec: str) -> bool:
+        if sec == "summary": return bool(data.get("summary"))
+        if sec in _DEFAULT_ORDER and sec != "summary":
+            val = data.get(sec)
+            return bool(val and isinstance(val, list) and len(val) > 0)
+        return False
+
+    order = list(data.get("section_order") or [])
+    changed = False
+
+    for sec in _DEFAULT_ORDER:
+        if _is_populated(sec) and sec not in order:
+            default_idx = _DEFAULT_ORDER.index(sec)
+            inserted = False
+            for i, o in enumerate(order):
+                if o in _DEFAULT_ORDER and _DEFAULT_ORDER.index(o) > default_idx:
+                    order.insert(i, sec)
+                    inserted = True
+                    break
+            if not inserted:
+                order.append(sec)
+            changed = True
+
+    if changed:
+        data["section_order"] = order
+
     logger.info("apply_suggestions: applied %d / %d suggestions", applied, len(suggestions))
     return Resume.model_validate(data)

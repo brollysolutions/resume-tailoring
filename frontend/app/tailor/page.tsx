@@ -5,11 +5,11 @@ import { ResumePreview } from "@/components/ResumePreview";
 import { ResumeEditor } from "@/components/ResumeEditor";
 import type { ResumeData, Suggestion, GeneratedProject, ImprovementPlan, MatchGuidance } from "@/types/resume";
 type EditorSuggestion = Suggestion;
-import { Loader2, ArrowLeft, Sparkles, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, ArrowLeft, Sparkles, RefreshCw, ChevronDown, ChevronUp, Undo2, Redo2 } from "lucide-react";
 import { applySuggestionsClient } from "@/lib/applyResume";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CopilotChat, type CopilotFocus } from "@/components/CopilotChat";
-import { GlobalIntensitySelector } from "@/components/IntensitySelector";
+
 import { getApiUrl } from "@/lib/api";
 
 /** Merge button-replacement projects and chat-appended projects into the payload
@@ -37,6 +37,7 @@ function buildMergedProjectPayload(
 function TailorPageContent() {
   const [originalResume, setOriginalResume] = useState<ResumeData | null>(null);
   const [approved, setApproved] = useState<Suggestion[]>([]);
+  const [redoStack, setRedoStack] = useState<Suggestion[]>([]);
   const [resumeId, setResumeId] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState<string>("standard");
   const [jdText, setJdText] = useState<string>("");
@@ -96,7 +97,7 @@ function TailorPageContent() {
     return current;
   }, [originalResume, approved, keptProjects, appendedProjects]);
 
-  // Draggable editor width (leftPct %). Copilot panel is fixed at 380px. Preview fills the rest.
+  // Draggable editor width (leftPct %). Copilot panel uses clamp(). Preview fills the rest.
   const [leftPct, setLeftPct] = useState(38);
   const isDragging1 = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -110,7 +111,7 @@ function TailorPageContent() {
       if (!isDragging1.current) return;
       const rect = container.getBoundingClientRect();
       const raw = ((ev.clientX - rect.left) / rect.width) * 100;
-      setLeftPct(Math.min(showChat ? 60 : 80, Math.max(20, raw)));
+      setLeftPct(Math.min(showChat ? 55 : 70, Math.max(20, raw)));
     };
     const onUp = () => {
       isDragging1.current = false;
@@ -397,6 +398,7 @@ function TailorPageContent() {
     const withId: Suggestion = { ...(sg as Suggestion), id: nextSuggestionId, reasoning: sg.reasoning || "User edit" };
     setNextSuggestionId((n) => n + 1);
     setApproved((prev) => [...prev, withId]);
+    setRedoStack([]);
     setPreviewKey((k) => k + 1);
     setStaleScore(true);
     scheduleRecalc();
@@ -416,17 +418,34 @@ function TailorPageContent() {
     };
     setNextSuggestionId((n) => n + 1);
     setApproved((prev) => [...prev.filter((s) => s.mode !== "reorder_sections"), withId]);
+    setRedoStack([]);
     setPreviewKey((k) => k + 1);
     setStaleScore(true);
     scheduleRecalc();
   }, [nextSuggestionId, scheduleRecalc]);
 
-  // Revert: pop from approved, derivation handles state update.
-  const handleRevert = useCallback((id: number) => {
-    setApproved((prev) => prev.filter((x) => x.id !== id));
+  const handleUndo = useCallback(() => {
+    setApproved((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      setRedoStack((r) => [...r, last]);
+      return prev.slice(0, -1);
+    });
     setPreviewKey((k) => k + 1);
     setStaleScore(true);
     scheduleRecalc();
+  }, [scheduleRecalc]);
+
+  const handleRedo = useCallback(() => {
+    setRedoStack((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      setApproved((a) => [...a, last]);
+      setPreviewKey((k) => k + 1);
+      setStaleScore(true);
+      scheduleRecalc();
+      return prev.slice(0, -1);
+    });
   }, [scheduleRecalc]);
 
   // ----- Project generation kept change -----
@@ -475,6 +494,7 @@ function TailorPageContent() {
   const handleAcceptCopilot = useCallback((s: Suggestion) => {
     setApproved((prev) => (prev.some((x) => x.id === s.id) ? prev : [...prev, s]));
     setNextSuggestionId((n) => Math.max(n, (s.id || 0) + 1));
+    setRedoStack([]);
     setPreviewKey((k) => k + 1);
     setStaleScore(true);
     scheduleRecalc();
@@ -502,21 +522,13 @@ function TailorPageContent() {
     }
     for (const d of directives || []) {
       if (d.type === "undo_last") {
-        setApproved((prev) => {
-          if (prev.length === 0) return prev;
-          const last = prev[prev.length - 1];
-          const next = prev.filter((x) => x.id !== last.id);
-          setPreviewKey((k) => k + 1);
-          setStaleScore(true);
-          scheduleRecalc();
-          return next;
-        });
+        handleUndo();
       } else if (d.type === "generate_projects") {
         const gd = d as { count?: number; more?: boolean };
         void runGenerateProjects({ count: gd.count, more: gd.more });
       }
     }
-  }, [scheduleRecalc, runGenerateProjects]);
+  }, [scheduleRecalc, runGenerateProjects, handleUndo]);
 
   // ----- Download -----
   const handleDownload = async (format: "pdf" | "docx", layoutDensity?: string) => {
@@ -584,55 +596,90 @@ function TailorPageContent() {
       <div ref={containerRef} className="flex gap-0 lg:h-[calc(100vh_-_2rem)]">
         {/* Left — editor */}
         <div
-          className="relative min-w-0 overflow-y-auto scrollbar-thin pr-3 flex-shrink-0"
+          className="relative min-w-[280px] overflow-y-auto scrollbar-thin pr-3 flex-shrink-0"
           style={{ width: `${leftPct}%` }}
         >
           {/* Top bar */}
           <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border py-2.5 mb-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              <button onClick={() => window.history.back()} className="btn-ghost p-1.5" aria-label="Back">
+            <div className="flex items-center gap-0 min-w-0">
+              {/* Group 1: Navigation */}
+              <button onClick={() => window.history.back()} className="btn-ghost p-1.5 shrink-0" aria-label="Back">
                 <ArrowLeft className="w-4 h-4" />
               </button>
-              <h1 className="text-base font-semibold tracking-tight leading-tight flex-1">
-                Tailor your resume
-              </h1>
-              <GlobalIntensitySelector />
-              {/* AI Copilot toggle button */}
-              {!showChat && (
+              <span className="w-px h-5 bg-border mx-2 shrink-0" />
+
+              {/* Group 2: Title */}
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <h1 className="text-sm font-semibold tracking-tight leading-tight truncate">
+                  Tailor your resume
+                </h1>
+              </div>
+
+              <span className="w-px h-5 bg-border mx-2 shrink-0" />
+
+              {/* Group 3: Actions (Copilot + Score) */}
+              <div className="flex items-center gap-2 shrink-0">
                 <button
-                  onClick={() => setShowChat(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-500 hover:via-blue-600 hover:to-indigo-600 text-white text-[11px] font-semibold shadow-md shadow-blue-500/15 hover:shadow-lg hover:shadow-blue-500/25 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 transition-all duration-200 cursor-pointer border border-blue-400/20"
-                  title="Open AI Tailoring Copilot Chat"
+                  onClick={handleUndo}
+                  disabled={approved.length === 0}
+                  className="btn-ghost p-1.5 shrink-0 disabled:opacity-30"
+                  title="Undo last action"
                 >
-                  <Sparkles className="w-3 h-3.5 text-blue-100 animate-pulse" />
-                  <span>AI Copilot</span>
+                  <Undo2 className="w-4 h-4" />
                 </button>
-              )}
-              {/* Match score pill */}
-              {(matchScore || isInitialLoading || isScoreLoading) && (
                 <button
-                  onClick={recalcMatch}
-                  disabled={isInitialLoading || isScoreLoading}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-border text-[11px] font-medium transition-all duration-200 hover:border-foreground/40 shadow-sm ${
-                    matchScore && matchScore.tailored >= 80 ? "bg-success/5 border-success/20" :
-                    matchScore && matchScore.tailored >= 60 ? "bg-amber-500/5 border-amber-500/20" :
-                    matchScore ? "bg-danger/5 border-danger/20" : ""
-                  }`}
-                  title="Click to recalculate"
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  className="btn-ghost p-1.5 shrink-0 disabled:opacity-30 mr-2"
+                  title="Redo last action"
                 >
-                  <span className="text-muted mr-0.5">Match:</span>
-                  {matchScore ? (
-                    <span className={`font-bold ${scoreColor} ${staleScore ? "opacity-60" : ""}`}>{matchScore.tailored}%</span>
-                  ) : (
-                    <span className="text-muted animate-pulse">--%</span>
-                  )}
-                  {isScoreLoading || isInitialLoading ? (
-                    <Loader2 className="w-3 h-3 animate-spin ml-1" />
-                  ) : (
-                    <RefreshCw className="w-3 h-3 text-muted ml-1 group-hover:rotate-180 transition-transform" />
-                  )}
+                  <Redo2 className="w-4 h-4" />
                 </button>
-              )}
+
+                {!showChat && (
+                  <button
+                    onClick={() => setShowChat(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-500 hover:via-blue-600 hover:to-indigo-600 text-white text-[11px] font-semibold shadow-md shadow-blue-500/15 hover:shadow-lg hover:shadow-blue-500/25 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 transition-all duration-200 cursor-pointer border border-blue-400/20"
+                    title="Open AI Tailoring Copilot Chat"
+                  >
+                    <Sparkles className="w-3 h-3.5 text-blue-100 animate-pulse" />
+                    <span>AI Copilot</span>
+                  </button>
+                )}
+                {(matchScore || isInitialLoading || isScoreLoading) && (
+                  <button
+                    onClick={recalcMatch}
+                    disabled={isInitialLoading || isScoreLoading}
+                    className={`group inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-border text-[11px] font-medium transition-all duration-200 hover:border-foreground/40 shadow-sm ${
+                      matchScore && matchScore.tailored >= 80 ? "bg-success/5 border-success/20" :
+                      matchScore && matchScore.tailored >= 60 ? "bg-amber-500/5 border-amber-500/20" :
+                      matchScore ? "bg-danger/5 border-danger/20" : ""
+                    }`}
+                    title="Click to recalculate"
+                  >
+                    <span className="text-muted mr-0.5">Match:</span>
+                    {matchScore ? (
+                      <>
+                        <span className={`font-bold ${scoreColor} ${staleScore ? "opacity-60" : ""}`}>{matchScore.tailored}%</span>
+                        {matchScore.original !== matchScore.tailored && (
+                          <span className={`text-[10px] font-medium ${
+                            matchScore.tailored > matchScore.original ? "text-success" : "text-danger"
+                          }`}>
+                            {matchScore.tailored > matchScore.original ? "+" : ""}{matchScore.tailored - matchScore.original}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-muted animate-pulse">--%</span>
+                    )}
+                    {isScoreLoading || isInitialLoading ? (
+                      <Loader2 className="w-3 h-3 animate-spin ml-0.5" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3 text-muted ml-0.5 group-hover:rotate-180 transition-transform" />
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
  
@@ -794,12 +841,11 @@ function TailorPageContent() {
             </div>
           ) : tailoredResume ? (
             <ResumeEditor
-              resume={tailoredResume}
+              resume={tailoredResume!}
               templateId={templateId}
-              pendingSuggestions={[] as EditorSuggestion[]}
-              accepted={approved as EditorSuggestion[]}
-              onEmit={(s) => handleEmit(s as Omit<Suggestion, "id">)}
-              onRevert={handleRevert}
+              pendingSuggestions={[]}
+              accepted={approved}
+              onEmit={handleEmit}
               onAcceptPending={handleAcceptPending}
               onRejectPending={handleRejectPending}
               onReorderSections={handleReorderSections}
@@ -834,12 +880,12 @@ function TailorPageContent() {
           <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 bg-border transition-colors group-hover:bg-foreground/30 group-active:bg-primary" />
         </div>
 
-        {/* Middle — Copilot Chat (fixed 440px) */}
+        {/* Middle — Copilot Chat (responsive width) */}
         {showChat && (
           <>
             <div
-              className="relative overflow-hidden flex-shrink-0 h-full flex flex-col px-3"
-              style={{ width: "400px" }}
+              className="relative overflow-hidden flex-shrink-0 h-full flex flex-col px-3 min-w-[300px]"
+              style={{ width: "clamp(320px, 25vw, 440px)" }}
             >
               <CopilotChat
                 resumeId={resumeId}
@@ -867,7 +913,7 @@ function TailorPageContent() {
         )}
 
         {/* Right — preview or skeleton */}
-        <div className="min-w-0 flex-1 flex flex-col overflow-hidden pl-3">
+        <div className="min-w-[300px] flex-1 flex flex-col overflow-hidden pl-3">
           <div className="flex-1 min-h-0 flex flex-col">
             {isInitialLoading ? (
               <div className="aspect-[8.5/11] bg-subtle animate-pulse p-8 space-y-5">

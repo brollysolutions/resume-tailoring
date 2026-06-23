@@ -41,7 +41,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unapplied, setUnapplied] = useState<Array<{ section: string; mode: string; original: string; reason: string }>>([]);
-  const [layoutDensity, setLayoutDensity] = useState<string>("auto");
+  const [layoutDensity, setLayoutDensity] = useState<string>("compact");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -79,7 +79,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
     const el = canvasRef.current;
     if (!el) return;
     const maxFit = (el.clientWidth - 24) / BASE_WIDTH;
-    const z = Math.max(MIN_ZOOM, Math.min(0.76, maxFit));
+    const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, maxFit));
     setZoom(z);
     setPan({ x: Math.round((el.clientWidth - BASE_WIDTH * z) / 2), y: 12 });
   }, []);
@@ -90,14 +90,14 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
     let timer: ReturnType<typeof setTimeout>;
     const ro = new ResizeObserver(() => {
       clearTimeout(timer);
-      timer = setTimeout(() => fitPage(), 100);
+      timer = setTimeout(() => fitWidth(), 100);
     });
     ro.observe(el);
     return () => {
       ro.disconnect();
       clearTimeout(timer);
     };
-  }, [fitPage]);
+  }, [fitWidth]);
 
   useEffect(() => {
     if (!resumeId) return;
@@ -113,7 +113,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
           body: JSON.stringify({
             resume_id: resumeId,
             template_id: templateId,
-            layout_density: layoutDensity === "auto" ? undefined : layoutDensity,
+            layout_density: layoutDensity,
             suggestions: approvedSuggestions.map((s) => ({
               id: s.id,
               section: s.section,
@@ -171,8 +171,12 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
           return next;
         });
       } else {
-        // Plain scroll → pan vertically.
-        setPan((prev) => ({ x: prev.x, y: Math.round(prev.y - e.deltaY) }));
+        e.preventDefault();
+        // Plain scroll → pan vertically and horizontally.
+        setPan((prev) => ({ 
+          x: Math.round(prev.x - e.deltaX), 
+          y: Math.round(prev.y - e.deltaY) 
+        }));
       }
     };
 
@@ -334,13 +338,12 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
             value={layoutDensity}
             onChange={(e) => setLayoutDensity(e.target.value)}
             className="text-[11px] h-7 px-2 py-1 mr-1 rounded border border-border bg-background text-muted hover:text-foreground transition-colors outline-none focus:ring-1 focus:ring-primary/20"
-            title="Adjust layout density to fit on one page"
+            title="Adjust layout density"
           >
-            <option value="auto">Density: Auto</option>
-            <option value="expanded">Expanded — most whitespace</option>
+            <option value="expanded">Expanded</option>
             <option value="standard">Standard</option>
-            <option value="compact">Compact — tighter spacing</option>
-            <option value="latex-tight">Tight — fit more on one page</option>
+            <option value="compact">Compact</option>
+            <option value="latex-tight">Tight</option>
           </select>
           <button
             onClick={() => setZoomClamped(zoom * 0.9)}
@@ -364,13 +367,6 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
             <Plus className="w-3.5 h-3.5" />
           </button>
           <span className="w-px h-4 bg-border mx-1" />
-          <button
-            onClick={fitWidth}
-            className="btn-ghost p-1.5"
-            title="Fit to width"
-          >
-            <Maximize className="w-3.5 h-3.5" />
-          </button>
           <button
             onClick={fitPage}
             className="btn-ghost p-1.5"
@@ -399,14 +395,14 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
                   <div className="fixed inset-0 z-10" onClick={() => setShowDownloadMenu(false)} />
                   <div className="absolute right-0 top-full mt-1 z-20 w-32 card shadow-xl py-1">
                     <button
-                      onClick={() => { setShowDownloadMenu(false); onDownload("pdf", layoutDensity === "auto" ? undefined : layoutDensity); }}
+                      onClick={() => { setShowDownloadMenu(false); onDownload("pdf", layoutDensity); }}
                       disabled={isDownloading != null}
                       className="w-full text-left px-3 py-1.5 text-xs hover:bg-subtle transition-colors flex items-center gap-2"
                     >
                       <Download className="w-3 h-3" /> PDF
                     </button>
                     <button
-                      onClick={() => { setShowDownloadMenu(false); onDownload("docx", layoutDensity === "auto" ? undefined : layoutDensity); }}
+                      onClick={() => { setShowDownloadMenu(false); onDownload("docx", layoutDensity); }}
                       disabled={isDownloading != null}
                       className="w-full text-left px-3 py-1.5 text-xs hover:bg-subtle transition-colors flex items-center gap-2"
                     >
@@ -456,33 +452,6 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
         </div>
       )}
 
-      {/* Edits that couldn't be auto-applied — surfaced so accepted suggestions
-          don't vanish silently when their target line can't be matched. */}
-      {unapplied.length > 0 && !isLoading && (
-        <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-snug">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-700 mt-0.5 shrink-0" />
-            <div className="min-w-0 flex-1 space-y-1">
-              <p className="font-semibold text-amber-900">
-                {unapplied.length} edit{unapplied.length !== 1 ? "s" : ""} couldn&apos;t be applied automatically.
-              </p>
-              <p className="text-amber-800">
-                The original text couldn&apos;t be matched in your resume (it may have changed). Re-edit{" "}
-                {unapplied.length !== 1 ? "those lines" : "that line"} directly:
-              </p>
-              <ul className="list-disc pl-4 text-amber-700/90 space-y-0.5">
-                {unapplied.slice(0, 4).map((u, i) => (
-                  <li key={i}>
-                    <span className="font-medium">{u.section || "Resume"}</span>
-                    {u.original ? <>: &ldquo;{u.original.slice(0, 60)}{u.original.length > 60 ? "…" : ""}&rdquo;</> : null}
-                  </li>
-                ))}
-                {unapplied.length > 4 && <li>+{unapplied.length - 4} more</li>}
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Canvas */}
       <div
@@ -592,38 +561,7 @@ export function ResumePreview({ resumeId, templateId = "standard", approvedSugge
                 }}
               />
             )}
-            {/* Page boundary lines — one dashed red line per page break */}
-            {Array.from({ length: Math.floor(pageHeight / BASE_HEIGHT) }, (_, i) => i + 1).map((page) => (
-              <div
-                key={page}
-                style={{
-                  position: "absolute",
-                  top: page * BASE_HEIGHT,
-                  left: 0,
-                  width: "100%",
-                  height: 0,
-                  borderTop: "2px dashed rgba(239,68,68,0.55)",
-                  pointerEvents: "none",
-                  zIndex: 5,
-                }}
-              >
-                <span
-                  style={{
-                    position: "absolute",
-                    top: 2,
-                    right: 4,
-                    fontSize: 9,
-                    fontFamily: "sans-serif",
-                    color: "rgba(239,68,68,0.8)",
-                    background: "white",
-                    padding: "0 3px",
-                    lineHeight: "14px",
-                  }}
-                >
-                  page {page + 1} starts
-                </span>
-              </div>
-            ))}
+
           </div>
         )}
 

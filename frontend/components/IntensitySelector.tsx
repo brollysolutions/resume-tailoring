@@ -186,7 +186,7 @@ export function IntensitySelector({ sectionKey }: { sectionKey: string }) {
             ? "opacity-100 border-border/80 bg-background text-foreground"
             : "opacity-100 border-border/60 bg-background text-muted hover:text-foreground hover:border-border"
         }`}
-        title={`Section intensity: ${effectiveVal}${isOverridden ? " (overrides global)" : " (inherits global)"}`}
+        title={`Section intensity: ${effectiveVal}`}
       >
         <Zap className={`w-2.5 h-2.5 shrink-0 ${isOverridden ? "text-accent" : ""}`} />
         <span className="capitalize">{effectiveVal}</span>
@@ -212,9 +212,6 @@ export function IntensitySelector({ sectionKey }: { sectionKey: string }) {
               }`}
             >
               <span>{lvl.label}</span>
-              {lvl.key === globalVal && (
-                <span className="text-[9px] text-muted/60">global</span>
-              )}
             </button>
           ))}
         </div>
