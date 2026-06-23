@@ -78,6 +78,9 @@ async def get_calibration_status():
         else:
             section_w_table[sec] = {**DEFAULT_SECTION_WEIGHTS.get(sec, {}), "source": "default"}
 
+    from app.core.llm_labeler import count_by_source
+    label_sources = count_by_source()
+
     return {
         "active": active,
         "last_attempt": _read_json(_LAST_ATTEMPT_PATH),
@@ -86,6 +89,7 @@ async def get_calibration_status():
         "section_weights_table": section_w_table,
         "section_log_stats": _section_log_stats(),
         "section_calibration_results": _read_json(_SECTION_RESULTS),
+        "label_sources": label_sources,
     }
 
 
@@ -102,6 +106,22 @@ async def trigger_calibration():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/calibration/label-llm")
+async def trigger_llm_labeling(limit: int = 20, concurrency: int = 4):
+    """Label unlabeled score_log pairs via LLM judge.
+
+    limit caps the number of LLM calls per request for cost control.
+    Call this explicitly — it is NOT part of the auto-calibration loop.
+    """
+    try:
+        from app.core.llm_labeler import label_unlabeled_pairs
+        result = await label_unlabeled_pairs(limit=limit, concurrency=concurrency)
+        return result
+    except Exception as e:
+        logger.exception("admin: LLM labeling crashed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 _DASHBOARD_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -109,36 +129,36 @@ _DASHBOARD_HTML = """<!doctype html>
 <title>Calibration Dashboard</title>
 <style>
   :root {
-    --bg: #0d1117; --panel: #161b22; --border: #30363d;
-    --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
-    --good: #3fb950; --warn: #d29922; --bad: #f85149;
-    --cal: #a371f7;
+    --bg: #f6f8fa; --panel: #ffffff; --border: #d0d7de;
+    --fg: #24292f; --muted: #57606a; --accent: #0969da;
+    --good: #1a7f37; --warn: #9a6700; --bad: #cf222e;
+    --cal: #8250df;
   }
   * { box-sizing: border-box; }
-  body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", monospace; margin: 0; padding: 24px; }
+  body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 24px; }
   h1 { margin: 0 0 4px; font-size: 20px; }
-  h2 { margin: 28px 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h2 { margin: 28px 0 10px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
   .sub { color: var(--muted); font-size: 12px; margin-bottom: 24px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 14px; box-shadow: 0 1px 3px rgba(31,35,40,0.06); }
   .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
   .card .value { font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
   .card .hint { color: var(--muted); font-size: 11px; margin-top: 6px; line-height: 1.5; }
-  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(31,35,40,0.04); }
   th, td { padding: 7px 11px; text-align: left; font-size: 12px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
-  th { background: #1f242c; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  th { background: #f6f8fa; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
   tr:last-child td { border-bottom: none; }
-  tr:hover td { background: rgba(255,255,255,0.02); }
+  tr:hover td { background: rgba(31,35,40,0.03); }
   pre { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow-x: auto; font-size: 12px; color: var(--fg); margin: 0; }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
-  .pill.swapped { background: rgba(63,185,80,0.15); color: var(--good); }
-  .pill.below_threshold { background: rgba(139,148,158,0.15); color: var(--muted); }
-  .pill.gate_failed { background: rgba(248,81,73,0.15); color: var(--bad); }
-  .pill.tune_insufficient_data,.pill.cosine_insufficient_bad,.pill.cosine_narrow_spread,.pill.weak_signal { background: rgba(210,153,34,0.15); color: var(--warn); }
-  .pill.ok { background: rgba(63,185,80,0.12); color: var(--good); }
-  .pill.calibrated { background: rgba(163,113,247,0.15); color: var(--cal); }
-  .pill.default { background: rgba(139,148,158,0.12); color: var(--muted); }
-  .pill.insufficient_data { background: rgba(210,153,34,0.12); color: var(--warn); }
+  .pill.swapped { background: rgba(26,127,55,0.1); color: var(--good); }
+  .pill.below_threshold { background: rgba(87,96,106,0.1); color: var(--muted); }
+  .pill.gate_failed { background: rgba(207,34,46,0.1); color: var(--bad); }
+  .pill.tune_insufficient_data,.pill.cosine_insufficient_bad,.pill.cosine_narrow_spread,.pill.weak_signal { background: rgba(154,103,0,0.1); color: var(--warn); }
+  .pill.ok { background: rgba(26,127,55,0.1); color: var(--good); }
+  .pill.calibrated { background: rgba(130,80,223,0.1); color: var(--cal); }
+  .pill.default { background: rgba(87,96,106,0.1); color: var(--muted); }
+  .pill.insufficient_data { background: rgba(154,103,0,0.1); color: var(--warn); }
   button { background: var(--accent); color: white; border: 0; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; }
   button:hover { opacity: 0.85; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -148,7 +168,7 @@ _DASHBOARD_HTML = """<!doctype html>
   .reasons li::before { content: "✗ "; }
   .reasons li { margin-bottom: 3px; }
   .signal-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-  .signal-chip { background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.2); border-radius: 4px; padding: 2px 8px; font-size: 11px; color: var(--accent); }
+  .signal-chip { background: rgba(9,105,218,0.08); border: 1px solid rgba(9,105,218,0.2); border-radius: 4px; padding: 2px 8px; font-size: 11px; color: var(--accent); }
   .progress-bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 6px; overflow: hidden; }
   .progress-bar .fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s; }
   .section-block { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
@@ -170,6 +190,7 @@ _DASHBOARD_HTML = """<!doctype html>
 
   <div class="toolbar">
     <button id="run-btn" onclick="runCycle()">Run cycle now</button>
+    <button id="llm-btn" onclick="runLlmLabel()" style="background:var(--cal)">Label via LLM (limit 20)</button>
     <span class="auto">Auto-refresh: <span id="refresh-state">on (5s)</span></span>
     <span class="auto">Last updated: <span id="last-update">—</span></span>
   </div>
@@ -184,6 +205,10 @@ _DASHBOARD_HTML = """<!doctype html>
   <h2>Section score log — data accumulation</h2>
   <p style="color:var(--muted);font-size:12px;margin:0 0 10px">Rows logged per section toward per-section calibration (need ≥10 to calibrate)</p>
   <div id="section-log-stats"></div>
+
+  <h2>Label sources</h2>
+  <p style="color:var(--muted);font-size:12px;margin:0 0 10px">Breakdown of labels.jsonl rows by source (human > llm > implicit in calibration priority)</p>
+  <div id="label-sources"></div>
 
   <h2>Last calibration attempt</h2>
   <div id="last-attempt"></div>
@@ -328,6 +353,7 @@ function render(d) {
 
   renderSectionWeights(d.section_weights_table);
   renderSectionLogStats(d.section_log_stats);
+  renderLabelSources(d.label_sources);
 
   // Last attempt
   const la = d.last_attempt;
@@ -408,6 +434,44 @@ function render(d) {
         <td>${h.source||'—'}${hasSW ? ' <span class="pill calibrated" style="font-size:9px;padding:1px 5px">+sec</span>' : ''}</td>
       </tr>`;
     }).join('');
+  }
+}
+
+function renderLabelSources(sources) {
+  const el = document.getElementById('label-sources');
+  if (!sources || !Object.keys(sources).length) {
+    el.innerHTML = '<pre>No labels yet.</pre>';
+    return;
+  }
+  const order = ['human', 'llm', 'implicit', 'unknown'];
+  const colors = { human: 'var(--good)', llm: 'var(--cal)', implicit: 'var(--accent)', unknown: 'var(--muted)' };
+  const total = Object.values(sources).reduce((a, b) => a + b, 0);
+  const rows = [...order, ...Object.keys(sources).filter(k => !order.includes(k))].filter(k => sources[k] > 0);
+  el.innerHTML = `<table><thead><tr><th>Source</th><th>Count</th><th>%</th></tr></thead><tbody>
+    ${rows.map(k => `<tr>
+      <td style="color:${colors[k]||'var(--fg)'}; font-weight:600">${k}</td>
+      <td>${sources[k]}</td>
+      <td>${total > 0 ? (sources[k]/total*100).toFixed(1)+'%' : '—'}</td>
+    </tr>`).join('')}
+    <tr><td style="color:var(--muted)">total</td><td><strong>${total}</strong></td><td>100%</td></tr>
+  </tbody></table>`;
+}
+
+async function runLlmLabel() {
+  const btn = document.getElementById('llm-btn');
+  btn.disabled = true;
+  btn.textContent = 'Labeling…';
+  try {
+    const r = await fetch('/api/admin/calibration/label-llm?limit=20', { method: 'POST' });
+    const result = await r.json();
+    console.log('llm label result', result);
+    alert(`LLM labeling done: good=${result.good} ok=${result.ok} bad=${result.bad} failed=${result.failed}`);
+    await fetchStatus();
+  } catch (e) {
+    alert('LLM label failed: ' + e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Label via LLM (limit 20)';
   }
 }
 

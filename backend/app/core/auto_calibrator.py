@@ -282,21 +282,70 @@ def run_calibration_cycle() -> dict:
     return attempt
 
 
+def _backoff_interval(consecutive_fails: int, base: int) -> int:
+    """Exponential-ish backoff capped at 1 hour.
+
+    0 failures   → base (5 min default)
+    1–2 failures → base × 2  (10 min)
+    3–9 failures → base × 6  (30 min)
+    10+ failures → min(base × 12, 3600)  (1 h)
+    """
+    if consecutive_fails == 0:
+        return base
+    if consecutive_fails < 3:
+        return base * 2
+    if consecutive_fails < 10:
+        return base * 6
+    return min(base * 12, 3600)
+
+
 async def watcher_loop(interval_sec: int = DEFAULT_LOOP_INTERVAL_SEC) -> None:
-    """Forever loop. Sleeps `interval_sec` between cycles. Crash-resistant."""
+    """Forever loop. Crash-resistant. Backs off when data hasn't changed."""
     logger.info("auto_calibrator: watcher started (interval=%ds, trigger=%d new uploads)",
                 interval_sec, TRIGGER_NEW_UPLOADS)
-    # Small initial delay so startup work finishes first.
     await asyncio.sleep(15)
+
+    last_seen_uploads: int = -1
+    last_seen_labels: int = -1
+
     while True:
+        sleep_sec = interval_sec
         try:
-            result = await asyncio.to_thread(run_calibration_cycle)
-            if result.get("swapped"):
-                logger.info("auto_calibrator: cycle swapped weights — spearman=%s n=%s",
-                            result.get("spearman"), result.get("n_rows"))
-            elif result.get("status") != "below_threshold":
-                logger.info("auto_calibrator: cycle ran without swap — status=%s",
-                            result.get("status"))
+            state = _read_state()
+            fails = int(state.get("consecutive_gate_failures") or 0)
+            current_uploads = _count_uploads()
+            current_labels = _count_labels()
+
+            no_new_data = (
+                current_uploads == last_seen_uploads
+                and current_labels == last_seen_labels
+            )
+
+            if no_new_data and fails > 0:
+                # Nothing changed — skip the cycle, back off the timer.
+                sleep_sec = _backoff_interval(fails, interval_sec)
+                logger.debug(
+                    "auto_calibrator: no new data, skipping cycle "
+                    "(consecutive_failures=%d, next_check=%ds)", fails, sleep_sec
+                )
+            else:
+                last_seen_uploads = current_uploads
+                last_seen_labels = current_labels
+                result = await asyncio.to_thread(run_calibration_cycle)
+                if result.get("swapped"):
+                    logger.info(
+                        "auto_calibrator: cycle swapped weights — spearman=%s n=%s",
+                        result.get("spearman"), result.get("n_rows"),
+                    )
+                elif result.get("status") != "below_threshold":
+                    logger.info(
+                        "auto_calibrator: cycle ran without swap — status=%s",
+                        result.get("status"),
+                    )
+                # Re-read state to pick up updated failure count for sleep calc.
+                state = _read_state()
+                fails = int(state.get("consecutive_gate_failures") or 0)
+                sleep_sec = _backoff_interval(fails, interval_sec)
         except Exception as e:
             logger.warning("auto_calibrator: cycle crashed (will retry): %s", e)
-        await asyncio.sleep(interval_sec)
+        await asyncio.sleep(sleep_sec)

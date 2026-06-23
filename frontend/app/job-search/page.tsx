@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ExternalLink, ArrowRight, Loader2, Target, Maximize2, X, SlidersHorizontal, Wand2, GripVertical, Save, Eye, EyeOff, Download, AlertTriangle, CheckCircle2, Sparkles, HelpCircle, Info } from "lucide-react";
+import { ExternalLink, ArrowRight, Loader2, Target, Maximize2, X, SlidersHorizontal, Wand2, GripVertical, Save, Eye, EyeOff, Download, AlertTriangle, CheckCircle2, Sparkles, HelpCircle, Info, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Tabs } from "@/components/Tabs";
 import { TemplatePreview } from "@/components/TemplatePreview";
 import { getApiUrl } from "@/lib/api";
@@ -224,7 +224,7 @@ function OverviewPanel({
   matchCeiling: { score: number; reasons: string[]; exp_required?: number | null; exp_actual?: number | null } | null;
   scoreColor: string;
   isLoading?: boolean;
-  diagnosis: { code: string; headline: string; detail: string } | null;
+  diagnosis: { headline: string; detail: string; theme?: string } | null;
 }) {
   if (isLoading) {
     return (
@@ -272,18 +272,18 @@ function OverviewPanel({
           let themeClass = "border-muted/30 bg-muted/5 text-muted";
           let icon = <Info className="w-4 h-4 text-muted" />;
           
-          if (diagnosis.code === "excellent") {
+          if (diagnosis.theme === "success") {
             themeClass = "border-success/30 bg-success/5 text-success";
             icon = <CheckCircle2 className="w-4 h-4 text-success" />;
-          } else if (diagnosis.code === "good") {
-            themeClass = "border-indigo-500/30 bg-indigo-500/5 text-indigo-500";
-            icon = <Sparkles className="w-4 h-4 text-indigo-500" />;
-          } else if (["experience_gap", "seniority_title_gap", "degree_gap"].includes(diagnosis.code)) {
+          } else if (diagnosis.theme === "warning") {
             themeClass = "border-amber-500/30 bg-amber-500/5 text-amber-600";
             icon = <AlertTriangle className="w-4 h-4 text-amber-500" />;
-          } else if (["low_keywords", "low_skills", "low_semantic"].includes(diagnosis.code)) {
-            themeClass = "border-purple-500/30 bg-purple-500/5 text-purple-600";
-            icon = <HelpCircle className="w-4 h-4 text-purple-500" />;
+          } else if (diagnosis.theme === "danger") {
+            themeClass = "border-danger/30 bg-danger/5 text-danger";
+            icon = <AlertTriangle className="w-4 h-4 text-danger" />;
+          } else if (diagnosis.theme === "info") {
+            themeClass = "border-indigo-500/30 bg-indigo-500/5 text-indigo-500";
+            icon = <Sparkles className="w-4 h-4 text-indigo-500" />;
           }
 
           return (
@@ -398,10 +398,10 @@ function SectionsPanel({
 }
 
 function SuggestionsPanel({
-  matchGaps,
+  suggestions,
   isLoading,
 }: {
-  matchGaps: GapAnalysis | null;
+  suggestions: string[] | null;
   isLoading?: boolean;
 }) {
   if (isLoading) {
@@ -425,26 +425,31 @@ function SuggestionsPanel({
     );
   }
 
-  const worst = (matchGaps?.low_sections ?? [])
-    .slice()
-    .sort((a, b) => a.score - b.score)[0];
+  if (!suggestions || suggestions.length === 0) {
+    return (
+      <div className="card p-4">
+        <p className="text-xs text-muted">No specific suggestions at this time. Use the Tailor tool to refine your resume further.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
-      {worst && (worst.explanation || worst.reason) && (
-        <div className="card p-4">
-          <div className="flex items-start gap-2 mb-2">
-            <Target className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Fix this first</p>
-              <p className="text-xs text-foreground/80 mt-0.5">Lowest-scoring section: <span className="font-semibold">{worst.section}</span> ({worst.score}%)</p>
-            </div>
+      <div className="card p-4">
+        <div className="flex items-start gap-2 mb-3">
+          <Wand2 className="w-4 h-4 text-indigo-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Action Plan</p>
           </div>
-          <p className="text-xs text-muted leading-relaxed">
-            {worst.explanation && worst.explanation.trim().length > 0 ? worst.explanation : worst.reason}
-          </p>
         </div>
-      )}
+        <ul className="space-y-3 pl-6 list-disc text-sm text-muted">
+          {suggestions.map((suggestion, idx) => (
+            <li key={idx} className="leading-relaxed">
+              {suggestion}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
@@ -472,13 +477,16 @@ function JobSearchContent() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [sectionFeatures, setSectionFeatures] = useState<Record<string, SectionFeatures | null> | null>(null);
   const [matchGaps, setMatchGaps] = useState<GapAnalysis | null>(null);
-  const [matchDiagnosis, setMatchDiagnosis] = useState<{ code: string; headline: string; detail: string } | null>(null);
+  const [matchDiagnosis, setMatchDiagnosis] = useState<{ headline: string; detail: string; theme?: string } | null>(null);
+  const [overallSuggestions, setOverallSuggestions] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEditingJd, setIsEditingJd] = useState(false);
   const [lastMatchedJd, setLastMatchedJd] = useState<string>("");
 
   const [selectedTemplate, setSelectedTemplate] = useState<string>("standard");
   const [resultsTab, setResultsTab] = useState<ResultsTab>("overview");
+  const [feedbackSent, setFeedbackSent] = useState<"good" | "bad" | null>(null);
+  const [isSendingFeedback, setIsSendingFeedback] = useState(false);
 
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState(false);
@@ -688,6 +696,7 @@ function JobSearchContent() {
         if (s.lastJd) setLastMatchedJd(s.lastJd);
         if (s.keywords?.length) setKeywords(Array.from(new Set(s.keywords)));
         if (s.stack?.length) setStack(Array.from(new Set(s.stack)));
+        if (s.overallSuggestions) setOverallSuggestions(s.overallSuggestions);
       } catch { /* ignore corrupt data */ }
     }
 
@@ -730,6 +739,26 @@ function JobSearchContent() {
     setJdText(val);
   };
 
+  const onFeedback = async (helpful: boolean) => {
+    if (isSendingFeedback || feedbackSent) return;
+    const rid = localStorage.getItem("current_resume_id") || "";
+    if (!rid || !lastMatchedJd) return;
+    setIsSendingFeedback(true);
+    try {
+      const apiUrl = getApiUrl();
+      await fetch(`${apiUrl}/api/match/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resume_id: rid, jd_text: lastMatchedJd, helpful }),
+      });
+      setFeedbackSent(helpful ? "good" : "bad");
+    } catch {
+      // silent — feedback is best-effort
+    } finally {
+      setIsSendingFeedback(false);
+    }
+  };
+
   const onMatch = async () => {
     if (!jdText.trim()) return;
     setIsMatching(true);
@@ -739,7 +768,9 @@ function JobSearchContent() {
     setMatchGaps(null);
     setMatchCeiling(null);
     setMatchDiagnosis(null);
+    setOverallSuggestions(null);
     setResultsTab("overview");
+    setFeedbackSent(null);
     setError(null);
     try {
       const apiUrl = getApiUrl();
@@ -776,6 +807,7 @@ function JobSearchContent() {
       }
       setMatchCeiling(data.ceiling ?? null);
       setMatchDiagnosis(data.diagnosis ?? null);
+      setOverallSuggestions(data.overall_suggestions ?? null);
       setSectionScores(data.section_scores ?? null);
       setSectionFeatures(data.section_features ?? null);
       setMatchGaps(data.gap_analysis ?? null);
@@ -800,6 +832,7 @@ function JobSearchContent() {
         sectionFeatures: data.section_features ?? null,
         gaps: data.gap_analysis ?? null,
         diagnosis: data.diagnosis ?? null,
+        overallSuggestions: data.overall_suggestions ?? null,
         lastJd: jdText,
         keywords,
         stack,
@@ -1373,10 +1406,37 @@ function JobSearchContent() {
               )}
 
               {resultsTab === "suggestions" && (
-                <SuggestionsPanel matchGaps={matchGaps} isLoading={isMatching} />
+                <SuggestionsPanel suggestions={overallSuggestions} isLoading={isMatching} />
               )}
 
-              <div className="flex items-center justify-end pt-2">
+              <div className="flex items-center justify-between pt-2 gap-2">
+                <div className="flex items-center gap-2 text-[11px] text-muted">
+                  {feedbackSent ? (
+                    <span className={feedbackSent === "good" ? "text-emerald-500" : "text-muted"}>
+                      {feedbackSent === "good" ? "Thanks for the feedback!" : "Feedback noted."}
+                    </span>
+                  ) : (
+                    <>
+                      <span>Accurate match?</span>
+                      <button
+                        onClick={() => onFeedback(true)}
+                        disabled={isSendingFeedback || matchScore === null}
+                        className="p-1 rounded hover:text-emerald-500 disabled:opacity-40 transition-colors"
+                        title="Yes, accurate"
+                      >
+                        <ThumbsUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onFeedback(false)}
+                        disabled={isSendingFeedback || matchScore === null}
+                        className="p-1 rounded hover:text-red-400 disabled:opacity-40 transition-colors"
+                        title="No, inaccurate"
+                      >
+                        <ThumbsDown className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
                 <button
                   onClick={onTailor}
                   disabled={!jdText.trim() || isMatching || matchScore === null}

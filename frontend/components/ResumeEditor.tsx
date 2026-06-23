@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Plus, Sparkles, Trash2, FolderPlus, Loader2, GripVertical, Eye, EyeOff, Pencil } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Sparkles, Trash2, FolderPlus, Loader2, GripVertical, Eye, EyeOff, Pencil, Calendar } from "lucide-react";
 import type { GeneratedProject } from "@/types/resume";
 import { LineEditor } from "@/components/LineEditor";
 import { SkillsRegenStep } from "@/components/SkillsRegenStep";
@@ -43,7 +43,7 @@ interface ResumeEditorProps {
   /** Submit a new suggestion (CRUD action emits one). Parent is responsible for assigning an id. */
   onEmit: (s: Omit<Suggestion, "id">) => void;
   /** Undo a previously accepted suggestion. */
-  onRevert: (id: number) => void;
+  onRevert?: (id: number) => void;
   /** Accept a pending LLM suggestion. */
   onAcceptPending: (id: number, edited: string) => void;
   /** Reject a pending LLM suggestion. */
@@ -105,7 +105,6 @@ export function ResumeEditor({
   pendingSuggestions,
   accepted,
   onEmit,
-  onRevert,
   onAcceptPending,
   onRejectPending,
   apiUrl,
@@ -154,9 +153,7 @@ export function ResumeEditor({
     const combined = have.length ? [...have, ...missing] : DEFAULT_SECTION_ORDER;
     
     const populated = combined.filter((s) => isSectionPopulated(s, res));
-    const empty = combined.filter((s) => !isSectionPopulated(s, res));
-    
-    return [...populated, ...empty];
+    return populated;
   };
 
   // Local section order state for drag and drop
@@ -334,58 +331,6 @@ export function ResumeEditor({
 
   return (
     <div className="space-y-3">
-
-      {/* Accepted-edits banner with collapsible undo list */}
-      {visibleAccepted.length > 0 && (
-        <div className="card p-2.5 border-success/20 bg-success/5">
-          <button
-            onClick={() => setAcceptedOpen((v) => !v)}
-            className="w-full flex items-center justify-between text-xs"
-          >
-            <div className="flex items-center gap-2">
-              <div className="w-5 h-5 rounded-full bg-success/10 text-success flex items-center justify-center">
-                <Sparkles className="w-3 h-3" />
-              </div>
-              <span className="font-medium text-success">
-                {visibleAccepted.length} tailoring suggestion{visibleAccepted.length !== 1 ? "s" : ""} applied
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 text-muted hover:text-foreground transition-colors px-1">
-              <span className="text-[10px] uppercase font-semibold tracking-wider">
-                {acceptedOpen ? "Hide History" : "View & Undo"}
-              </span>
-              {acceptedOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </div>
-          </button>
-
-          {acceptedOpen && (
-            <div className="mt-2.5 pt-2.5 border-t border-success/20 space-y-1.5 max-h-60 overflow-y-auto scrollbar-thin pr-1">
-              {visibleAccepted.slice().reverse().map((a) => (
-                <div key={a.id} className="flex items-start justify-between gap-3 text-[11px] py-1 px-1.5 rounded hover:bg-success/10 transition-colors group">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-foreground/80 leading-tight mb-0.5">
-                      {a.section}: {a.mode === "replace" ? "Edited line" : a.mode?.replace("_", " ")}
-                    </p>
-                    {a.suggested && (
-                      <p className="text-muted italic truncate" title={a.suggested}>
-                        &ldquo;{a.suggested}&rdquo;
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => onRevert(a.id)}
-                    className="shrink-0 text-success hover:text-danger hover:bg-danger/5 p-1 rounded transition-colors opacity-0 group-hover:opacity-100"
-                    title="Undo this change"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Header — name + contact info. Always at the top, not part of section_order. */}
       <SectionCard
         title="Header"
@@ -605,9 +550,9 @@ export function ResumeEditor({
                           <ScalarField label="URL" value={exp.company_url} placeholder="https://…" hideLabel onCommit={(v) => emitField("experience", i, "company_url", v, "Experience")} />
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                          <ScalarField label="Start" value={exp.start_date} placeholder="YYYY-MM" hideLabel onCommit={(v) => emitField("experience", i, "start_date", v, "Experience")} />
+                          <DateField label="Start" value={exp.start_date} placeholder="YYYY-MM" onCommit={(v) => emitField("experience", i, "start_date", v, "Experience")} />
                           <span>–</span>
-                          <ScalarField label="End" value={exp.end_date} placeholder="Present" hideLabel onCommit={(v) => emitField("experience", i, "end_date", v, "Experience")} />
+                          <DateField label="End" value={exp.end_date} placeholder="Present" allowPresent onCommit={(v) => emitField("experience", i, "end_date", v, "Experience")} />
                           <span>|</span>
                           <ScalarField label="Location" value={exp.location} placeholder="City, ST" hideLabel onCommit={(v) => emitField("experience", i, "location", v, "Experience")} />
                         </div>
@@ -714,7 +659,7 @@ export function ResumeEditor({
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                           <ScalarField label="Tech" value={p.tech} placeholder="stack…" hideLabel onCommit={(v) => emitField("projects", i, "tech", v, "Projects")} />
                           {(p.tech || p.date) && <span>|</span>}
-                          <ScalarField label="Date" value={p.date} placeholder="YYYY-MM" hideLabel onCommit={(v) => emitField("projects", i, "date", v, "Projects")} />
+                          <DateField label="Date" value={p.date} placeholder="YYYY-MM" onCommit={(v) => emitField("projects", i, "date", v, "Projects")} />
                         </div>
                       </div>
                     }
@@ -807,9 +752,9 @@ export function ResumeEditor({
                           <ScalarField label="Field" value={ed.field} placeholder="Computer Science" hideLabel onCommit={(v) => emitField("education", i, "field", v, "Education")} />
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                          <ScalarField label="Start" value={ed.start_date} placeholder="YYYY" hideLabel onCommit={(v) => emitField("education", i, "start_date", v, "Education")} />
+                          <DateField label="Start" value={ed.start_date} placeholder="YYYY" onCommit={(v) => emitField("education", i, "start_date", v, "Education")} />
                           <span>–</span>
-                          <ScalarField label="End" value={ed.end_date} placeholder="YYYY" hideLabel onCommit={(v) => emitField("education", i, "end_date", v, "Education")} />
+                          <DateField label="End" value={ed.end_date} placeholder="YYYY" allowPresent onCommit={(v) => emitField("education", i, "end_date", v, "Education")} />
                           <span>|</span>
                           <ScalarField label="Location" value={ed.location} placeholder="City, ST" hideLabel onCommit={(v) => emitField("education", i, "location", v, "Education")} />
                           {ed.gpa && (
@@ -930,7 +875,7 @@ export function ResumeEditor({
                           {c.credential_url && <ScalarField label="Link" value={c.credential_url} placeholder="https://…" hideLabel onCommit={(v) => emitField("certifications", i, "credential_url", v, "Certifications")} />}
                         </div>
                         <div className="text-xs text-muted">
-                          <ScalarField label="Date" value={c.date} placeholder="YYYY" hideLabel onCommit={(v) => emitField("certifications", i, "date", v, "Certifications")} />
+                          <DateField label="Date" value={c.date} placeholder="YYYY" onCommit={(v) => emitField("certifications", i, "date", v, "Certifications")} />
                         </div>
                       </div>
                     }
@@ -1025,7 +970,7 @@ export function ResumeEditor({
                           <ScalarField label="Issuer" value={a.issuer} placeholder="(org)" hideLabel valueClassName="text-sm font-semibold text-primary" onCommit={(v) => emitField("awards", i, "issuer", v, "Awards")} />
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                          <ScalarField label="Date" value={a.date} placeholder="YYYY-MM" hideLabel onCommit={(v) => emitField("awards", i, "date", v, "Awards")} />
+                          <DateField label="Date" value={a.date} placeholder="YYYY-MM" onCommit={(v) => emitField("awards", i, "date", v, "Awards")} />
                           {a.description && (
                             <>
                               <span>|</span>
@@ -1114,9 +1059,9 @@ export function ResumeEditor({
                           <ScalarField label="Organization" value={v.organization} placeholder="(org)" hideLabel valueClassName="text-sm font-semibold text-primary" onCommit={(val) => emitField("volunteer", i, "organization", val, "Volunteer")} />
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                          <ScalarField label="Start" value={v.start_date} placeholder="YYYY-MM" hideLabel onCommit={(val) => emitField("volunteer", i, "start_date", val, "Volunteer")} />
+                          <DateField label="Start" value={v.start_date} placeholder="YYYY-MM" onCommit={(val) => emitField("volunteer", i, "start_date", val, "Volunteer")} />
                           <span>–</span>
-                          <ScalarField label="End" value={v.end_date} placeholder="Present" hideLabel onCommit={(val) => emitField("volunteer", i, "end_date", val, "Volunteer")} />
+                          <DateField label="End" value={v.end_date} placeholder="Present" allowPresent onCommit={(val) => emitField("volunteer", i, "end_date", val, "Volunteer")} />
                           <span>|</span>
                           <ScalarField label="Location" value={v.location} placeholder="City, ST" hideLabel onCommit={(val) => emitField("volunteer", i, "location", val, "Volunteer")} />
                         </div>
@@ -1175,7 +1120,7 @@ export function ResumeEditor({
                           <ScalarField label="Number" value={p.number} placeholder="US 11,123,456" hideLabel valueClassName="text-xs font-medium text-primary" onCommit={(v) => emitField("patents", i, "number", v, "Patents")} />
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                          <ScalarField label="Date" value={p.date} placeholder="YYYY-MM" hideLabel onCommit={(v) => emitField("patents", i, "date", v, "Patents")} />
+                          <DateField label="Date" value={p.date} placeholder="YYYY-MM" onCommit={(v) => emitField("patents", i, "date", v, "Patents")} />
                           <span>|</span>
                           <ScalarField label="Status" value={p.status} options={["Pending", "Granted"]} hideLabel onCommit={(v) => emitField("patents", i, "status", v, "Patents")} />
                           <span>|</span>
@@ -1220,7 +1165,7 @@ export function ResumeEditor({
                           <ScalarField label="Venue" value={t.venue} placeholder="(venue)" hideLabel valueClassName="text-sm font-semibold text-primary" onCommit={(v) => emitField("talks", i, "venue", v, "Talks")} />
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                          <ScalarField label="Date" value={t.date} placeholder="YYYY-MM" hideLabel onCommit={(v) => emitField("talks", i, "date", v, "Talks")} />
+                          <DateField label="Date" value={t.date} placeholder="YYYY-MM" onCommit={(v) => emitField("talks", i, "date", v, "Talks")} />
                           <span>|</span>
                           <ScalarField label="Type" value={t.type} options={["Conference", "Workshop", "Seminar"]} hideLabel onCommit={(v) => emitField("talks", i, "type", v, "Talks")} />
                         </div>
@@ -1310,6 +1255,44 @@ export function ResumeEditor({
 
         return null;
       })}
+
+      {/* Available Sections to Add */}
+      {(() => {
+        const available = DEFAULT_SECTION_ORDER.filter((s) => !isSectionPopulated(s, resume));
+        if (available.length === 0) return null;
+        
+        const handleAddSection = (sec: string) => {
+          if (sec === "summary") {
+            emitTopLevel("summary", "New Professional Summary");
+          } else if (sec === "skills") {
+            onEmit({
+              section: "Skills",
+              mode: "add_entry",
+              original: "skills",
+              suggested: JSON.stringify({ name: "New Category", skills: [] }),
+            });
+          } else {
+            emitAddEntry(sec);
+          }
+        };
+
+        return (
+          <div className="pt-4 border-t border-border/50 mt-6">
+            <h4 className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2 px-1">Add Section</h4>
+            <div className="flex flex-wrap gap-2 px-1">
+              {available.map((sec) => (
+                <button
+                  key={sec}
+                  onClick={() => handleAddSection(sec)}
+                  className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-foreground border border-dashed border-border hover:border-foreground/40 rounded px-2 py-1 transition-colors bg-subtle/20 hover:bg-subtle/60"
+                >
+                  <Plus className="w-3 h-3" /> {titleOf(sec)}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1339,11 +1322,6 @@ function SectionCard({
         >
           {open ? <ChevronUp className="w-3.5 h-3.5 text-muted shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" />}
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted group-hover:text-foreground transition-colors truncate">{title}</h3>
-          {editCount > 0 && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success/10 text-success border border-success/30 shrink-0">
-              {editCount} edited
-            </span>
-          )}
         </button>
         {headerExtras && (
           <div className="shrink-0 flex items-center">
@@ -1681,6 +1659,185 @@ function ScalarField({
       </span>
       <Pencil className="w-2.5 h-2.5 text-muted opacity-0 group-hover/sf:opacity-100 transition-opacity" />
     </button>
+  );
+}
+
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
+/** Inline date field with custom sleek picker UI */
+function DateField({
+  label,
+  value,
+  placeholder,
+  onCommit,
+  allowPresent,
+}: {
+  label: string;
+  value: string | undefined;
+  placeholder?: string;
+  onCommit: (next: string) => void;
+  allowPresent?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  
+  const [showPicker, setShowPicker] = useState(false);
+
+  const hasValue = !!(value && value.trim());
+  const isPresent = (value || "").trim().toLowerCase() === "present";
+
+  const startEdit = () => {
+    setDraft(value || "");
+    setEditing(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const commit = () => {
+    const next = (draft || "").trim();
+    if (next !== (value || "").trim()) onCommit(next);
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setDraft(value || "");
+    setEditing(false);
+  };
+
+  const setPresent = () => {
+    onCommit("Present");
+    setEditing(false);
+    setShowPicker(false);
+  };
+
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") { e.preventDefault(); cancel(); }
+            if (e.key === "Enter") { e.preventDefault(); commit(); }
+          }}
+          placeholder={placeholder}
+          className="bg-subtle/60 border border-border rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-primary min-w-[5rem] w-[6rem]"
+        />
+        {allowPresent && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={setPresent}
+            className="text-[10px] text-muted hover:text-foreground border border-border hover:border-foreground/40 rounded px-1.5 py-0.5 transition-colors"
+            title="Set to Present"
+          >
+            Present
+          </button>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <span className="group/df inline-flex items-center gap-0.5 relative">
+      <button
+        onClick={startEdit}
+        title={`Edit ${label}`}
+        className="inline-flex items-center gap-1 hover:bg-subtle/60 rounded px-1 py-0.5 transition-colors"
+      >
+        <span className={`text-xs ${hasValue && !isPresent ? "text-foreground" : "text-muted italic"}`}>
+          {hasValue ? value : (placeholder || "—")}
+        </span>
+      </button>
+
+      {/* Calendar Toggle */}
+      <button
+        onClick={() => setShowPicker(true)}
+        className="p-0.5 rounded text-muted hover:text-foreground hover:bg-subtle/60 opacity-0 group-hover/df:opacity-100 transition-all cursor-pointer"
+        title={`Pick ${label.toLowerCase()} date`}
+      >
+        <Calendar className="w-3 h-3" />
+      </button>
+
+      {/* Custom Picker Popover */}
+      {showPicker && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setShowPicker(false)} />
+          <div className="absolute top-full left-0 mt-1.5 z-50 w-48 p-2 bg-background/95 backdrop-blur-md border border-border rounded-lg shadow-xl flex flex-col gap-2">
+            <DatePickerPanel 
+              initialValue={value} 
+              onPick={(v) => { onCommit(v); setShowPicker(false); }} 
+              allowPresent={allowPresent} 
+            />
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
+function DatePickerPanel({
+  initialValue,
+  onPick,
+  allowPresent
+}: {
+  initialValue: string | undefined;
+  onPick: (val: string) => void;
+  allowPresent?: boolean;
+}) {
+  const parseYear = () => {
+    if (!initialValue) return new Date().getFullYear();
+    const match = initialValue.match(/\d{4}/);
+    if (match) return parseInt(match[0], 10);
+    return new Date().getFullYear();
+  };
+  const [year, setYear] = useState(parseYear());
+
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  return (
+    <>
+      <div className="flex items-center justify-between px-1">
+        <button onClick={() => setYear(y => y - 1)} className="p-1 hover:bg-subtle/60 rounded text-muted hover:text-foreground">
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <span className="text-sm font-medium">{year}</span>
+        <button onClick={() => setYear(y => y + 1)} className="p-1 hover:bg-subtle/60 rounded text-muted hover:text-foreground">
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      
+      <div className="grid grid-cols-3 gap-1">
+        {months.map(m => (
+          <button 
+            key={m}
+            onClick={() => onPick(`${m} ${year}`)}
+            className="text-xs py-1.5 rounded hover:bg-primary/10 hover:text-primary transition-colors text-muted"
+          >
+            {m}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-col gap-1 border-t border-border/50 pt-1.5 mt-0.5">
+        <button 
+          onClick={() => onPick(year.toString())}
+          className="text-xs py-1 rounded hover:bg-subtle/60 text-muted hover:text-foreground text-left px-2"
+        >
+          Year Only ({year})
+        </button>
+        {allowPresent && (
+          <button 
+            onClick={() => onPick("Present")}
+            className="text-xs py-1 rounded hover:bg-subtle/60 text-muted hover:text-foreground text-left px-2"
+          >
+            Present
+          </button>
+        )}
+      </div>
+    </>
   );
 }
 

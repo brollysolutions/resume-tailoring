@@ -97,8 +97,37 @@ def _kendall_tau(xs: list[float], ys: list[float]) -> float:
     return (concordant - discordant) / total if total else 0.0
 
 
+_SOURCE_PRIORITY = {"human": 3, "llm": 2, "implicit": 1}
+
+
+def _dedup_labels(labels: list[dict]) -> list[dict]:
+    """Keep the highest-confidence label per (resume_id, jd_hash).
+
+    Priority: human > llm > implicit. When multiple labels share the same
+    pair, only the best-source one survives so noisy implicit labels don't
+    dilute clean LLM/human signal.
+    """
+    best: dict[tuple[str, str], dict] = {}
+    for lab in labels:
+        rid = lab.get("resume_id") or ""
+        jdh = lab.get("jd_hash") or ""
+        key = (rid, jdh)
+        src_pri = _SOURCE_PRIORITY.get(lab.get("source") or "implicit", 1)
+        if key not in best:
+            best[key] = lab
+        else:
+            existing_pri = _SOURCE_PRIORITY.get(best[key].get("source") or "implicit", 1)
+            if src_pri > existing_pri:
+                best[key] = lab
+    return list(best.values())
+
+
 def _join(log: list[dict], labels: list[dict]) -> list[dict]:
-    """Join most-recent score event per (resume_id, jd_hash) with its label."""
+    """Join most-recent score event per (resume_id, jd_hash) with its label.
+
+    Deduplicates labels by source priority (human > llm > implicit) before
+    joining so a clean LLM/human label wins over noisy implicit signal.
+    """
     by_key: dict[tuple[str, str], dict] = {}
     for ev in log:
         rid = ev.get("resume_id") or ""
@@ -107,8 +136,9 @@ def _join(log: list[dict], labels: list[dict]) -> list[dict]:
             continue
         by_key[(rid, jdh)] = ev
 
+    deduped_labels = _dedup_labels(labels)
     joined: list[dict] = []
-    for lab in labels:
+    for lab in deduped_labels:
         rid = lab.get("resume_id") or ""
         jdh = lab.get("jd_hash") or ""
         label = lab.get("label")

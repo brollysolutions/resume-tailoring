@@ -31,6 +31,11 @@ export function getBasePath(): string {
  * locally (development) or on the production server.
  */
 export function getApiUrl(): string {
+  // If the environment variable is explicitly set, use it (baked at build or passed at runtime)
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+
   // If running in the browser, check the hostname
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
@@ -43,11 +48,11 @@ export function getApiUrl(): string {
       hostname.startsWith("172.") ||
       hostname.endsWith(".local")
     ) {
-      // The backend local development server runs on port 8004 by default.
-      return `http://${hostname}:8004`;
+      // The backend local development server runs on port 8055 in Docker by default.
+      return `http://${hostname}:8055`;
     }
   }
 
-  // Production default fallback (or read from build-time baked environment variable)
-  return process.env.NEXT_PUBLIC_API_URL || "https://brollysolutions.in/resume_generator";
+  // Production default fallback
+  return "https://brollysolutions.in/resume_generator";
 }

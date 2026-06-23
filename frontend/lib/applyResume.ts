@@ -441,5 +441,54 @@ export function applySuggestionsClient(
   if (data.skills) {
     data.skills = data.skills.filter((c) => (c.skills || []).length > 0);
   }
+
+  // Ensure populated sections are in section_order
+  const DEFAULT_ORDER = [
+    "summary", "experience", "projects", "education", "skills",
+    "certifications", "publications", "awards", "languages",
+    "volunteer", "patents", "talks", "extra_sections",
+  ];
+
+  const isPopulated = (key: string, res: ResumeData) => {
+    if (key === "summary") return !!res.summary;
+    if (key === "experience") return !!(res.experience && res.experience.length > 0);
+    if (key === "projects") return !!(res.projects && res.projects.length > 0);
+    if (key === "education") return !!(res.education && res.education.length > 0);
+    if (key === "skills") return !!(res.skills && res.skills.length > 0);
+    if (key === "certifications") return !!(res.certifications && res.certifications.length > 0);
+    if (key === "publications") return !!(res.publications && res.publications.length > 0);
+    if (key === "awards") return !!(res.awards && res.awards.length > 0);
+    if (key === "languages") return !!(res.languages && res.languages.length > 0);
+    if (key === "volunteer") return !!(res.volunteer && res.volunteer.length > 0);
+    if (key === "patents") return !!(res.patents && res.patents.length > 0);
+    if (key === "talks") return !!(res.talks && res.talks.length > 0);
+    if (key === "extra_sections") return !!(res.extra_sections && res.extra_sections.length > 0);
+    return false;
+  };
+
+  const order = [...(data.section_order || [])];
+  let changed = false;
+  
+  for (const sec of DEFAULT_ORDER) {
+    if (isPopulated(sec, data) && !order.includes(sec)) {
+      // We insert it at its natural position relative to DEFAULT_ORDER
+      const defaultIdx = DEFAULT_ORDER.indexOf(sec);
+      let inserted = false;
+      for (let i = 0; i < order.length; i++) {
+        if (DEFAULT_ORDER.indexOf(order[i]) > defaultIdx) {
+          order.splice(i, 0, sec);
+          inserted = true;
+          break;
+        }
+      }
+      if (!inserted) order.push(sec);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    data.section_order = order;
+  }
+
   return data;
 }

@@ -1170,3 +1170,63 @@ async def extract_jd_hard_requirements(jd_text: str) -> dict:
             "seniority_level": None,
             "required_skills_hard": [],
         }
+
+async def analyze_overall_match(jd_text: str, resume_text: str, score: int) -> dict:
+    """Generate overall diagnosis and actionable suggestions for the entire match.
+    
+    Args:
+        jd_text: Job description text.
+        resume_text: Plaintext resume.
+        score: The overall match score.
+        
+    Returns:
+        {"diagnosis": {"headline": str, "detail": str, "theme": str}, "suggestions": [str]}
+    """
+    system_prompt = (
+        "You are an expert ATS and technical recruiter. Given a job description, a candidate's resume, and their current match score, "
+        "provide a concise diagnosis of the match and a list of 2-3 specific, highly actionable suggestions to improve the resume.\n\n"
+        "Return a JSON object strictly following this structure:\n"
+        "{\n"
+        '  "diagnosis": {\n'
+        '    "headline": "Short punchy title (e.g., Strong Match, Missing Core Tech)",\n'
+        '    "detail": "1-2 sentence explanation of why the score is what it is.",\n'
+        '    "theme": "One of: success, warning, danger, info (use success for >=80, warning for 50-79, danger for <50)"\n'
+        "  },\n"
+        '  "suggestions": [\n'
+        '    "Actionable step 1",\n'
+        '    "Actionable step 2"\n'
+        "  ]\n"
+        "}\n\n"
+        "Keep suggestions brief, specific to the JD gaps, and highly actionable."
+    )
+    user_content = (
+        f"<MATCH_SCORE>{score}</MATCH_SCORE>\n\n"
+        f"<JD>\n{jd_text[:3000]}\n</JD>\n\n"
+        f"<RESUME>\n{resume_text[:3000]}\n</RESUME>"
+    )
+    
+    try:
+        content = await _chat(
+            [{"role": "system", "content": system_prompt},
+             {"role": "user", "content": user_content}],
+            json_mode=True,
+        )
+        parsed = json.loads(content)
+        return {
+            "diagnosis": parsed.get("diagnosis", {
+                "headline": "Analysis Complete",
+                "detail": "Match analysis finished.",
+                "theme": "info"
+            }),
+            "suggestions": parsed.get("suggestions", [])[:3]
+        }
+    except Exception as e:
+        logger.warning(f"analyze_overall_match failed: {e}")
+        return {
+            "diagnosis": {
+                "headline": "Match Complete",
+                "detail": f"Resume evaluated with a score of {score}.",
+                "theme": "info"
+            },
+            "suggestions": ["Consider adding more keywords from the job description."]
+        }

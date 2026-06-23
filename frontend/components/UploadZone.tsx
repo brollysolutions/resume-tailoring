@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import FileUpload from "@/components/ui/file-upload";
-import { getBasePath } from "@/lib/api";
+import { getBasePath, getApiUrl } from "@/lib/api";
 
 const ACCEPTED = [
   "application/pdf",
@@ -72,7 +72,7 @@ export function UploadZone({ templateId, onUploaded }: UploadZoneProps) {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
+      const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/api/resume/upload`, {
         method: "POST",
         body: formData,

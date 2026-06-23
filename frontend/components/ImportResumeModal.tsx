@@ -6,7 +6,7 @@ import { UploadZone } from "@/components/UploadZone";
 import { TemplatePreview } from "@/components/TemplatePreview";
 import { TemplateSkeleton } from "@/components/TemplateSkeleton";
 import { useFocusTrap } from "@/lib/useFocusTrap";
-import { getBasePath } from "@/lib/api";
+import { getBasePath, getApiUrl } from "@/lib/api";
 
 interface ImportResumeModalProps {
   templateId: string;
@@ -67,8 +67,7 @@ export function ImportResumeModal({
       setIsLoadingPreview(true);
       setError(null);
       try {
-        const apiUrl =
-          process.env.NEXT_PUBLIC_API_URL || "http://localhost:8055";
+        const apiUrl = getApiUrl();
         const res = await fetch(`${apiUrl}/api/tailor/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

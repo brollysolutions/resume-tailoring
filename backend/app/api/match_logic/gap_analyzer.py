@@ -37,6 +37,7 @@ def compute_gap_analysis(resume_obj, resume_text: str, jd_text: str, section_sco
     missing_overall = [t for t in top_jd_ranked if t not in covered][:15]
 
     # Per-section missing keywords
+    from app.core.keyword_utils import _TECH_TOKENS
     section_gaps: dict[str, list[str]] = {}
     for section in _SECTIONS:
         text = _section_text(resume_obj, section)
@@ -44,7 +45,16 @@ def compute_gap_analysis(resume_obj, resume_text: str, jd_text: str, section_sco
             continue
         toks = _significant_tokens(text)
         sect_covered = _fuzzy_coverage(top_jd, toks)
-        section_gaps[section] = [t for t in top_jd_ranked if t not in sect_covered][:8]
+        gaps = [t for t in top_jd_ranked if t not in sect_covered]
+        
+        # For the Skills section, we strictly want to recommend actual skills/technologies,
+        # not generic frequent nouns (like 'model', 'pipeline', 'policy').
+        if section == "Skills":
+            # Filter to known tech tokens.
+            tech_gaps = [t for t in gaps if t in _TECH_TOKENS]
+            section_gaps[section] = tech_gaps[:8]
+        else:
+            section_gaps[section] = gaps[:8]
 
     # Identify low-scoring sections with reasons (fallback text; the AI-driven
     # `explanation` field is populated by the match endpoint after this call).

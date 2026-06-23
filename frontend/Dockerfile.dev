@@ -5,8 +5,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Source is volume-mounted at runtime — no build step.
-# node_modules stays inside the container via an anonymous volume in compose.
+ENV PATH /app/node_modules/.bin:$PATH
 
 EXPOSE 3004
 
